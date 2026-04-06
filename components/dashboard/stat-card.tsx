@@ -45,7 +45,7 @@ export function StatCard({ label, value, detail, tone = "gold", className, href 
   }
 
   return (
-    <Link className="block h-full" href={href}>
+    <Link className="block h-full" href={href as never}>
       {content}
     </Link>
   );
