@@ -1,0 +1,593 @@
+import type {
+  ApprovalRequest,
+  ActivityEvent,
+  AnalyticsSnapshot,
+  Asset,
+  BlogPost,
+  Campaign,
+  Client,
+  ClientMembership,
+  ClientSettings,
+  IntegrationConnection,
+  OperationalTask,
+  PlannerItem,
+  Post,
+  PublishJob,
+  SyncJob,
+  WeeklyMetric,
+  Workspace,
+  WorkspaceMember
+} from "@/types";
+import type { Database } from "@/lib/supabase/database";
+import { composeIntegrationNotes, parseIntegrationNotes } from "@/lib/domain/integration-notes";
+
+type TableRow<Name extends keyof Database["public"]["Tables"]> = Database["public"]["Tables"][Name]["Row"];
+type TableInsert<Name extends keyof Database["public"]["Tables"]> =
+  Database["public"]["Tables"][Name]["Insert"];
+
+export function mapClientRow(row: TableRow<"clients">): Client {
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    name: row.name,
+    segment: row.segment,
+    location: row.location ?? "",
+    status: row.status as Client["status"]
+  };
+}
+
+export function mapClientInsert(client: Client): TableInsert<"clients"> {
+  return {
+    id: client.id,
+    workspace_id: client.workspaceId ?? "",
+    name: client.name,
+    segment: client.segment,
+    location: client.location,
+    status: client.status
+  };
+}
+
+export function mapWorkspaceRow(row: TableRow<"workspaces">): Workspace {
+  return {
+    id: row.id,
+    name: row.name,
+    slug: row.slug,
+    plan: row.plan as Workspace["plan"],
+    seatCount: row.seat_count
+  };
+}
+
+export function mapWorkspaceInsert(workspace: Workspace): TableInsert<"workspaces"> {
+  return {
+    id: workspace.id,
+    name: workspace.name,
+    slug: workspace.slug,
+    plan: workspace.plan,
+    seat_count: workspace.seatCount
+  };
+}
+
+export function mapWorkspaceMemberRow(
+  row: TableRow<"workspace_memberships">
+): WorkspaceMember {
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    userId: row.user_id ?? "",
+    fullName: row.full_name,
+    email: row.email,
+    role: row.role as WorkspaceMember["role"],
+    status: row.status as WorkspaceMember["status"]
+  };
+}
+
+export function mapWorkspaceMemberInsert(
+  member: WorkspaceMember
+): TableInsert<"workspace_memberships"> {
+  return {
+    id: member.id,
+    workspace_id: member.workspaceId,
+    user_id: member.userId || null,
+    full_name: member.fullName,
+    email: member.email,
+    role: member.role,
+    status: member.status
+  };
+}
+
+export function mapClientMembershipRow(
+  row: TableRow<"client_memberships">
+): ClientMembership {
+  return {
+    id: row.id,
+    clientId: row.client_id,
+    userId: row.user_id,
+    role: row.role as ClientMembership["role"],
+    createdAt: row.created_at
+  };
+}
+
+export function mapClientMembershipInsert(
+  membership: ClientMembership
+): TableInsert<"client_memberships"> {
+  return {
+    id: membership.id,
+    client_id: membership.clientId,
+    user_id: membership.userId,
+    role: membership.role,
+    created_at: membership.createdAt ?? new Date().toISOString()
+  };
+}
+
+export function mapClientSettingsRow(row: TableRow<"client_settings">): ClientSettings {
+  return {
+    id: row.id,
+    clientId: row.client_id,
+    averageCheck: row.average_check,
+    monthlyCovers: row.monthly_covers,
+    weeklyCovers: row.weekly_covers,
+    daysOpenPerWeek: row.days_open_per_week,
+    weeksPerMonth: row.weeks_per_month,
+    guestsPerTable: row.guests_per_table,
+    defaultGrowthTarget: row.default_growth_target,
+    overviewHeadline: row.overview_headline ?? "",
+    overviewSummary: row.overview_summary ?? "",
+    overviewPinnedCampaignId: row.overview_pinned_campaign_id ?? undefined,
+    overviewFeaturedMetric: (row.overview_featured_metric ?? "weekly-covers") as ClientSettings["overviewFeaturedMetric"],
+    overviewShowSchedule: row.overview_show_schedule ?? true,
+    overviewShowTrafficTrend: row.overview_show_traffic_trend ?? true,
+    overviewShowChannelContribution: row.overview_show_channel_contribution ?? true,
+    overviewShowQuickLinks: row.overview_show_quick_links ?? true,
+    overviewShowCampaignRecaps: row.overview_show_campaign_recaps ?? true,
+    overviewShowRecentActivity: row.overview_show_recent_activity ?? true
+  };
+}
+
+export function mapClientSettingsInsert(settings: ClientSettings): TableInsert<"client_settings"> {
+  return {
+    id: settings.id,
+    client_id: settings.clientId,
+    average_check: settings.averageCheck,
+    monthly_covers: settings.monthlyCovers,
+    weekly_covers: settings.weeklyCovers,
+    days_open_per_week: settings.daysOpenPerWeek,
+    weeks_per_month: settings.weeksPerMonth,
+    guests_per_table: settings.guestsPerTable,
+    default_growth_target: settings.defaultGrowthTarget,
+    overview_headline: settings.overviewHeadline,
+    overview_summary: settings.overviewSummary,
+    overview_pinned_campaign_id: settings.overviewPinnedCampaignId ?? null,
+    overview_featured_metric: settings.overviewFeaturedMetric,
+    overview_show_schedule: settings.overviewShowSchedule,
+    overview_show_traffic_trend: settings.overviewShowTrafficTrend,
+    overview_show_channel_contribution: settings.overviewShowChannelContribution,
+    overview_show_quick_links: settings.overviewShowQuickLinks,
+    overview_show_campaign_recaps: settings.overviewShowCampaignRecaps,
+    overview_show_recent_activity: settings.overviewShowRecentActivity
+  };
+}
+
+export function mapWeeklyMetricRow(row: TableRow<"weekly_metrics">): WeeklyMetric {
+  return {
+    id: row.id,
+    clientId: row.client_id,
+    weekLabel: row.week_label,
+    covers: row.covers,
+    notes: row.notes ?? undefined,
+    campaignAttribution: row.campaign_attribution ?? undefined,
+    campaignId: row.campaign_id ?? undefined,
+    createdAt: row.created_at ?? undefined
+  };
+}
+
+export function mapWeeklyMetricInsert(metric: WeeklyMetric): TableInsert<"weekly_metrics"> {
+  return {
+    id: metric.id,
+    client_id: metric.clientId,
+    week_label: metric.weekLabel,
+    covers: metric.covers,
+    notes: metric.notes ?? null,
+    campaign_attribution: metric.campaignAttribution ?? null,
+    campaign_id: metric.campaignId ?? null,
+    created_at: metric.createdAt ?? null
+  };
+}
+
+export function mapCampaignRow(
+  row: TableRow<"campaigns">,
+  relationships: {
+    linkedPostIds?: string[];
+    linkedBlogPostIds?: string[];
+    linkedAssetIds?: string[];
+    linkedWeeklyMetricIds?: string[];
+  } = {}
+): Campaign {
+  return {
+    id: row.id,
+    clientId: row.client_id,
+    name: row.name,
+    objective: row.objective as Campaign["objective"],
+    startDate: row.start_date,
+    endDate: row.end_date,
+    channels: (row.channels ?? []) as Campaign["channels"],
+    linkedPostIds: relationships.linkedPostIds ?? [],
+    linkedBlogPostIds: relationships.linkedBlogPostIds ?? [],
+    linkedAssetIds: relationships.linkedAssetIds ?? [],
+    linkedWeeklyMetricIds: relationships.linkedWeeklyMetricIds ?? [],
+    notes: row.notes,
+    status: row.status as Campaign["status"]
+  };
+}
+
+export function mapCampaignInsert(campaign: Campaign): TableInsert<"campaigns"> {
+  return {
+    id: campaign.id,
+    client_id: campaign.clientId,
+    name: campaign.name,
+    objective: campaign.objective,
+    start_date: campaign.startDate,
+    end_date: campaign.endDate,
+    channels: campaign.channels,
+    notes: campaign.notes,
+    status: campaign.status
+  };
+}
+
+export function mapAssetRow(row: TableRow<"assets">, linkedCampaignIds: string[] = []): Asset {
+  return {
+    id: row.id,
+    clientId: row.client_id,
+    name: row.name,
+    assetType: row.asset_type as Asset["assetType"],
+    status: row.status as Asset["status"],
+    url: row.url,
+    linkedCampaignIds,
+    createdAt: row.created_at ?? undefined
+  };
+}
+
+export function mapAssetInsert(asset: Asset): TableInsert<"assets"> {
+  return {
+    id: asset.id,
+    client_id: asset.clientId,
+    name: asset.name,
+    asset_type: asset.assetType,
+    status: asset.status,
+    url: asset.url,
+    created_at: asset.createdAt ?? null
+  };
+}
+
+export function mapBlogPostRow(row: TableRow<"blog_posts">, assetIds: string[] = []): BlogPost {
+  return {
+    id: row.id,
+    clientId: row.client_id,
+    title: row.title,
+    slug: row.slug,
+    summary: row.summary,
+    publishDate: row.publish_date ?? undefined,
+    status: row.status as BlogPost["status"],
+    campaignId: row.campaign_id ?? undefined,
+    assetIds,
+    createdAt: row.created_at ?? undefined
+  };
+}
+
+export function mapBlogPostInsert(blogPost: BlogPost): TableInsert<"blog_posts"> {
+  return {
+    id: blogPost.id,
+    client_id: blogPost.clientId,
+    title: blogPost.title,
+    slug: blogPost.slug,
+    summary: blogPost.summary,
+    publish_date: blogPost.publishDate ?? null,
+    status: blogPost.status,
+    campaign_id: blogPost.campaignId ?? null,
+    created_at: blogPost.createdAt ?? null
+  };
+}
+
+export function mapPlannerItemRow(row: TableRow<"planner_items">): PlannerItem {
+  return {
+    id: row.id,
+    clientId: row.client_id,
+    dayOfWeek: row.day_of_week as PlannerItem["dayOfWeek"],
+    platform: row.platform as PlannerItem["platform"],
+    contentType: row.content_type,
+    campaignGoal: row.campaign_goal,
+    status: row.status as PlannerItem["status"],
+    caption: row.caption,
+    linkedPostId: row.linked_post_id ?? undefined,
+    campaignId: row.campaign_id ?? undefined,
+    createdAt: row.created_at ?? undefined
+  };
+}
+
+export function mapPlannerItemInsert(item: PlannerItem): TableInsert<"planner_items"> {
+  return {
+    id: item.id,
+    client_id: item.clientId,
+    day_of_week: item.dayOfWeek,
+    platform: item.platform,
+    content_type: item.contentType,
+    campaign_goal: item.campaignGoal,
+    status: item.status,
+    caption: item.caption,
+    linked_post_id: item.linkedPostId ?? null,
+    campaign_id: item.campaignId ?? null,
+    created_at: item.createdAt ?? null
+  };
+}
+
+export function mapPostRow(row: TableRow<"posts">, assetIds: string[] = []): Post {
+  return {
+    id: row.id,
+    clientId: row.client_id,
+    platform: row.platform as Post["platform"],
+    content: row.content,
+    cta: row.cta,
+    publishDate: row.publish_date,
+    goal: row.goal,
+    status: row.status as Post["status"],
+    plannerItemId: row.planner_item_id ?? undefined,
+    campaignId: row.campaign_id ?? undefined,
+    assetIds,
+    createdAt: row.created_at ?? undefined
+  };
+}
+
+export function mapPostInsert(post: Post): TableInsert<"posts"> {
+  return {
+    id: post.id,
+    client_id: post.clientId,
+    platform: post.platform,
+    content: post.content,
+    cta: post.cta,
+    publish_date: post.publishDate,
+    goal: post.goal,
+    status: post.status,
+    planner_item_id: post.plannerItemId ?? null,
+    campaign_id: post.campaignId ?? null,
+    created_at: post.createdAt ?? null
+  };
+}
+
+export function mapAnalyticsSnapshotRow(row: TableRow<"analytics_snapshots">): AnalyticsSnapshot {
+  return {
+    id: row.id,
+    clientId: row.client_id,
+    source: row.source as AnalyticsSnapshot["source"],
+    periodLabel: row.period_label,
+    linkedPostId: row.linked_post_id ?? undefined,
+    linkedCampaignId: row.linked_campaign_id ?? undefined,
+    impressions: row.impressions,
+    clicks: row.clicks,
+    conversions: row.conversions,
+    attributedRevenue: row.attributed_revenue,
+    attributedCovers: row.attributed_covers,
+    attributedTables: row.attributed_tables,
+    createdAt: row.created_at ?? undefined
+  };
+}
+
+export function mapAnalyticsSnapshotInsert(
+  snapshot: AnalyticsSnapshot
+): TableInsert<"analytics_snapshots"> {
+  return {
+    id: snapshot.id,
+    client_id: snapshot.clientId,
+    source: snapshot.source,
+    period_label: snapshot.periodLabel,
+    linked_post_id: snapshot.linkedPostId ?? null,
+    linked_campaign_id: snapshot.linkedCampaignId ?? null,
+    impressions: snapshot.impressions,
+    clicks: snapshot.clicks,
+    conversions: snapshot.conversions,
+    attributed_revenue: snapshot.attributedRevenue,
+    attributed_covers: snapshot.attributedCovers,
+    attributed_tables: snapshot.attributedTables,
+    created_at: snapshot.createdAt ?? null
+  };
+}
+
+export function mapApprovalRequestRow(
+  row: TableRow<"approval_requests">
+): ApprovalRequest {
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    clientId: row.client_id,
+    entityType: row.entity_type as ApprovalRequest["entityType"],
+    entityId: row.entity_id,
+    summary: row.summary,
+    requesterName: row.requester_name,
+    approverUserId: row.approver_user_id ?? undefined,
+    approverName: row.approver_name ?? undefined,
+    status: row.status as ApprovalRequest["status"],
+    note: row.note ?? undefined,
+    requestedAt: row.requested_at,
+    reviewedAt: row.reviewed_at ?? undefined
+  };
+}
+
+export function mapApprovalRequestInsert(
+  approval: ApprovalRequest
+): TableInsert<"approval_requests"> {
+  return {
+    id: approval.id,
+    workspace_id: approval.workspaceId,
+    client_id: approval.clientId,
+    entity_type: approval.entityType,
+    entity_id: approval.entityId,
+    summary: approval.summary,
+    requester_name: approval.requesterName,
+    approver_user_id: approval.approverUserId ?? null,
+    approver_name: approval.approverName ?? null,
+    status: approval.status,
+    note: approval.note ?? null,
+    requested_at: approval.requestedAt,
+    reviewed_at: approval.reviewedAt ?? null,
+    created_at: approval.requestedAt
+  };
+}
+
+export function mapIntegrationConnectionRow(
+  row: TableRow<"integration_connections">
+): IntegrationConnection {
+  const parsed = parseIntegrationNotes(row.notes);
+
+  return {
+    id: row.id,
+    clientId: row.client_id,
+    provider: row.provider as IntegrationConnection["provider"],
+    accountLabel: row.account_label,
+    status: row.status as IntegrationConnection["status"],
+    lastSyncAt: row.last_sync_at ?? undefined,
+    notes: parsed.plainNotes,
+    setup: parsed.setup
+  };
+}
+
+export function mapIntegrationConnectionInsert(
+  connection: IntegrationConnection
+): TableInsert<"integration_connections"> {
+  return {
+    id: connection.id,
+    client_id: connection.clientId,
+    provider: connection.provider,
+    account_label: connection.accountLabel,
+    status: connection.status,
+    last_sync_at: connection.lastSyncAt ?? null,
+    notes: composeIntegrationNotes(connection.notes, connection.setup)
+  };
+}
+
+export function mapSyncJobRow(row: TableRow<"sync_jobs">): SyncJob {
+  return {
+    id: row.id,
+    clientId: row.client_id,
+    provider: row.provider as SyncJob["provider"],
+    jobType: row.job_type as SyncJob["jobType"],
+    schedule: row.schedule,
+    status: row.status as SyncJob["status"],
+    lastRunAt: row.last_run_at ?? undefined,
+    nextRunAt: row.next_run_at ?? undefined,
+    detail: row.detail
+  };
+}
+
+export function mapSyncJobInsert(job: SyncJob): TableInsert<"sync_jobs"> {
+  return {
+    id: job.id,
+    client_id: job.clientId,
+    provider: job.provider,
+    job_type: job.jobType,
+    schedule: job.schedule,
+    status: job.status,
+    last_run_at: job.lastRunAt ?? null,
+    next_run_at: job.nextRunAt ?? null,
+    detail: job.detail
+  };
+}
+
+export function mapPublishJobRow(row: TableRow<"publish_jobs">): PublishJob {
+  return {
+    id: row.id,
+    clientId: row.client_id,
+    postId: row.post_id,
+    provider: row.provider as PublishJob["provider"],
+    scheduledFor: row.scheduled_for,
+    status: row.status as PublishJob["status"],
+    detail: row.detail,
+    externalId: row.external_id ?? undefined,
+    errorMessage: row.error_message ?? undefined,
+    lastAttemptAt: row.last_attempt_at ?? undefined,
+    publishedAt: row.published_at ?? undefined,
+    createdAt: row.created_at ?? undefined
+  };
+}
+
+export function mapPublishJobInsert(job: PublishJob): TableInsert<"publish_jobs"> {
+  return {
+    id: job.id,
+    client_id: job.clientId,
+    post_id: job.postId,
+    provider: job.provider,
+    scheduled_for: job.scheduledFor,
+    status: job.status,
+    detail: job.detail,
+    external_id: job.externalId ?? null,
+    error_message: job.errorMessage ?? null,
+    last_attempt_at: job.lastAttemptAt ?? null,
+    published_at: job.publishedAt ?? null,
+    created_at: job.createdAt ?? null
+  };
+}
+
+export function mapOperationalTaskRow(row: TableRow<"operational_tasks">): OperationalTask {
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    clientId: row.client_id ?? undefined,
+    title: row.title,
+    detail: row.detail,
+    status: row.status as OperationalTask["status"],
+    priority: row.priority as OperationalTask["priority"],
+    dueDate: row.due_date ?? undefined,
+    assigneeUserId: row.assignee_user_id ?? undefined,
+    assigneeName: row.assignee_name ?? undefined,
+    linkedEntityType: row.linked_entity_type as OperationalTask["linkedEntityType"],
+    linkedEntityId: row.linked_entity_id ?? undefined,
+    createdAt: row.created_at
+  };
+}
+
+export function mapOperationalTaskInsert(
+  task: OperationalTask
+): TableInsert<"operational_tasks"> {
+  return {
+    id: task.id,
+    workspace_id: task.workspaceId,
+    client_id: task.clientId ?? null,
+    title: task.title,
+    detail: task.detail,
+    status: task.status,
+    priority: task.priority,
+    due_date: task.dueDate ?? null,
+    assignee_user_id: task.assigneeUserId ?? null,
+    assignee_name: task.assigneeName ?? null,
+    linked_entity_type: task.linkedEntityType ?? null,
+    linked_entity_id: task.linkedEntityId ?? null,
+    created_at: task.createdAt
+  };
+}
+
+export function mapActivityEventRow(row: TableRow<"activity_events">): ActivityEvent {
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    clientId: row.client_id ?? undefined,
+    actorName: row.actor_name,
+    actionLabel: row.action_label,
+    subjectType: row.subject_type as ActivityEvent["subjectType"],
+    subjectName: row.subject_name,
+    detail: row.detail,
+    createdAt: row.created_at
+  };
+}
+
+export function mapActivityEventInsert(
+  event: ActivityEvent
+): TableInsert<"activity_events"> {
+  return {
+    id: event.id,
+    workspace_id: event.workspaceId,
+    client_id: event.clientId ?? null,
+    actor_name: event.actorName,
+    action_label: event.actionLabel,
+    subject_type: event.subjectType,
+    subject_name: event.subjectName,
+    detail: event.detail,
+    created_at: event.createdAt
+  };
+}

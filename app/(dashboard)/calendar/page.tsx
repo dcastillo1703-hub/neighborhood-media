@@ -1,0 +1,306 @@
+"use client";
+
+import Link from "next/link";
+import { useMemo, useState } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+
+import { EmptyState } from "@/components/dashboard/empty-state";
+import { PageHeader } from "@/components/dashboard/page-header";
+import { StatGrid } from "@/components/dashboard/stat-grid";
+import { MetricCard } from "@/components/metric-card";
+import { buttonVariants } from "@/components/ui/button";
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useActiveClient } from "@/lib/client-context";
+import { useCampaigns } from "@/lib/repositories/use-campaigns";
+import { usePosts } from "@/lib/repositories/use-posts";
+import { number } from "@/lib/utils";
+
+const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function startOfMonth(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function addMonths(date: Date, amount: number) {
+  return new Date(date.getFullYear(), date.getMonth() + amount, 1);
+}
+
+function formatDateKey(date: Date) {
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function getInitialCalendarMonth(campaignDates: string[]) {
+  const today = new Date();
+  const upcoming = campaignDates
+    .map((value) => new Date(value))
+    .filter((value) => !Number.isNaN(value.getTime()))
+    .sort((left, right) => left.getTime() - right.getTime())
+    .find((value) => value >= startOfMonth(today));
+
+  return startOfMonth(upcoming ?? today);
+}
+
+export default function CampaignCalendarPage() {
+  const { activeClient } = useActiveClient();
+  const { campaigns, ready, error } = useCampaigns(activeClient.id);
+  const { posts, ready: postsReady, error: postsError } = usePosts(activeClient.id);
+  const [monthCursor, setMonthCursor] = useState<Date>(() =>
+    getInitialCalendarMonth(campaigns.flatMap((campaign) => [campaign.startDate, campaign.endDate]))
+  );
+
+  const monthLabel = monthCursor.toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric"
+  });
+
+  const calendarDays = useMemo(() => {
+    const monthStart = startOfMonth(monthCursor);
+    const gridStart = new Date(monthStart);
+    gridStart.setDate(monthStart.getDate() - monthStart.getDay());
+
+    return Array.from({ length: 42 }, (_, index) => {
+      const date = new Date(gridStart);
+      date.setDate(gridStart.getDate() + index);
+      const dateKey = formatDateKey(date);
+      const activeCampaigns = campaigns.filter(
+        (campaign) => campaign.startDate <= dateKey && campaign.endDate >= dateKey
+      );
+      const scheduledPosts = posts.filter(
+        (post) => post.campaignId && post.publishDate === dateKey
+      );
+
+      return {
+        date,
+        dateKey,
+        inCurrentMonth: date.getMonth() === monthCursor.getMonth(),
+        activeCampaigns,
+        scheduledPosts
+      };
+    });
+  }, [campaigns, monthCursor, posts]);
+
+  const visibleCampaigns = campaigns.filter((campaign) => {
+    const monthStartKey = formatDateKey(startOfMonth(monthCursor));
+    const nextMonthStartKey = formatDateKey(addMonths(monthCursor, 1));
+    return campaign.endDate >= monthStartKey && campaign.startDate < nextMonthStartKey;
+  });
+  const visiblePosts = posts.filter((post) => {
+    if (!post.campaignId || !post.publishDate) {
+      return false;
+    }
+
+    const monthStartKey = formatDateKey(startOfMonth(monthCursor));
+    const nextMonthStartKey = formatDateKey(addMonths(monthCursor, 1));
+    return post.publishDate >= monthStartKey && post.publishDate < nextMonthStartKey;
+  });
+  const agendaDays = calendarDays.filter(
+    (day) => day.inCurrentMonth && (day.activeCampaigns.length || day.scheduledPosts.length)
+  );
+
+  if (!ready || !postsReady) {
+    return <div className="text-sm text-muted-foreground">Loading campaign calendar...</div>;
+  }
+
+  if (error || postsError) {
+    return <div className="text-sm text-destructive">{error ?? postsError}</div>;
+  }
+
+  return (
+    <div className="space-y-10">
+      <PageHeader
+        eyebrow="Calendar"
+        title="Campaign calendar"
+        description="See every campaign on the calendar so timing, overlap, and launch windows are obvious at a glance."
+        actions={
+          <Link className={buttonVariants({ variant: "outline" })} href="/campaigns">
+            Back to campaigns
+          </Link>
+        }
+      />
+
+      <StatGrid>
+        <MetricCard href="/calendar#monthly-calendar" label="Visible Campaigns" value={number(visibleCampaigns.length)} detail="Campaigns that touch the current calendar month." />
+        <MetricCard href="/calendar#monthly-calendar" label="Scheduled Posts" value={number(visiblePosts.length)} detail="Campaign-linked posts scheduled inside this month." />
+        <MetricCard href="/calendar#monthly-calendar" label="Active This Month" value={number(visibleCampaigns.filter((campaign) => campaign.status === "Active").length)} detail="Live campaigns currently in market during this month." />
+        <MetricCard href="/calendar#monthly-calendar" label="Planning This Month" value={number(visibleCampaigns.filter((campaign) => campaign.status === "Planning").length)} detail="Upcoming campaigns still being staged." />
+        <MetricCard href="/calendar#monthly-calendar" label="Completed This Month" value={number(visibleCampaigns.filter((campaign) => campaign.status === "Completed").length)} detail="Campaigns that wrap during this month." tone="olive" />
+      </StatGrid>
+
+      <Card id="monthly-calendar">
+        <CardHeader>
+          <div>
+            <CardDescription>Monthly Calendar</CardDescription>
+            <CardTitle className="mt-3">{monthLabel}</CardTitle>
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <button
+              className={buttonVariants({ variant: "outline", size: "sm" })}
+              onClick={() => setMonthCursor((current) => addMonths(current, -1))}
+              type="button"
+            >
+              <ChevronLeft className="mr-2 h-4 w-4" />
+              Previous
+            </button>
+            <button
+              className={buttonVariants({ variant: "outline", size: "sm" })}
+              onClick={() => setMonthCursor((current) => addMonths(current, 1))}
+              type="button"
+            >
+              Next
+              <ChevronRight className="ml-2 h-4 w-4" />
+            </button>
+          </div>
+        </CardHeader>
+        <div className="space-y-4 xl:hidden">
+          {agendaDays.length ? (
+            agendaDays.map((day) => (
+              <div
+                className="rounded-[1.2rem] border border-border bg-card/70 p-4"
+                key={day.dateKey}
+              >
+                <p className="text-sm font-medium text-foreground">
+                  {day.date.toLocaleDateString("en-US", {
+                    weekday: "short",
+                    month: "short",
+                    day: "numeric"
+                  })}
+                </p>
+                <div className="mt-3 space-y-2">
+                  {day.activeCampaigns.map((campaign) => (
+                    <Link
+                      className="block rounded-xl border border-border/60 bg-background/70 px-3 py-2 text-sm text-foreground transition hover:border-primary/40 hover:text-primary"
+                      href={`/campaigns/${campaign.id}`}
+                      key={`${day.dateKey}-${campaign.id}-campaign`}
+                    >
+                      <p className="font-medium">{campaign.name}</p>
+                      <p className="mt-1 text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                        Campaign · {campaign.status}
+                      </p>
+                    </Link>
+                  ))}
+                  {day.scheduledPosts.map((post) => (
+                    <Link
+                      className="block rounded-xl border border-border/60 bg-[rgba(189,156,87,0.08)] px-3 py-2 text-sm text-foreground transition hover:border-primary/40 hover:text-primary"
+                      href={`/campaigns/${post.campaignId}`}
+                      key={`${day.dateKey}-${post.id}-post`}
+                    >
+                      <p className="font-medium">{post.platform}</p>
+                      <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+                        {post.goal}
+                      </p>
+                      <p className="mt-1 text-xs uppercase tracking-[0.16em] text-primary">
+                        Post · {post.status}
+                      </p>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            ))
+          ) : (
+            <EmptyState
+              title="Nothing scheduled in this month"
+              description="Campaigns and campaign-linked posts will appear here as soon as they are dated."
+            />
+          )}
+        </div>
+
+        <div className="hidden grid-cols-7 gap-3 xl:grid">
+          {weekdayLabels.map((label) => (
+            <div
+              className="px-2 text-xs uppercase tracking-[0.18em] text-muted-foreground"
+              key={label}
+            >
+              {label}
+            </div>
+          ))}
+          {calendarDays.map((day) => (
+            <div
+              className={`min-h-44 min-w-0 overflow-hidden rounded-[1.2rem] border p-3 ${
+                day.inCurrentMonth
+                  ? "border-border bg-card/70"
+                  : "border-border/50 bg-muted/20"
+              }`}
+              key={day.dateKey}
+            >
+              <p
+                className={`text-sm ${
+                  day.inCurrentMonth ? "text-foreground" : "text-muted-foreground"
+                }`}
+              >
+                {day.date.getDate()}
+              </p>
+              <div className="mt-3 space-y-2">
+                {day.activeCampaigns.slice(0, 2).map((campaign) => (
+                  <Link
+                    className="block min-w-0 rounded-xl border border-border/60 bg-background/70 px-3 py-2 text-xs text-foreground transition hover:border-primary/40 hover:text-primary"
+                    href={`/campaigns/${campaign.id}`}
+                    key={`${day.dateKey}-${campaign.id}-campaign`}
+                  >
+                    <p className="truncate font-medium">{campaign.name}</p>
+                    <p className="mt-1 text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">
+                      Campaign
+                    </p>
+                  </Link>
+                ))}
+                {day.scheduledPosts.slice(0, 2).map((post) => (
+                  <Link
+                    className="block min-w-0 rounded-xl border border-border/60 bg-[rgba(189,156,87,0.08)] px-3 py-2 text-xs text-foreground transition hover:border-primary/40 hover:text-primary"
+                    href={`/campaigns/${post.campaignId}`}
+                    key={`${day.dateKey}-${post.id}-post`}
+                  >
+                    <p className="truncate font-medium">{post.platform}</p>
+                    <p className="truncate text-[0.72rem] text-muted-foreground">{post.goal}</p>
+                    <p className="mt-1 text-[0.68rem] uppercase tracking-[0.16em] text-primary">
+                      Post
+                    </p>
+                  </Link>
+                ))}
+                {day.activeCampaigns.length + day.scheduledPosts.length > 4 ? (
+                  <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">
+                    +{day.activeCampaigns.length + day.scheduledPosts.length - 4} more
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div>
+            <CardDescription>Campaigns In View</CardDescription>
+            <CardTitle className="mt-3">What is on the board this month</CardTitle>
+          </div>
+        </CardHeader>
+        <div className="space-y-3">
+          {visibleCampaigns.length ? (
+            visibleCampaigns.map((campaign) => (
+              <Link
+                className="block rounded-[1.2rem] border border-border bg-card/70 p-4 transition hover:border-primary/30"
+                href={`/campaigns/${campaign.id}`}
+                key={campaign.id}
+              >
+                <p className="font-medium text-foreground">{campaign.name}</p>
+                <p className="mt-2 text-sm text-muted-foreground">{campaign.objective}</p>
+                <p className="mt-3 text-xs uppercase tracking-[0.16em] text-primary">
+                  {campaign.startDate} to {campaign.endDate}
+                </p>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {visiblePosts.filter((post) => post.campaignId === campaign.id).length} scheduled posts this month
+                </p>
+              </Link>
+            ))
+          ) : (
+            <EmptyState
+              title="No campaigns in this month"
+              description="Create a campaign on the campaigns page and it will appear here on the calendar."
+            />
+          )}
+        </div>
+      </Card>
+    </div>
+  );
+}

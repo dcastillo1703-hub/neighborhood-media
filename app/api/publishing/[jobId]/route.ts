@@ -1,0 +1,33 @@
+import { NextRequest, NextResponse } from "next/server";
+
+import { requireClientRole } from "@/lib/auth/permissions";
+import { processPublishJob } from "@/lib/services/publishing-service";
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ jobId: string }> }
+) {
+  const body = (await request.json()) as { clientId?: string };
+
+  if (!body.clientId) {
+    return NextResponse.json({ error: "clientId is required." }, { status: 400 });
+  }
+
+  const permissionResponse = await requireClientRole(body.clientId, "operator");
+
+  if (permissionResponse) {
+    return permissionResponse;
+  }
+
+  try {
+    const { jobId } = await params;
+    const payload = await processPublishJob(body.clientId, jobId);
+
+    return NextResponse.json(payload);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Unable to process publish job." },
+      { status: 500 }
+    );
+  }
+}
