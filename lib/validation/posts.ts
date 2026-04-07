@@ -12,3 +12,9 @@ export const createPostSchema = z.object({
   campaignId: z.string().optional(),
   assetIds: z.array(z.string()).default([])
 });
+
+export const updatePostSchema = createPostSchema.partial().extend({
+  clientId: z.string().min(1)
+});
+
+export type UpdatePostInput = z.infer<typeof updatePostSchema>;

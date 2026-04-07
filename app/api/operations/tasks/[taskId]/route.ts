@@ -1,19 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireWorkspaceRole } from "@/lib/auth/permissions";
-import { updateOperationalTaskStatus } from "@/lib/services/operations-service";
-import { updateOperationalTaskStatusSchema } from "@/lib/validation/operations";
+import { updateOperationalTask } from "@/lib/services/operations-service";
+import { updateOperationalTaskSchema } from "@/lib/validation/operations";
 
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ taskId: string }> }
 ) {
   const body = await request.json();
-  const parsed = updateOperationalTaskStatusSchema.safeParse(body);
+  const parsed = updateOperationalTaskSchema.safeParse(body);
 
   if (!parsed.success) {
     return NextResponse.json(
-      { error: "Invalid task status update.", issues: parsed.error.flatten() },
+      { error: "Invalid task update.", issues: parsed.error.flatten() },
       { status: 400 }
     );
   }
@@ -26,11 +26,8 @@ export async function PATCH(
 
   try {
     const { taskId } = await params;
-    const payload = await updateOperationalTaskStatus(
-      parsed.data.workspaceId,
-      taskId,
-      parsed.data.status
-    );
+    const { workspaceId, ...updates } = parsed.data;
+    const payload = await updateOperationalTask(workspaceId, taskId, updates);
 
     return NextResponse.json(payload);
   } catch (error) {

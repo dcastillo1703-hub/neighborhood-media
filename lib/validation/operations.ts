@@ -22,6 +22,10 @@ export const updateOperationalTaskStatusSchema = z.object({
   status: taskStatusSchema
 });
 
+export const updateOperationalTaskSchema = createOperationalTaskSchema.partial().extend({
+  workspaceId: z.string().min(1)
+});
+
 export const listOperationsQuerySchema = z.object({
   workspaceId: z.string().min(1),
   clientId: z.string().min(1).optional()
@@ -29,4 +33,5 @@ export const listOperationsQuerySchema = z.object({
 
 export type CreateOperationalTaskInput = z.infer<typeof createOperationalTaskSchema>;
 export type UpdateOperationalTaskStatusInput = z.infer<typeof updateOperationalTaskStatusSchema>;
+export type UpdateOperationalTaskInput = z.infer<typeof updateOperationalTaskSchema>;
 export type ListOperationsQuery = z.infer<typeof listOperationsQuerySchema>;

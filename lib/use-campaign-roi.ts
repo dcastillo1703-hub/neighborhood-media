@@ -60,7 +60,7 @@ export function calculateCampaignRoi(snapshot: CampaignRoiSnapshot) {
     snapshot.adSpend +
     snapshot.productionCost +
     snapshot.otherCost +
-    snapshot.agencyHours * snapshot.hourlyRate;
+    snapshot.hourlyRate;
   const netReturn = snapshot.attributedRevenue - totalInvestment;
   const roiMultiple = totalInvestment > 0 ? snapshot.attributedRevenue / totalInvestment : 0;
   const costPerCover =

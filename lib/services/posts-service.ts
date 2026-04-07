@@ -215,3 +215,125 @@ export async function createPost(post: Post) {
     publishJob: (await queuePublishJobForPost(post))?.job ?? null
   };
 }
+
+export async function updatePost(
+  clientId: string,
+  postId: string,
+  updates: Partial<Omit<Post, "id" | "clientId" | "createdAt">>
+) {
+  const { workspaceId, clientName } = await getClientWorkspace(clientId);
+  const serverModule = await import("@/lib/supabase/server");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const supabase = (await serverModule.getSupabaseServerClient()) as any;
+
+  if (supabase) {
+    const { data: existingRow, error: existingError } = await supabase
+      .from("posts")
+      .select("*")
+      .eq("id", postId)
+      .eq("client_id", clientId)
+      .maybeSingle();
+
+    if (existingError) {
+      throw existingError;
+    }
+
+    if (!existingRow) {
+      throw new Error("Post not found.");
+    }
+
+    const existingPost = mapPostRow(existingRow as Parameters<typeof mapPostRow>[0]);
+    const nextPost: Post = {
+      ...existingPost,
+      ...updates,
+      id: postId,
+      clientId,
+      createdAt: existingPost.createdAt
+    };
+
+    const { data: updatedRow, error: updateError } = await supabase
+      .from("posts")
+      .update(mapPostInsert(nextPost))
+      .eq("id", postId)
+      .eq("client_id", clientId)
+      .select("*")
+      .single();
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    if (updates.assetIds) {
+      const { error: deleteLinksError } = await supabase
+        .from("post_assets")
+        .delete()
+        .eq("post_id", postId);
+
+      if (deleteLinksError) {
+        throw deleteLinksError;
+      }
+
+      if (updates.assetIds.length) {
+        const { error: assetLinkError } = await supabase.from("post_assets").insert(
+          updates.assetIds.map((assetId) => ({
+            post_id: postId,
+            asset_id: assetId
+          }))
+        );
+
+        if (assetLinkError) {
+          throw assetLinkError;
+        }
+      }
+    }
+
+    const event = await recordContentEvent({
+      id: `evt-${Date.now()}`,
+      workspaceId,
+      clientId,
+      actorName: "Workspace operator",
+      actionLabel: "updated",
+      subjectType: "content",
+      subjectName: nextPost.goal,
+      detail: `${nextPost.platform} post updated for ${clientName}.`,
+      createdAt: new Date().toISOString()
+    });
+    const approvalPayload = await requestPostApproval(nextPost);
+
+    return {
+      post: mapPostRow(
+        updatedRow as Parameters<typeof mapPostRow>[0],
+        nextPost.assetIds
+      ),
+      event,
+      approval: approvalPayload?.approval ?? null
+    };
+  }
+
+  const snapshot = getClientSnapshot(clientId);
+  const post = snapshot.posts.find((entry) => entry.id === postId);
+
+  if (!post) {
+    throw new Error("Post not found.");
+  }
+
+  Object.assign(post, updates);
+
+  const event: ActivityEvent = {
+    id: `evt-${Date.now()}`,
+    workspaceId,
+    clientId,
+    actorName: "Workspace operator",
+    actionLabel: "updated",
+    subjectType: "content",
+    subjectName: post.goal,
+    detail: `${post.platform} post updated for ${clientName}.`,
+    createdAt: new Date().toISOString()
+  };
+
+  return {
+    post,
+    event,
+    approval: (await requestPostApproval(post))?.approval ?? null
+  };
+}

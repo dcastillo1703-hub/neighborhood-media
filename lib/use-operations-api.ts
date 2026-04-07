@@ -10,6 +10,7 @@ type OperationsResponse = {
 };
 
 type CreateTaskInput = Omit<OperationalTask, "id" | "createdAt">;
+type UpdateTaskInput = Partial<Omit<OperationalTask, "id" | "workspaceId" | "createdAt">>;
 
 export function useOperationsApi(workspaceId: string, clientId?: string) {
   const [tasks, setTasks] = useState<OperationalTask[]>([]);
@@ -102,6 +103,31 @@ export function useOperationsApi(workspaceId: string, clientId?: string) {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({ workspaceId, status })
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to update task.");
+      }
+
+      const payload = (await response.json()) as {
+        task: OperationalTask;
+        event: ActivityEvent;
+      };
+
+      setTasks((current) =>
+        current.map((task) => (task.id === payload.task.id ? payload.task : task))
+      );
+      setEvents((current) => [payload.event, ...current]);
+
+      return payload;
+    },
+    async updateTask(taskId: string, updates: UpdateTaskInput) {
+      const response = await fetch(`/api/operations/tasks/${taskId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ workspaceId, ...updates })
       });
 
       if (!response.ok) {

@@ -9,6 +9,7 @@ type PostsResponse = {
 };
 
 type CreatePostInput = Omit<Post, "id" | "createdAt">;
+type UpdatePostInput = Partial<Omit<Post, "id" | "clientId" | "createdAt">>;
 
 export function usePosts(clientId: string) {
   const [posts, setPosts] = useState<Post[]>([]);
@@ -81,6 +82,31 @@ export function usePosts(clientId: string) {
       };
 
       setPosts((current) => [...current, payload.post]);
+
+      return payload;
+    },
+    async updatePost(postId: string, updates: UpdatePostInput) {
+      const response = await fetch(`/api/posts/${postId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ clientId, ...updates })
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to update post.");
+      }
+
+      const payload = (await response.json()) as {
+        post: Post;
+        event: ActivityEvent;
+        approval: ApprovalRequest | null;
+      };
+
+      setPosts((current) =>
+        current.map((post) => (post.id === payload.post.id ? payload.post : post))
+      );
 
       return payload;
     }

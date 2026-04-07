@@ -46,7 +46,15 @@ import { usePublishingApi } from "@/lib/use-publishing-api";
 import { currency, number } from "@/lib/utils";
 import { validatePost } from "@/lib/validation";
 import { useWorkspaceContext } from "@/lib/workspace-context";
-import { CampaignRoiSnapshot, OperationalTask, Post, PostStatus, TaskPriority } from "@/types";
+import {
+  CampaignRoiSnapshot,
+  OperationalTask,
+  Platform,
+  Post,
+  PostStatus,
+  TaskPriority,
+  TaskStatus
+} from "@/types";
 
 type CampaignWorkspaceView = "overview" | "list" | "board" | "calendar" | "performance";
 type CampaignBoardLane = "Draft" | "Review" | "Scheduled" | "Published";
@@ -93,6 +101,9 @@ const taskKindOptions: Array<{
   { id: "task", label: "General task", description: "Anything that needs to happen for this campaign.", icon: ClipboardList }
 ];
 const taskPriorities: TaskPriority[] = ["Low", "Medium", "High"];
+const postStatuses: PostStatus[] = ["Draft", "Scheduled", "Published"];
+const taskStatuses: TaskStatus[] = ["Backlog", "In Progress", "Waiting", "Done"];
+const platformOptions: Platform[] = ["Instagram", "Facebook", "Stories", "TikTok", "Email"];
 
 function createCampaignPost(clientId: string, campaignId: string): Post {
   return {
@@ -148,12 +159,12 @@ export default function CampaignDetailPage() {
   const { workspace } = useWorkspaceContext();
   const { accent } = useTheme();
   const { campaigns, ready: campaignsReady, error: campaignsError } = useCampaigns(activeClient.id);
-  const { posts, addPost, ready: postsReady, error: postsError } = usePosts(activeClient.id);
+  const { posts, addPost, updatePost, ready: postsReady, error: postsError } = usePosts(activeClient.id);
   const { blogPosts } = useBlogPosts(activeClient.id);
   const { assets } = useAssets(activeClient.id);
   const { metrics } = useWeeklyMetrics(activeClient.id);
   const { analyticsSnapshots } = useAnalyticsSnapshots(activeClient.id);
-  const { approvals, ready: approvalsReady, reviewApproval } = useApprovalsApi(activeClient.id);
+  const { approvals, ready: approvalsReady, reviewApproval, prependApproval } = useApprovalsApi(activeClient.id);
   const { jobs, ready: jobsReady, processJob } = usePublishingApi(activeClient.id);
   const {
     snapshot: roiSnapshot,
@@ -162,7 +173,7 @@ export default function CampaignDetailPage() {
     error: roiError,
     saveSnapshot: saveRoiSnapshot
   } = useCampaignRoi(activeClient.id, campaignId);
-  const { tasks, ready: tasksReady, error: tasksError, createTask, updateTaskStatus } = useOperationsApi(
+  const { tasks, ready: tasksReady, error: tasksError, createTask, updateTask } = useOperationsApi(
     workspace.id,
     activeClient.id
   );
@@ -185,11 +196,22 @@ export default function CampaignDetailPage() {
   const [processingJobId, setProcessingJobId] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<CampaignWorkspaceView>("overview");
   const [selectedItem, setSelectedItem] = useState<SelectedCampaignItem | null>(null);
+  const [selectedPostDraft, setSelectedPostDraft] = useState<Post | null>(null);
+  const [selectedTaskDraft, setSelectedTaskDraft] = useState<OperationalTask | null>(null);
+  const [selectedNote, setSelectedNote] = useState("");
+  const [selectedSaveError, setSelectedSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     setRoiDraft(roiSnapshot);
     setRoiNumberDraft(toNumberDraft(roiSnapshot));
   }, [roiSnapshot]);
+
+  useEffect(() => {
+    setSelectedPostDraft(selectedItem?.type === "post" ? { ...selectedItem.item } : null);
+    setSelectedTaskDraft(selectedItem?.type === "task" ? { ...selectedItem.item } : null);
+    setSelectedNote("");
+    setSelectedSaveError(null);
+  }, [selectedItem]);
 
   const campaign = campaigns.find((item) => item.id === campaignId) ?? null;
   const overview = useMemo(
@@ -313,12 +335,114 @@ export default function CampaignDetailPage() {
     }
   };
 
-  const moveSelectedTask = async (task: OperationalTask, status: OperationalTask["status"]) => {
+  const saveSelectedPostDetails = async () => {
+    if (!selectedPostDraft) {
+      return;
+    }
+
+    const result = validatePost(selectedPostDraft);
+
+    if (!result.success) {
+      setSelectedSaveError(Object.values(result.errors)[0] ?? "Review the post details.");
+      return;
+    }
+
     setSavingSelectedTask(true);
+    setSelectedSaveError(null);
 
     try {
-      const payload = await updateTaskStatus(task.id, status);
+      const payload = await updatePost(selectedPostDraft.id, {
+        platform: result.data.platform,
+        content: result.data.content,
+        cta: result.data.cta,
+        publishDate: result.data.publishDate,
+        goal: result.data.goal,
+        status: result.data.status,
+        plannerItemId: selectedPostDraft.plannerItemId,
+        campaignId,
+        assetIds: selectedPostDraft.assetIds
+      });
+
+      if (payload.approval && !getPostApproval(payload.approval.entityId)) {
+        prependApproval(payload.approval);
+      }
+
+      setSelectedItem({ type: "post", item: payload.post });
+      setSelectedPostDraft(payload.post);
+    } catch (error) {
+      setSelectedSaveError(error instanceof Error ? error.message : "Unable to update post.");
+    } finally {
+      setSavingSelectedTask(false);
+    }
+  };
+
+  const reviewSelectedPost = async (
+    status: "Approved" | "Changes Requested"
+  ) => {
+    if (selectedItem?.type !== "post") {
+      return;
+    }
+
+    const approval = getPostApproval(selectedItem.item.id);
+
+    if (!approval) {
+      setSelectedSaveError("Schedule the post first so an approval request can be created.");
+      return;
+    }
+
+    setSavingSelectedTask(true);
+    setSelectedSaveError(null);
+
+    try {
+      await reviewApproval(approval.id, {
+        status,
+        approverName: profile?.fullName ?? profile?.email ?? "Workspace reviewer",
+        approverUserId: profile?.id,
+        note: selectedNote.trim() || (status === "Approved" ? "Approved from task details." : "Requested changes from task details.")
+      });
+      setSelectedNote("");
+    } catch (error) {
+      setSelectedSaveError(error instanceof Error ? error.message : "Unable to review post.");
+    } finally {
+      setSavingSelectedTask(false);
+    }
+  };
+
+  const saveSelectedTaskDetails = async () => {
+    if (!selectedTaskDraft) {
+      return;
+    }
+
+    if (!selectedTaskDraft.title.trim()) {
+      setSelectedSaveError("Task title is required.");
+      return;
+    }
+
+    setSavingSelectedTask(true);
+    setSelectedSaveError(null);
+
+    try {
+      const detailWithNote = selectedNote.trim()
+        ? `${selectedTaskDraft.detail.trim()}\n\nNote: ${selectedNote.trim()}`.trim()
+        : selectedTaskDraft.detail;
+      const payload = await updateTask(selectedTaskDraft.id, {
+        clientId: activeClient.id,
+        title: selectedTaskDraft.title,
+        detail: detailWithNote,
+        status: selectedTaskDraft.status,
+        priority: selectedTaskDraft.priority,
+        dueDate: selectedTaskDraft.dueDate || undefined,
+        assigneeUserId: selectedTaskDraft.assigneeUserId,
+        assigneeName: selectedTaskDraft.assigneeName,
+        linkedEntityType: "campaign",
+        linkedEntityId: campaignId
+      });
+
       setSelectedItem({ type: "task", item: payload.task });
+      setSelectedTaskDraft(payload.task);
+      setSelectedNote("");
+    } catch (error) {
+      setSelectedSaveError(error instanceof Error ? error.message : "Unable to update task.");
     } finally {
       setSavingSelectedTask(false);
     }
@@ -1151,7 +1275,7 @@ export default function CampaignDetailPage() {
                   ["Ad spend", "adSpend"],
                   ["Production cost", "productionCost"],
                   ["Agency hours", "agencyHours"],
-                  ["Hourly rate", "hourlyRate"],
+                  ["Monthly rate", "hourlyRate"],
                   ["Other cost", "otherCost"],
                   ["Revenue", "attributedRevenue"],
                   ["Covers", "attributedCovers"],
@@ -1421,78 +1545,64 @@ export default function CampaignDetailPage() {
               </button>
             </div>
 
-            {selectedItem.type === "post" ? (
+            {selectedItem.type === "post" && selectedPostDraft ? (
               <div className="mt-5 space-y-5">
-                <div className="grid grid-cols-2 gap-3">
-                  <ListCard>
-                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Platform</p>
-                    <p className="mt-2 font-medium text-foreground">{selectedItem.item.platform}</p>
-                  </ListCard>
-                  <ListCard>
-                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Status</p>
-                    <p className="mt-2 font-medium text-foreground">{selectedItem.item.status}</p>
-                  </ListCard>
+                <div>
+                  <Label>Task name / goal</Label>
+                  <Input
+                    value={selectedPostDraft.goal}
+                    onChange={(event) =>
+                      setSelectedPostDraft((current) =>
+                        current ? { ...current, goal: event.target.value } : current
+                      )
+                    }
+                    placeholder="What is this content trying to do?"
+                  />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <ListCard>
-                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Publish date</p>
-                    <div className="mt-2">
-                      <DatePill value={selectedItem.item.publishDate} fallback="No date" />
-                    </div>
-                  </ListCard>
-                  <ListCard>
-                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Approval</p>
-                    <p className="mt-2 font-medium text-primary">{getPostApproval(selectedItem.item.id)?.status ?? "No approval"}</p>
-                  </ListCard>
+                  <div>
+                    <Label>Platform</Label>
+                    <Select
+                      value={selectedPostDraft.platform}
+                      onChange={(value) =>
+                        setSelectedPostDraft((current) =>
+                          current ? { ...current, platform: value as Platform } : current
+                        )
+                      }
+                      options={platformOptions.map((platform) => ({ label: platform, value: platform }))}
+                    />
+                  </div>
+                  <div>
+                    <Label>Publish date</Label>
+                    <Input
+                      value={selectedPostDraft.publishDate}
+                      onChange={(event) =>
+                        setSelectedPostDraft((current) =>
+                          current ? { ...current, publishDate: event.target.value } : current
+                        )
+                      }
+                      type="date"
+                    />
+                  </div>
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-foreground">Caption / content</p>
-                  <p className="mt-2 whitespace-pre-wrap rounded-[1rem] border border-border bg-muted/30 p-4 text-sm leading-6 text-muted-foreground">
-                    {selectedItem.item.content || "No content written yet."}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-foreground">Call to action</p>
-                  <p className="mt-2 rounded-[1rem] border border-border bg-muted/30 p-4 text-sm leading-6 text-muted-foreground">
-                    {selectedItem.item.cta || "No CTA yet."}
-                  </p>
-                </div>
-                <div className="rounded-[1rem] border border-dashed border-border p-4">
-                  <p className="text-sm font-medium text-foreground">Comments</p>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    Comments and request-change threads will live here next. For now, approval state is tracked in the approvals queue.
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <div className="mt-5 space-y-5">
-                <div className="grid grid-cols-2 gap-3">
-                  <ListCard>
-                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Due date</p>
-                    <div className="mt-2">
-                      <DatePill value={selectedItem.item.dueDate} fallback="No date" />
-                    </div>
-                  </ListCard>
-                  <ListCard>
-                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Priority</p>
-                    <p className="mt-2 font-medium text-foreground">{selectedItem.item.priority}</p>
-                  </ListCard>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-foreground">Status</p>
+                  <Label>Status</Label>
                   <div className="mt-2 flex flex-wrap gap-2">
-                    {(["Backlog", "In Progress", "Waiting", "Done"] as OperationalTask["status"][]).map((status) => (
+                    {postStatuses.map((status) => (
                       <button
                         key={status}
                         className={[
                           "rounded-full border px-3 py-2 text-sm transition",
-                          selectedItem.item.status === status
+                          selectedPostDraft.status === status
                             ? "border-primary/45 bg-primary/10 text-foreground"
                             : "border-border bg-card/70 text-muted-foreground hover:border-primary/25 hover:text-foreground"
                         ].join(" ")}
-                        disabled={savingSelectedTask}
                         type="button"
-                        onClick={() => void moveSelectedTask(selectedItem.item, status)}
+                        onClick={() =>
+                          setSelectedPostDraft((current) =>
+                            current ? { ...current, status } : current
+                          )
+                        }
                       >
                         {status}
                       </button>
@@ -1500,25 +1610,190 @@ export default function CampaignDetailPage() {
                   </div>
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-foreground">Details</p>
-                  <p className="mt-2 whitespace-pre-wrap rounded-[1rem] border border-border bg-muted/30 p-4 text-sm leading-6 text-muted-foreground">
-                    {selectedItem.item.detail || "No details yet."}
-                  </p>
+                  <Label>Caption / content</Label>
+                  <Textarea
+                    value={selectedPostDraft.content}
+                    onChange={(event) =>
+                      setSelectedPostDraft((current) =>
+                        current ? { ...current, content: event.target.value } : current
+                      )
+                    }
+                    placeholder="Write the post caption, notes, or creative direction."
+                  />
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-foreground">Assignee</p>
-                  <p className="mt-2 rounded-[1rem] border border-border bg-muted/30 p-4 text-sm leading-6 text-muted-foreground">
-                    {selectedItem.item.assigneeName || "No assignee yet."}
-                  </p>
+                  <Label>Call to action</Label>
+                  <Input
+                    value={selectedPostDraft.cta}
+                    onChange={(event) =>
+                      setSelectedPostDraft((current) =>
+                        current ? { ...current, cta: event.target.value } : current
+                      )
+                    }
+                    placeholder="Reserve, order, call, DM, book now..."
+                  />
                 </div>
-                <div className="rounded-[1rem] border border-dashed border-border p-4">
-                  <p className="text-sm font-medium text-foreground">Comments</p>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    This is where internal notes, attachments, and client questions should go in the next iteration.
-                  </p>
+                <div className="rounded-[1rem] border border-border bg-muted/25 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">Approval</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {getPostApproval(selectedPostDraft.id)?.status ?? "No approval yet"}
+                      </p>
+                    </div>
+                    <DatePill value={selectedPostDraft.publishDate} fallback="No date" />
+                  </div>
+                  <Textarea
+                    className="mt-4"
+                    value={selectedNote}
+                    onChange={(event) => setSelectedNote(event.target.value)}
+                    placeholder="Add an approval note or request-change comment..."
+                  />
+                  <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                    <Button
+                      disabled={savingSelectedTask}
+                      size="sm"
+                      type="button"
+                      onClick={() => void reviewSelectedPost("Approved")}
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      disabled={savingSelectedTask}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                      onClick={() => void reviewSelectedPost("Changes Requested")}
+                    >
+                      Request changes
+                    </Button>
+                  </div>
+                </div>
+                {selectedSaveError ? <p className="text-sm text-primary">{selectedSaveError}</p> : null}
+                <div className="sticky bottom-0 -mx-4 border-t border-border bg-card/95 px-4 py-3 backdrop-blur sm:-mx-5 sm:px-5">
+                  <Button className="w-full" disabled={savingSelectedTask} onClick={() => void saveSelectedPostDetails()}>
+                    {savingSelectedTask ? "Saving..." : "Save content task"}
+                  </Button>
                 </div>
               </div>
-            )}
+            ) : selectedItem.type === "task" && selectedTaskDraft ? (
+              <div className="mt-5 space-y-5">
+                <div>
+                  <Label>Task name</Label>
+                  <Input
+                    value={selectedTaskDraft.title}
+                    onChange={(event) =>
+                      setSelectedTaskDraft((current) =>
+                        current ? { ...current, title: event.target.value } : current
+                      )
+                    }
+                    placeholder="What needs to happen?"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>Due date</Label>
+                    <Input
+                      value={selectedTaskDraft.dueDate ?? ""}
+                      onChange={(event) =>
+                        setSelectedTaskDraft((current) =>
+                          current ? { ...current, dueDate: event.target.value } : current
+                        )
+                      }
+                      type="date"
+                    />
+                  </div>
+                  <div>
+                    <Label>Assignee</Label>
+                    <Input
+                      value={selectedTaskDraft.assigneeName ?? ""}
+                      onChange={(event) =>
+                        setSelectedTaskDraft((current) =>
+                          current ? { ...current, assigneeName: event.target.value } : current
+                        )
+                      }
+                      placeholder="Name"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <Label>Status</Label>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {taskStatuses.map((status) => (
+                      <button
+                        key={status}
+                        className={[
+                          "rounded-full border px-3 py-2 text-sm transition",
+                          selectedTaskDraft.status === status
+                            ? "border-primary/45 bg-primary/10 text-foreground"
+                            : "border-border bg-card/70 text-muted-foreground hover:border-primary/25 hover:text-foreground"
+                        ].join(" ")}
+                        disabled={savingSelectedTask}
+                        type="button"
+                        onClick={() =>
+                          setSelectedTaskDraft((current) =>
+                            current ? { ...current, status } : current
+                          )
+                        }
+                      >
+                        {status}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <Label>Priority</Label>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {taskPriorities.map((priority) => (
+                      <button
+                        key={priority}
+                        className={[
+                          "rounded-full border px-3 py-2 text-sm transition",
+                          selectedTaskDraft.priority === priority
+                            ? "border-primary/45 bg-primary/10 text-foreground"
+                            : "border-border bg-card/70 text-muted-foreground hover:border-primary/25 hover:text-foreground"
+                        ].join(" ")}
+                        type="button"
+                        onClick={() =>
+                          setSelectedTaskDraft((current) =>
+                            current ? { ...current, priority } : current
+                          )
+                        }
+                      >
+                        {priority}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <Label>Details</Label>
+                  <Textarea
+                    value={selectedTaskDraft.detail}
+                    onChange={(event) =>
+                      setSelectedTaskDraft((current) =>
+                        current ? { ...current, detail: event.target.value } : current
+                      )
+                    }
+                    placeholder="Add useful context, links, or next steps."
+                  />
+                </div>
+                <div className="rounded-[1rem] border border-dashed border-border p-4">
+                  <p className="text-sm font-medium text-foreground">Add note</p>
+                  <Textarea
+                    className="mt-3"
+                    value={selectedNote}
+                    onChange={(event) => setSelectedNote(event.target.value)}
+                    placeholder="Add a quick note. It will be appended to the task details for now."
+                  />
+                </div>
+                {selectedSaveError ? <p className="text-sm text-primary">{selectedSaveError}</p> : null}
+                <div className="sticky bottom-0 -mx-4 border-t border-border bg-card/95 px-4 py-3 backdrop-blur sm:-mx-5 sm:px-5">
+                  <Button className="w-full" disabled={savingSelectedTask} onClick={() => void saveSelectedTaskDetails()}>
+                    {savingSelectedTask ? "Saving..." : "Save task"}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
           </aside>
         </div>
       ) : null}
