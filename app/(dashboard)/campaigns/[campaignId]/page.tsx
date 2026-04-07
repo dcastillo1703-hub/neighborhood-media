@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import {
+  ArrowRight,
   CalendarClock,
   CalendarDays,
   CheckCircle2,
@@ -13,7 +14,8 @@ import {
   LayoutList,
   Megaphone,
   MoreHorizontal,
-  Plus
+  Plus,
+  X
 } from "lucide-react";
 
 import { EmptyState } from "@/components/dashboard/empty-state";
@@ -49,6 +51,9 @@ import { CampaignRoiSnapshot, OperationalTask, Post, PostStatus, TaskPriority } 
 type CampaignWorkspaceView = "overview" | "list" | "board" | "calendar" | "performance";
 type CampaignBoardLane = "Draft" | "Review" | "Scheduled" | "Published";
 type CampaignTaskKind = "content" | "meeting" | "task";
+type SelectedCampaignItem =
+  | { type: "post"; item: Post }
+  | { type: "task"; item: OperationalTask };
 type CampaignRoiNumberField =
   | "adSpend"
   | "productionCost"
@@ -157,7 +162,7 @@ export default function CampaignDetailPage() {
     error: roiError,
     saveSnapshot: saveRoiSnapshot
   } = useCampaignRoi(activeClient.id, campaignId);
-  const { tasks, ready: tasksReady, error: tasksError, createTask } = useOperationsApi(
+  const { tasks, ready: tasksReady, error: tasksError, createTask, updateTaskStatus } = useOperationsApi(
     workspace.id,
     activeClient.id
   );
@@ -166,6 +171,7 @@ export default function CampaignDetailPage() {
     createCampaignTask(workspace.id, activeClient.id, campaignId)
   );
   const [taskKind, setTaskKind] = useState<CampaignTaskKind | null>(null);
+  const [addTaskOpen, setAddTaskOpen] = useState(false);
   const [roiDraft, setRoiDraft] = useState(roiSnapshot);
   const [roiNumberDraft, setRoiNumberDraft] = useState<CampaignRoiNumberDraft>(() =>
     toNumberDraft(roiSnapshot)
@@ -173,10 +179,12 @@ export default function CampaignDetailPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [savingTask, setSavingTask] = useState(false);
+  const [savingSelectedTask, setSavingSelectedTask] = useState(false);
   const [taskError, setTaskError] = useState<string | null>(null);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [processingJobId, setProcessingJobId] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<CampaignWorkspaceView>("overview");
+  const [selectedItem, setSelectedItem] = useState<SelectedCampaignItem | null>(null);
 
   useEffect(() => {
     setRoiDraft(roiSnapshot);
@@ -305,6 +313,33 @@ export default function CampaignDetailPage() {
     }
   };
 
+  const moveSelectedTask = async (task: OperationalTask, status: OperationalTask["status"]) => {
+    setSavingSelectedTask(true);
+
+    try {
+      const payload = await updateTaskStatus(task.id, status);
+      setSelectedItem({ type: "task", item: payload.task });
+    } finally {
+      setSavingSelectedTask(false);
+    }
+  };
+
+  const chooseTaskKind = (kind: CampaignTaskKind) => {
+    setTaskKind(kind);
+    setAddTaskOpen(false);
+    setActiveView("overview");
+    setErrors({});
+    setTaskError(null);
+
+    if (kind === "meeting") {
+      setTaskDraft((current) => ({
+        ...current,
+        title: current.title || "Schedule campaign check-in",
+        detail: current.detail || "Meeting for this campaign."
+      }));
+    }
+  };
+
   const saveOperationalTask = async () => {
     if (!taskDraft.title.trim()) {
       setTaskError("Task title is required.");
@@ -403,7 +438,7 @@ export default function CampaignDetailPage() {
             Projects
           </Link>
           <div className="flex items-center gap-3">
-            <button className="inline-flex h-9 items-center rounded-full px-2.5" style={{ backgroundColor: accent.panel }} type="button">
+            <button className="inline-flex h-9 items-center rounded-full px-2.5" style={{ backgroundColor: accent.panel }} type="button" onClick={() => setAddTaskOpen(true)}>
               <span className="flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold" style={{ backgroundColor: accent.soft }}>
                 DC
               </span>
@@ -435,7 +470,7 @@ export default function CampaignDetailPage() {
         }
       />
 
-      <Card id="campaign-workspace" className="hidden overflow-hidden rounded-[1rem] p-0 shadow-none sm:block">
+      <Card id="campaign-workspace" className="relative z-20 hidden overflow-visible rounded-[1rem] p-0 shadow-none sm:block">
         <div className="border-b border-border/70 px-5 py-4">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div className="min-w-0">
@@ -447,9 +482,40 @@ export default function CampaignDetailPage() {
               </div>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">{campaign.objective}</p>
             </div>
-            <Button className="w-full shrink-0 sm:w-auto" size="sm" onClick={() => setActiveView("overview")}>
+            <div className="relative">
+            <Button className="w-full shrink-0 sm:w-auto" size="sm" onClick={() => setAddTaskOpen((current) => !current)}>
               Add task
             </Button>
+            {addTaskOpen ? (
+              <div className="absolute right-0 top-[calc(100%+0.75rem)] z-[80] w-[28rem] max-w-[calc(100vw-3rem)] rounded-[1rem] border border-border bg-card p-2 shadow-[0_24px_80px_rgba(78,59,31,0.18)]">
+                <p className="px-3 pb-2 pt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                  Add to campaign
+                </p>
+                <div className="grid gap-2">
+                  {taskKindOptions.map((option) => {
+                    const Icon = option.icon;
+
+                    return (
+                      <button
+                        key={option.id}
+                        className="grid grid-cols-[2.5rem_1fr] gap-3 rounded-[0.9rem] px-3 py-3 text-left transition hover:bg-primary/5"
+                        type="button"
+                        onClick={() => chooseTaskKind(option.id)}
+                      >
+                        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                          <Icon className="h-4 w-4" />
+                        </span>
+                        <span>
+                          <span className="block text-sm font-medium text-foreground">{option.label}</span>
+                          <span className="mt-1 block text-xs leading-5 text-muted-foreground">{option.description}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+            </div>
           </div>
           <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-sm text-muted-foreground">
             <span><strong className="font-medium text-foreground">{number(linkedPosts.length + campaignTasks.length)}</strong> tasks</span>
@@ -622,18 +688,7 @@ export default function CampaignDetailPage() {
                         : "border-border bg-card/70 hover:border-primary/30 hover:bg-primary/5"
                     ].join(" ")}
                     type="button"
-                    onClick={() => {
-                      setTaskKind(option.id);
-                      setErrors({});
-                      setTaskError(null);
-                      if (option.id === "meeting") {
-                        setTaskDraft((current) => ({
-                          ...current,
-                          title: current.title || "Schedule campaign check-in",
-                          detail: current.detail || "Meeting for this campaign."
-                        }));
-                      }
-                    }}
+                    onClick={() => chooseTaskKind(option.id)}
                   >
                     <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
                       <Icon className="h-4 w-4" />
@@ -802,6 +857,7 @@ export default function CampaignDetailPage() {
 
               return (
                 <div key={post.id}>
+                  <button className="block w-full text-left" type="button" onClick={() => setSelectedItem({ type: "post", item: post })}>
                   <ListCard className="m-3 bg-[#202024] text-white sm:hidden">
                     <div className="grid grid-cols-[2rem_1fr_auto] items-center gap-3">
                       <CheckCircle2 className="h-6 w-6 text-white/55" />
@@ -815,6 +871,8 @@ export default function CampaignDetailPage() {
                       <MoreHorizontal className="h-5 w-5 text-white/55" />
                     </div>
                   </ListCard>
+                  </button>
+                  <button className="hidden w-full text-left sm:block" type="button" onClick={() => setSelectedItem({ type: "post", item: post })}>
                   <ListCard className="hidden rounded-none border-0 bg-transparent px-4 py-3 hover:bg-primary/5 sm:block sm:px-5">
                     <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_8rem_9rem_9rem_9rem] sm:items-center">
                       <div>
@@ -843,11 +901,13 @@ export default function CampaignDetailPage() {
                       </div>
                     </div>
                   </ListCard>
+                  </button>
                 </div>
               );
             })}
             {campaignTasks.map((task) => (
               <div key={task.id}>
+                <button className="block w-full text-left" type="button" onClick={() => setSelectedItem({ type: "task", item: task })}>
                 <ListCard className="m-3 bg-[#202024] text-white sm:hidden">
                   <div className="grid grid-cols-[2rem_1fr_auto] items-center gap-3">
                     <CheckCircle2 className="h-6 w-6 text-white/55" />
@@ -861,6 +921,8 @@ export default function CampaignDetailPage() {
                     <MoreHorizontal className="h-5 w-5 text-white/55" />
                   </div>
                 </ListCard>
+                </button>
+                <button className="hidden w-full text-left sm:block" type="button" onClick={() => setSelectedItem({ type: "task", item: task })}>
                 <ListCard className="hidden rounded-none border-0 bg-transparent px-4 py-3 hover:bg-primary/5 sm:block sm:px-5">
                   <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_8rem_9rem_9rem_9rem] sm:items-center">
                     <div>
@@ -877,6 +939,7 @@ export default function CampaignDetailPage() {
                     <p className="text-sm text-muted-foreground">No CTA</p>
                   </div>
                 </ListCard>
+                </button>
               </div>
             ))}
             </>
@@ -892,11 +955,12 @@ export default function CampaignDetailPage() {
         <CardHeader className="border-b border-border/70 px-4 py-4 sm:px-5">
           <div>
             <CardDescription>Campaign Board</CardDescription>
-            <CardTitle className="mt-2">Move work through the publishing rhythm</CardTitle>
+            <CardTitle className="mt-2">Pipeline from idea to published</CardTitle>
           </div>
         </CardHeader>
-        <div className="grid gap-3 p-3 sm:p-4 lg:grid-cols-4">
-          {boardLanes.map((lane) => {
+        <div className="overflow-x-auto p-3 sm:p-4">
+          <div className="flex min-w-[58rem] items-start gap-3 rounded-[1.25rem] border border-border/70 bg-[radial-gradient(circle_at_20%_10%,rgba(189,156,87,0.08),transparent_26%),rgba(247,242,235,0.42)] p-3">
+          {boardLanes.map((lane, laneIndex) => {
             const lanePosts = getBoardLanePosts(lane);
             const laneTasks =
               lane === "Draft"
@@ -907,9 +971,15 @@ export default function CampaignDetailPage() {
             const laneItemCount = lanePosts.length + laneTasks.length;
 
             return (
-              <div className="rounded-[1rem] border border-border bg-muted/25 p-3" key={lane}>
+              <div className="contents" key={lane}>
+              <div className="min-h-[30rem] w-[18rem] shrink-0 rounded-[1rem] border border-border bg-card/82 p-3">
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-medium text-foreground">{lane}</p>
+                  <div>
+                    <p className="text-sm font-medium text-foreground">{lane}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {laneIndex === 0 ? "Start here" : laneIndex === boardLanes.length - 1 ? "Live or complete" : "Next step"}
+                    </p>
+                  </div>
                   <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary">{laneItemCount}</span>
                 </div>
                 <div className="mt-4 space-y-3">
@@ -920,7 +990,8 @@ export default function CampaignDetailPage() {
                       const publishJob = getPostPublishJob(post.id);
 
                       return (
-                        <ListCard key={post.id} className="bg-card">
+                        <button className="block w-full text-left" key={post.id} type="button" onClick={() => setSelectedItem({ type: "post", item: post })}>
+                        <ListCard className="bg-card">
                           <div className="flex items-start justify-between gap-3">
                             <p className="font-medium text-foreground">{post.goal}</p>
                             <span className="rounded-full bg-primary/10 px-2 py-1 text-[0.65rem] uppercase tracking-[0.12em] text-primary">
@@ -936,10 +1007,12 @@ export default function CampaignDetailPage() {
                             <span>{publishJob?.status ?? "No publish job"}</span>
                           </div>
                         </ListCard>
+                        </button>
                       );
                     })}
                     {laneTasks.map((task) => (
-                      <ListCard key={task.id} className="bg-card">
+                      <button className="block w-full text-left" key={task.id} type="button" onClick={() => setSelectedItem({ type: "task", item: task })}>
+                      <ListCard className="bg-card">
                         <div className="flex items-start justify-between gap-3">
                           <p className="font-medium text-foreground">{task.title}</p>
                           <span className="rounded-full bg-primary/10 px-2 py-1 text-[0.65rem] uppercase tracking-[0.12em] text-primary">
@@ -955,17 +1028,29 @@ export default function CampaignDetailPage() {
                           <span>{task.priority}</span>
                         </div>
                       </ListCard>
+                      </button>
                     ))}
                     </>
                   ) : (
-                    <p className="rounded-[0.9rem] border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
-                      No {lane.toLowerCase()} posts.
-                    </p>
+                    <button
+                      className="w-full rounded-[0.9rem] border border-dashed border-border px-4 py-6 text-left text-sm text-muted-foreground transition hover:border-primary/30 hover:bg-primary/5 hover:text-foreground"
+                      type="button"
+                      onClick={() => setAddTaskOpen(true)}
+                    >
+                      + Add task here
+                    </button>
                   )}
                 </div>
               </div>
+              {laneIndex < boardLanes.length - 1 ? (
+                <div className="flex h-[30rem] shrink-0 items-center px-1 text-muted-foreground">
+                  <ArrowRight className="h-5 w-5" />
+                </div>
+              ) : null}
+              </div>
             );
           })}
+          </div>
         </div>
       </Card>
       ) : null}
@@ -1265,6 +1350,179 @@ export default function CampaignDetailPage() {
       </div>
       ) : null}
 
+      {addTaskOpen ? (
+        <div className="fixed inset-0 z-50 bg-black/30 backdrop-blur-[2px] sm:hidden" onClick={() => setAddTaskOpen(false)}>
+          <div
+            className="absolute inset-x-3 bottom-[5.25rem] rounded-[1.5rem] border border-white/12 bg-[#202024] p-3 text-white shadow-[0_24px_80px_rgba(0,0,0,0.36)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-2 pb-2">
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-white/45">Add to campaign</p>
+                <p className="mt-1 text-xl font-semibold">What kind of task?</p>
+              </div>
+              <button
+                aria-label="Close add task"
+                className="rounded-full border border-white/12 p-2 text-white/60"
+                type="button"
+                onClick={() => setAddTaskOpen(false)}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="mt-2 grid gap-2">
+              {taskKindOptions.map((option) => {
+                const Icon = option.icon;
+
+                return (
+                  <button
+                    key={option.id}
+                    className="grid grid-cols-[2.75rem_1fr] gap-3 rounded-[1.15rem] bg-white/[0.04] px-3 py-3 text-left transition hover:bg-white/[0.08]"
+                    type="button"
+                    onClick={() => chooseTaskKind(option.id)}
+                  >
+                    <span className="flex h-11 w-11 items-center justify-center rounded-2xl" style={{ backgroundColor: accent.soft, color: accent.bg }}>
+                      <Icon className="h-5 w-5" />
+                    </span>
+                    <span>
+                      <span className="block text-base font-semibold text-white">{option.label}</span>
+                      <span className="mt-1 block text-sm leading-5 text-white/55">{option.description}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {selectedItem ? (
+        <div className="fixed inset-0 z-50 bg-black/25 backdrop-blur-[2px]" onClick={() => setSelectedItem(null)}>
+          <aside
+            className="absolute inset-x-0 bottom-0 max-h-[88vh] overflow-y-auto rounded-t-[1.5rem] border border-border bg-card p-4 shadow-[0_-24px_80px_rgba(0,0,0,0.24)] sm:inset-y-4 sm:left-auto sm:right-4 sm:w-[28rem] sm:max-h-none sm:rounded-[1.25rem] sm:p-5"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-border/70 pb-4">
+              <div className="min-w-0">
+                <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                  {selectedItem.type === "post" ? "Content task" : "Campaign task"}
+                </p>
+                <h2 className="mt-2 text-balance text-2xl font-semibold tracking-[-0.04em] text-foreground">
+                  {selectedItem.type === "post" ? selectedItem.item.goal : selectedItem.item.title}
+                </h2>
+              </div>
+              <button
+                aria-label="Close task details"
+                className="rounded-full border border-border bg-background/70 p-2 text-muted-foreground transition hover:text-foreground"
+                type="button"
+                onClick={() => setSelectedItem(null)}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {selectedItem.type === "post" ? (
+              <div className="mt-5 space-y-5">
+                <div className="grid grid-cols-2 gap-3">
+                  <ListCard>
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Platform</p>
+                    <p className="mt-2 font-medium text-foreground">{selectedItem.item.platform}</p>
+                  </ListCard>
+                  <ListCard>
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Status</p>
+                    <p className="mt-2 font-medium text-foreground">{selectedItem.item.status}</p>
+                  </ListCard>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <ListCard>
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Publish date</p>
+                    <div className="mt-2">
+                      <DatePill value={selectedItem.item.publishDate} fallback="No date" />
+                    </div>
+                  </ListCard>
+                  <ListCard>
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Approval</p>
+                    <p className="mt-2 font-medium text-primary">{getPostApproval(selectedItem.item.id)?.status ?? "No approval"}</p>
+                  </ListCard>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-foreground">Caption / content</p>
+                  <p className="mt-2 whitespace-pre-wrap rounded-[1rem] border border-border bg-muted/30 p-4 text-sm leading-6 text-muted-foreground">
+                    {selectedItem.item.content || "No content written yet."}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-foreground">Call to action</p>
+                  <p className="mt-2 rounded-[1rem] border border-border bg-muted/30 p-4 text-sm leading-6 text-muted-foreground">
+                    {selectedItem.item.cta || "No CTA yet."}
+                  </p>
+                </div>
+                <div className="rounded-[1rem] border border-dashed border-border p-4">
+                  <p className="text-sm font-medium text-foreground">Comments</p>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                    Comments and request-change threads will live here next. For now, approval state is tracked in the approvals queue.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-5 space-y-5">
+                <div className="grid grid-cols-2 gap-3">
+                  <ListCard>
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Due date</p>
+                    <div className="mt-2">
+                      <DatePill value={selectedItem.item.dueDate} fallback="No date" />
+                    </div>
+                  </ListCard>
+                  <ListCard>
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Priority</p>
+                    <p className="mt-2 font-medium text-foreground">{selectedItem.item.priority}</p>
+                  </ListCard>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-foreground">Status</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {(["Backlog", "In Progress", "Waiting", "Done"] as OperationalTask["status"][]).map((status) => (
+                      <button
+                        key={status}
+                        className={[
+                          "rounded-full border px-3 py-2 text-sm transition",
+                          selectedItem.item.status === status
+                            ? "border-primary/45 bg-primary/10 text-foreground"
+                            : "border-border bg-card/70 text-muted-foreground hover:border-primary/25 hover:text-foreground"
+                        ].join(" ")}
+                        disabled={savingSelectedTask}
+                        type="button"
+                        onClick={() => void moveSelectedTask(selectedItem.item, status)}
+                      >
+                        {status}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-foreground">Details</p>
+                  <p className="mt-2 whitespace-pre-wrap rounded-[1rem] border border-border bg-muted/30 p-4 text-sm leading-6 text-muted-foreground">
+                    {selectedItem.item.detail || "No details yet."}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-foreground">Assignee</p>
+                  <p className="mt-2 rounded-[1rem] border border-border bg-muted/30 p-4 text-sm leading-6 text-muted-foreground">
+                    {selectedItem.item.assigneeName || "No assignee yet."}
+                  </p>
+                </div>
+                <div className="rounded-[1rem] border border-dashed border-border p-4">
+                  <p className="text-sm font-medium text-foreground">Comments</p>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                    This is where internal notes, attachments, and client questions should go in the next iteration.
+                  </p>
+                </div>
+              </div>
+            )}
+          </aside>
+        </div>
+      ) : null}
+
       <div className="fixed inset-x-0 bottom-[4.25rem] z-40 flex justify-center px-3 sm:hidden">
         <div className="flex max-w-[calc(100vw-1.5rem)] items-center gap-1.5 rounded-[1.35rem] border border-white/15 bg-[#202024]/95 p-1.5 text-white shadow-[0_18px_60px_rgba(0,0,0,0.35)] backdrop-blur">
           <button
@@ -1288,7 +1546,7 @@ export default function CampaignDetailPage() {
             className="rounded-[1rem] p-3"
             style={{ backgroundColor: accent.bg, color: accent.text }}
             type="button"
-            onClick={() => setActiveView("overview")}
+            onClick={() => setAddTaskOpen(true)}
           >
             <Plus className="h-6 w-6" />
           </button>
