@@ -10,7 +10,7 @@ const mobileNavigation = [
   { href: "/", label: "Home", icon: Home },
   { href: "/content", label: "My tasks", icon: CheckCircle2 },
   { href: "/approvals", label: "Inbox", icon: Bell },
-  { href: "/campaigns", label: "Search", icon: Search },
+  { href: "/campaigns", label: "Projects", icon: Search },
   { href: "/settings", label: "Account", icon: UserRound }
 ] as const;
 

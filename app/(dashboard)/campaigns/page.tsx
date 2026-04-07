@@ -70,6 +70,7 @@ export default function CampaignsPage() {
   const [draft, setDraft] = useState<Campaign>(createEmptyCampaign(activeClient.id));
   const [channelDraft, setChannelDraft] = useState("");
   const [defaultView, setDefaultView] = useState<CampaignDefaultView>("Overview");
+  const [mobileProjectTab, setMobileProjectTab] = useState<"Recents" | "Starred" | "Member of">("Member of");
   const [createOpen, setCreateOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -210,15 +211,25 @@ export default function CampaignsPage() {
           </button>
         </div>
         <div className="mt-7 grid grid-cols-3 border-b border-white/12 text-center text-base font-semibold text-white/45">
-          <span className="pb-3">Recents</span>
-          <span className="pb-3">Starred</span>
-          <span className="border-b-2 border-white pb-3 text-white">Member of</span>
+          {(["Recents", "Starred", "Member of"] as const).map((tab) => (
+            <button
+              className={[
+                "pb-3 transition",
+                mobileProjectTab === tab ? "border-b-2 border-white text-white" : "text-white/45"
+              ].join(" ")}
+              key={tab}
+              type="button"
+              onClick={() => setMobileProjectTab(tab)}
+            >
+              {tab}
+            </button>
+          ))}
         </div>
-        <div className="mx-auto mt-6 max-w-sm space-y-4">
+        <div className="mx-auto mt-6 max-w-sm space-y-1">
           {campaignOverviews.length ? (
             campaignOverviews.map((overview, index) => (
               <Link
-                className="flex items-center justify-center gap-3 rounded-2xl px-3 py-3 text-center transition hover:bg-white/5"
+                className="flex items-center gap-3 rounded-2xl px-3 py-3 transition hover:bg-white/5"
                 href={`/campaigns/${overview.campaign.id}` as never}
                 key={`${overview.campaign.id}-mobile`}
               >
@@ -228,7 +239,7 @@ export default function CampaignsPage() {
                 >
                   <LayoutList className="h-6 w-6" />
                 </span>
-                <div className="min-w-0 text-left">
+                <div className="min-w-0 flex-1 text-left">
                   <p className="truncate text-xl font-medium text-white">{overview.campaign.name}</p>
                   <p className="mt-1 truncate text-sm text-white/45">{overview.campaign.objective}</p>
                 </div>
