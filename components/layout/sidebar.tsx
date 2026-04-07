@@ -49,7 +49,7 @@ export function Sidebar() {
                 className="h-auto w-auto max-w-[170px] object-contain"
                 height={72}
                 priority
-                src="/meama-logo.png"
+                src="/meama-logo.PNG"
                 width={170}
               />
             </div>
