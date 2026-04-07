@@ -5,8 +5,13 @@ import { useMemo, useState } from "react";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { ListCard } from "@/components/dashboard/list-card";
 import { PageHeader } from "@/components/dashboard/page-header";
+import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { DatePill } from "@/components/ui/date-pill";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { useActiveClient } from "@/lib/client-context";
 import { getScheduledPosts } from "@/lib/domain/content";
 import { useAssets } from "@/lib/repositories/use-assets";
@@ -16,6 +21,31 @@ import { usePosts } from "@/lib/repositories/use-posts";
 import { useApprovalsApi } from "@/lib/use-approvals-api";
 import { usePublishingApi } from "@/lib/use-publishing-api";
 import { number } from "@/lib/utils";
+import type { Platform, PostStatus } from "@/types";
+
+type ContentDraft = {
+  platform: Platform;
+  content: string;
+  cta: string;
+  publishDate: string;
+  goal: string;
+  status: PostStatus;
+  campaignId?: string;
+};
+
+const platformOptions: Array<{ label: string; value: Platform }> = [
+  { label: "Instagram", value: "Instagram" },
+  { label: "Facebook", value: "Facebook" },
+  { label: "Stories", value: "Stories" },
+  { label: "TikTok", value: "TikTok" },
+  { label: "Email", value: "Email" }
+];
+
+const statusOptions: Array<{ label: string; value: PostStatus }> = [
+  { label: "Draft", value: "Draft" },
+  { label: "Scheduled", value: "Scheduled" },
+  { label: "Published", value: "Published" }
+];
 
 function formatDateKey(date: Date) {
   const month = `${date.getMonth() + 1}`.padStart(2, "0");
@@ -40,19 +70,58 @@ function getMobileAgendaDays() {
   });
 }
 
+function createContentDraft(date = new Date()): ContentDraft {
+  return {
+    platform: "Instagram",
+    content: "",
+    cta: "",
+    publishDate: formatDateKey(date),
+    goal: "",
+    status: "Draft",
+    campaignId: undefined
+  };
+}
+
+function getMonthDays(anchorDate: Date) {
+  const firstOfMonth = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1);
+  const start = new Date(firstOfMonth);
+  start.setDate(firstOfMonth.getDate() - firstOfMonth.getDay());
+
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+
+    return {
+      date,
+      dateKey: formatDateKey(date),
+      isCurrentMonth: date.getMonth() === anchorDate.getMonth()
+    };
+  });
+}
+
 export default function ContentPage() {
   const { activeClient } = useActiveClient();
   const { campaigns } = useCampaigns(activeClient.id);
   const { assets } = useAssets(activeClient.id);
   const { items } = usePlannerItems(activeClient.id);
-  const { posts, ready, error } = usePosts(activeClient.id);
-  const { approvals } = useApprovalsApi(activeClient.id);
-  const { jobs } = usePublishingApi(activeClient.id);
+  const { posts, ready, error, addPost, deletePost } = usePosts(activeClient.id);
+  const { approvals, prependApproval } = useApprovalsApi(activeClient.id);
+  const { jobs, prependJob } = usePublishingApi(activeClient.id);
   const mobileAgendaDays = useMemo(() => getMobileAgendaDays(), []);
   const [selectedDate, setSelectedDate] = useState(() => mobileAgendaDays[0]?.dateKey ?? formatDateKey(new Date()));
   const [mobileTaskView, setMobileTaskView] = useState<"list" | "calendar">("calendar");
+  const [contentView, setContentView] = useState<"list" | "calendar">("list");
+  const [draft, setDraft] = useState<ContentDraft>(() => createContentDraft());
+  const [isCreating, setIsCreating] = useState(false);
+  const [deletingPostId, setDeletingPostId] = useState<string | null>(null);
+  const monthDays = useMemo(() => getMonthDays(new Date(selectedDate)), [selectedDate]);
+  const monthLabel = new Date(selectedDate).toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric"
+  });
 
   const scheduledPosts = getScheduledPosts(posts);
+  const contentPosts = [...posts].sort((left, right) => left.publishDate.localeCompare(right.publishDate));
   const pendingApprovals = approvals.filter((approval) => approval.status === "Pending");
   const planningBacklog = items.filter((item) => item.status !== "Published");
   const queuedPublishJobs = jobs.filter((job) =>
@@ -152,6 +221,51 @@ export default function ContentPage() {
   const todayTasks = mobileTasks.filter((task) => task.dateKey === todayKey);
   const upcomingTasks = mobileTasks.filter((task) => task.dateKey && task.dateKey > todayKey).slice(0, 8);
   const unscheduledTasks = mobileTasks.filter((task) => !task.dateKey).slice(0, 8);
+
+  const handleCreateContent = async () => {
+    if (!draft.goal.trim() || !draft.content.trim() || !draft.cta.trim()) {
+      return;
+    }
+
+    setIsCreating(true);
+
+    try {
+      const payload = await addPost({
+        clientId: activeClient.id,
+        platform: draft.platform,
+        content: draft.content.trim(),
+        cta: draft.cta.trim(),
+        publishDate: draft.publishDate,
+        goal: draft.goal.trim(),
+        status: draft.status,
+        campaignId: draft.campaignId,
+        assetIds: []
+      });
+
+      if (payload.approval) {
+        prependApproval(payload.approval);
+      }
+
+      if (payload.publishJob) {
+        prependJob(payload.publishJob);
+      }
+
+      setDraft(createContentDraft(new Date(draft.publishDate)));
+      setContentView("list");
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const handleDeletePost = async (postId: string) => {
+    setDeletingPostId(postId);
+
+    try {
+      await deletePost(postId);
+    } finally {
+      setDeletingPostId(null);
+    }
+  };
 
   if (!ready) {
     return <div className="text-sm text-muted-foreground">Loading content workspace...</div>;
@@ -320,100 +434,240 @@ export default function ContentPage() {
       </div>
 
       <div className="hidden flex-wrap gap-x-5 gap-y-2 rounded-[1rem] border border-border/70 bg-card/70 px-4 py-3 text-sm text-muted-foreground sm:flex">
+        <span><strong className="font-medium text-foreground">{number(posts.length)}</strong> content items</span>
         <span><strong className="font-medium text-foreground">{number(scheduledPosts.length)}</strong> scheduled</span>
         <span><strong className="font-medium text-foreground">{number(pendingApprovals.length)}</strong> pending approval</span>
-        <span><strong className="font-medium text-foreground">{number(planningBacklog.length)}</strong> planner items</span>
         <span><strong className="font-medium text-foreground">{number(queuedPublishJobs.length)}</strong> publish jobs</span>
         <span><strong className="font-medium text-foreground">{number(assets.filter((asset) => asset.status === "Ready").length)}</strong> ready assets</span>
       </div>
 
-      <div className="hidden gap-5 sm:grid xl:grid-cols-[1.1fr_0.9fr]">
-        <Card id="scheduled-content" className="overflow-hidden p-0">
-          <CardHeader className="border-b border-border/70 px-4 py-4 sm:px-5">
+      <div className="hidden gap-5 sm:grid xl:grid-cols-[0.82fr_1.18fr]">
+        <Card id="create-content" className="p-5">
+          <div className="flex items-start justify-between gap-4">
             <div>
-              <CardDescription>Scheduled Content</CardDescription>
-              <CardTitle className="mt-2">Next items going live</CardTitle>
+              <CardDescription>Create Content</CardDescription>
+              <CardTitle className="mt-2">Draft and schedule from here</CardTitle>
             </div>
-          </CardHeader>
-          <div className="divide-y divide-border/70">
-            {scheduledPosts.length ? (
-              scheduledPosts.slice(0, 6).map((post) => {
-                const linkedCampaign = campaigns.find((campaign) => campaign.id === post.campaignId);
-                const approval = approvals.find(
-                  (item) => item.entityType === "post" && item.entityId === post.id
-                );
+            <span className="rounded-full border border-border bg-background px-3 py-1 text-xs text-muted-foreground">
+              Operator
+            </span>
+          </div>
 
-                return (
-                  <ListCard key={post.id} className="rounded-none border-0 bg-transparent px-4 py-4 hover:bg-primary/5 sm:px-5">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="font-medium text-foreground">{post.platform}</p>
-                          <DatePill value={post.publishDate} />
-                        </div>
-                        <p className="mt-2 text-sm text-muted-foreground">{post.goal}</p>
-                        <p className="mt-2 text-sm text-muted-foreground line-clamp-2">
-                          {post.content}
-                        </p>
-                      </div>
-                      <div className="text-right text-xs uppercase tracking-[0.16em] text-muted-foreground">
-                        <p>{post.status}</p>
-                        <p className="mt-2 text-primary">
-                          {approval?.status ?? "No approval"}
-                        </p>
-                      </div>
-                    </div>
-                    {linkedCampaign ? (
-                      <p className="mt-3 text-xs uppercase tracking-[0.16em] text-primary">
-                        Campaign: {linkedCampaign.name}
-                      </p>
-                    ) : null}
-                  </ListCard>
-                );
-              })
-            ) : (
-              <EmptyState
-                title="Nothing scheduled"
-                description="Use the content workspace to stage the next publish before service gets busy."
+          <div className="mt-5 grid gap-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <Label htmlFor="content-platform">Platform</Label>
+                <Select
+                  value={draft.platform}
+                  onChange={(value) => setDraft((current) => ({ ...current, platform: value as Platform }))}
+                  options={platformOptions}
+                />
+              </div>
+              <div>
+                <Label htmlFor="content-date">Publish date</Label>
+                <Input
+                  id="content-date"
+                  type="date"
+                  value={draft.publishDate}
+                  onChange={(event) => setDraft((current) => ({ ...current, publishDate: event.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <Label>Campaign</Label>
+                <Select
+                  value={draft.campaignId ?? "none"}
+                  onChange={(value) =>
+                    setDraft((current) => ({
+                      ...current,
+                      campaignId: value === "none" ? undefined : value
+                    }))
+                  }
+                  options={[
+                    { label: "No campaign", value: "none" },
+                    ...campaigns.map((campaign) => ({ label: campaign.name, value: campaign.id }))
+                  ]}
+                />
+              </div>
+              <div>
+                <Label>Status</Label>
+                <div className="flex rounded-[1rem] border border-border bg-card/70 p-1">
+                  {statusOptions.map((option) => (
+                    <button
+                      className={[
+                        "flex-1 rounded-[0.75rem] px-3 py-2 text-xs font-semibold transition",
+                        draft.status === option.value ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent/40"
+                      ].join(" ")}
+                      key={option.value}
+                      type="button"
+                      onClick={() => setDraft((current) => ({ ...current, status: option.value }))}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <Label htmlFor="content-goal">Goal</Label>
+              <Input
+                id="content-goal"
+                placeholder="Example: Drive Thursday dinner reservations"
+                value={draft.goal}
+                onChange={(event) => setDraft((current) => ({ ...current, goal: event.target.value }))}
               />
-            )}
+            </div>
+            <div>
+              <Label htmlFor="content-cta">Call to action</Label>
+              <Input
+                id="content-cta"
+                placeholder="Example: Reserve a table"
+                value={draft.cta}
+                onChange={(event) => setDraft((current) => ({ ...current, cta: event.target.value }))}
+              />
+            </div>
+            <div>
+              <Label htmlFor="content-body">Post content</Label>
+              <Textarea
+                id="content-body"
+                placeholder="Write the caption, email, or post copy here."
+                value={draft.content}
+                onChange={(event) => setDraft((current) => ({ ...current, content: event.target.value }))}
+              />
+            </div>
+
+            <Button
+              disabled={isCreating || !draft.goal.trim() || !draft.content.trim() || !draft.cta.trim()}
+              onClick={() => void handleCreateContent()}
+              type="button"
+            >
+              {isCreating ? "Creating..." : "Create content"}
+            </Button>
           </div>
         </Card>
 
-        <div className="space-y-6">
-          <Card id="planner-queue" className="overflow-hidden p-0">
-            <CardHeader className="border-b border-border/70 px-4 py-4 sm:px-5">
+        <Card id="content-workspace" className="overflow-hidden p-0">
+          <CardHeader className="border-b border-border/70 px-4 py-4 sm:px-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <CardDescription>Planner Queue</CardDescription>
-                <CardTitle className="mt-2">Ideas still in motion</CardTitle>
+                <CardDescription>Content Workspace</CardDescription>
+                <CardTitle className="mt-2">List and calendar</CardTitle>
               </div>
-            </CardHeader>
+              <div className="inline-flex rounded-full border border-border bg-card/80 p-1">
+                {(["list", "calendar"] as const).map((view) => (
+                  <button
+                    className={[
+                      "rounded-full px-4 py-2 text-xs font-semibold capitalize transition",
+                      contentView === view ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent/40"
+                    ].join(" ")}
+                    key={view}
+                    type="button"
+                    onClick={() => setContentView(view)}
+                  >
+                    {view}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </CardHeader>
+
+          {contentView === "list" ? (
             <div className="divide-y divide-border/70">
-              {planningBacklog.length ? (
-                planningBacklog.slice(0, 5).map((item) => (
-                  <ListCard key={item.id} className="rounded-none border-0 bg-transparent px-4 py-4 hover:bg-primary/5 sm:px-5">
-                    <p className="font-medium text-foreground">
-                      {item.dayOfWeek} · {item.platform}
-                    </p>
-                    <p className="mt-2 text-sm text-muted-foreground">{item.campaignGoal}</p>
-                    <p className="mt-2 text-sm text-muted-foreground line-clamp-2">
-                      {item.caption}
-                    </p>
-                    <p className="mt-3 text-xs uppercase tracking-[0.16em] text-primary">
-                      {item.status}
-                    </p>
-                  </ListCard>
-                ))
+              {contentPosts.length ? (
+                contentPosts.map((post) => {
+                  const linkedCampaign = campaigns.find((campaign) => campaign.id === post.campaignId);
+                  const approval = approvals.find(
+                    (item) => item.entityType === "post" && item.entityId === post.id
+                  );
+
+                  return (
+                    <ListCard key={post.id} className="rounded-none border-0 bg-transparent px-4 py-4 hover:bg-primary/5 sm:px-5">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-medium text-foreground">{post.platform}</p>
+                            <DatePill value={post.publishDate} />
+                            <span className="rounded-full bg-accent px-2.5 py-1 text-xs text-muted-foreground">
+                              {post.status}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-sm font-medium text-foreground">{post.goal}</p>
+                          <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{post.content}</p>
+                          <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                            {linkedCampaign ? <span>Campaign: {linkedCampaign.name}</span> : null}
+                            <span>CTA: {post.cta}</span>
+                            <span>{approval?.status ?? "No approval"}</span>
+                          </div>
+                        </div>
+                        <Button
+                          disabled={deletingPostId === post.id}
+                          onClick={() => void handleDeletePost(post.id)}
+                          size="sm"
+                          type="button"
+                          variant="ghost"
+                        >
+                          Delete
+                        </Button>
+                      </div>
+                    </ListCard>
+                  );
+                })
               ) : (
                 <EmptyState
-                  title="Planner is clear"
-                  description="No draft or scheduled planner items are waiting right now."
+                  title="No content yet"
+                  description="Create the first content item on the left, then schedule it here."
                 />
               )}
             </div>
-          </Card>
+          ) : (
+            <div className="p-4 sm:p-5">
+              <div className="mb-4 flex items-center justify-between">
+                <p className="text-sm font-semibold text-foreground">{monthLabel}</p>
+                <p className="text-xs text-muted-foreground">Posts are shown on publish date.</p>
+              </div>
+              <div className="grid grid-cols-7 border-l border-t border-border/70 text-xs text-muted-foreground">
+                {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+                  <div className="border-b border-r border-border/70 px-2 py-2 font-medium" key={day}>
+                    {day}
+                  </div>
+                ))}
+                {monthDays.map((day) => {
+                  const dayPosts = contentPosts.filter((post) => post.publishDate === day.dateKey);
 
-        </div>
+                  return (
+                    <button
+                      className={[
+                        "min-h-28 border-b border-r border-border/70 p-2 text-left transition hover:bg-accent/30",
+                        day.isCurrentMonth ? "bg-card/40" : "bg-muted/20 text-muted-foreground/50"
+                      ].join(" ")}
+                      key={day.dateKey}
+                      type="button"
+                      onClick={() => setDraft((current) => ({ ...current, publishDate: day.dateKey }))}
+                    >
+                      <span className="font-medium">{day.date.getDate()}</span>
+                      <div className="mt-2 space-y-1">
+                        {dayPosts.slice(0, 3).map((post) => (
+                          <span
+                            className="block truncate rounded-md bg-primary/12 px-2 py-1 text-[0.68rem] text-primary"
+                            key={post.id}
+                          >
+                            {post.platform}: {post.goal}
+                          </span>
+                        ))}
+                        {dayPosts.length > 3 ? (
+                          <span className="block text-[0.68rem] text-muted-foreground">+{dayPosts.length - 3} more</span>
+                        ) : null}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </Card>
       </div>
     </div>
   );

@@ -294,3 +294,28 @@ export async function reviewApprovalRequest(input: {
     } satisfies ActivityEvent
   };
 }
+
+export async function deleteApprovalRequest(clientId: string, approvalId: string) {
+  const serverModule = await import("@/lib/supabase/server");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const supabase = (await serverModule.getSupabaseServerClient()) as any;
+
+  if (supabase && (await canUseApprovalTable())) {
+    const { error } = await supabase
+      .from("approval_requests")
+      .delete()
+      .eq("id", approvalId)
+      .eq("client_id", clientId);
+
+    if (error) {
+      throw error;
+    }
+
+    return { approvalId };
+  }
+
+  const snapshot = getClientSnapshot(clientId);
+  snapshot.approvals = snapshot.approvals.filter((approval) => approval.id !== approvalId);
+
+  return { approvalId };
+}

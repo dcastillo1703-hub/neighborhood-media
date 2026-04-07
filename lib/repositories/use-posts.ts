@@ -109,6 +109,20 @@ export function usePosts(clientId: string) {
       );
 
       return payload;
+    },
+    async deletePost(postId: string) {
+      const response = await fetch(
+        `/api/posts/${postId}?clientId=${encodeURIComponent(clientId)}`,
+        {
+          method: "DELETE"
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to delete post.");
+      }
+
+      setPosts((current) => current.filter((post) => post.id !== postId));
     }
   };
 }

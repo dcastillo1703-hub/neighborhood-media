@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireClientRole } from "@/lib/auth/permissions";
-import { updatePost } from "@/lib/services/posts-service";
+import { deletePost, updatePost } from "@/lib/services/posts-service";
 import { updatePostSchema } from "@/lib/validation/posts";
 
 export async function PATCH(
@@ -34,6 +34,35 @@ export async function PATCH(
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unable to update post." },
       { status: 404 }
+    );
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ postId: string }> }
+) {
+  const clientId = request.nextUrl.searchParams.get("clientId");
+
+  if (!clientId) {
+    return NextResponse.json({ error: "clientId is required." }, { status: 400 });
+  }
+
+  const permissionResponse = await requireClientRole(clientId, "operator");
+
+  if (permissionResponse) {
+    return permissionResponse;
+  }
+
+  try {
+    const { postId } = await params;
+    const payload = await deletePost(clientId, postId);
+
+    return NextResponse.json(payload);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Unable to delete post." },
+      { status: 500 }
     );
   }
 }

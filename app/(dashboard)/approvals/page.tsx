@@ -19,7 +19,7 @@ export default function ApprovalsPage() {
   const { activeClient } = useActiveClient();
   const { workspace } = useWorkspaceContext();
   const { profile } = useAuth();
-  const { approvals, ready, error, reviewApproval } = useApprovalsApi(activeClient.id);
+  const { approvals, ready, error, reviewApproval, deleteApproval } = useApprovalsApi(activeClient.id);
   const { tasks } = useOperationsApi(workspace.id, activeClient.id);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
 
@@ -43,6 +43,16 @@ export default function ApprovalsPage() {
             ? "Approved from the unified approvals queue."
             : "Sent back for revisions from the unified approvals queue."
       });
+    } finally {
+      setReviewingId(null);
+    }
+  };
+
+  const handleDelete = async (approvalId: string) => {
+    setReviewingId(approvalId);
+
+    try {
+      await deleteApproval(approvalId);
     } finally {
       setReviewingId(null);
     }
@@ -91,7 +101,7 @@ export default function ApprovalsPage() {
                   {approval.note ? (
                     <p className="mt-2 text-sm text-muted-foreground">{approval.note}</p>
                   ) : null}
-                  <div className="mt-4 flex gap-3">
+                  <div className="mt-4 flex flex-wrap gap-3">
                     <Button
                       disabled={reviewingId === approval.id}
                       onClick={() => void handleReview(approval.id, "Approved")}
@@ -106,6 +116,14 @@ export default function ApprovalsPage() {
                       variant="outline"
                     >
                       Request Changes
+                    </Button>
+                    <Button
+                      disabled={reviewingId === approval.id}
+                      onClick={() => void handleDelete(approval.id)}
+                      size="sm"
+                      variant="ghost"
+                    >
+                      Delete
                     </Button>
                   </div>
                 </ListCard>

@@ -337,3 +337,48 @@ export async function updatePost(
     approval: (await requestPostApproval(post))?.approval ?? null
   };
 }
+
+export async function deletePost(clientId: string, postId: string) {
+  const serverModule = await import("@/lib/supabase/server");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const supabase = (await serverModule.getSupabaseServerClient()) as any;
+
+  if (supabase) {
+    const { data: existingRow, error: existingError } = await supabase
+      .from("posts")
+      .select("goal")
+      .eq("id", postId)
+      .eq("client_id", clientId)
+      .maybeSingle();
+
+    if (existingError) {
+      throw existingError;
+    }
+
+    if (!existingRow) {
+      throw new Error("Post not found.");
+    }
+
+    // Related workflow tables may not exist in older Supabase projects yet.
+    await supabase.from("approval_requests").delete().eq("client_id", clientId).eq("entity_type", "post").eq("entity_id", postId);
+    await supabase.from("publish_jobs").delete().eq("client_id", clientId).eq("post_id", postId);
+    await supabase.from("post_assets").delete().eq("post_id", postId);
+
+    const { error: deleteError } = await supabase
+      .from("posts")
+      .delete()
+      .eq("id", postId)
+      .eq("client_id", clientId);
+
+    if (deleteError) {
+      throw deleteError;
+    }
+
+    return { postId };
+  }
+
+  const snapshot = getClientSnapshot(clientId);
+  snapshot.posts = snapshot.posts.filter((post) => post.id !== postId);
+
+  return { postId };
+}

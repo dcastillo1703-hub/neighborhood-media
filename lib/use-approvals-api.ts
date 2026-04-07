@@ -94,6 +94,20 @@ export function useApprovalsApi(clientId: string) {
     },
     prependApproval(approval: ApprovalRequest) {
       setApprovals((current) => [approval, ...current]);
+    },
+    async deleteApproval(approvalId: string) {
+      const response = await fetch(
+        `/api/approvals/${approvalId}?clientId=${encodeURIComponent(clientId)}`,
+        {
+          method: "DELETE"
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to delete approval.");
+      }
+
+      setApprovals((current) => current.filter((approval) => approval.id !== approvalId));
     }
   };
 }
