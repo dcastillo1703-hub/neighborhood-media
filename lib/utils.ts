@@ -34,7 +34,7 @@ export function formatShortDate(value?: string | null) {
 
   if (match) {
     const [, year, month, day] = match;
-    return `${Number(month)}-${Number(day)}-${year.slice(2)}`;
+    return `${Number(month)}/${Number(day)}/${year.slice(2)}`;
   }
 
   const parsed = new Date(value);
@@ -43,5 +43,5 @@ export function formatShortDate(value?: string | null) {
     return value;
   }
 
-  return `${parsed.getMonth() + 1}-${parsed.getDate()}-${String(parsed.getFullYear()).slice(2)}`;
+  return `${parsed.getMonth() + 1}/${parsed.getDate()}/${String(parsed.getFullYear()).slice(2)}`;
 }

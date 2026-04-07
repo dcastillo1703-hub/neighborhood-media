@@ -43,7 +43,7 @@ import { useApprovalsApi } from "@/lib/use-approvals-api";
 import { useCampaignRoi } from "@/lib/use-campaign-roi";
 import { useOperationsApi } from "@/lib/use-operations-api";
 import { usePublishingApi } from "@/lib/use-publishing-api";
-import { currency, number } from "@/lib/utils";
+import { currency, formatShortDate, number } from "@/lib/utils";
 import { validatePost } from "@/lib/validation";
 import { useWorkspaceContext } from "@/lib/workspace-context";
 import {
@@ -596,7 +596,7 @@ export default function CampaignDetailPage() {
         className="hidden sm:flex"
         eyebrow="Campaign workspace"
         title={campaign.name}
-        description={`${campaign.objective} · ${campaign.startDate} to ${campaign.endDate}`}
+        description={`${campaign.objective} · ${formatShortDate(campaign.startDate)} to ${formatShortDate(campaign.endDate)}`}
         actions={
           <div className="flex flex-col gap-3 sm:flex-row">
             <Link className={buttonVariants({ variant: "outline" })} href="/campaigns">
@@ -738,7 +738,7 @@ export default function CampaignDetailPage() {
               </span>
               <div>
                 <p className="text-sm text-white/45">Due date</p>
-                <p className="text-lg text-white">{campaign.endDate}</p>
+                <DatePill className="border-white/15 bg-white/10 text-white/75" value={campaign.endDate} />
               </div>
             </div>
           </div>
@@ -871,7 +871,7 @@ export default function CampaignDetailPage() {
             <ListCard>
               <p className="text-sm text-muted-foreground">Launch window</p>
               <p className="mt-2 text-lg text-foreground">
-                {campaign.startDate} to {campaign.endDate}
+                <DatePill value={campaign.startDate} /> <span className="text-sm text-muted-foreground">to</span> <DatePill value={campaign.endDate} />
               </p>
             </ListCard>
             <ListCard>
