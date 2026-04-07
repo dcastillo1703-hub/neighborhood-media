@@ -209,6 +209,50 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["campaigns"]["Insert"]>;
         Relationships: [];
       };
+      campaign_roi_snapshots: {
+        Row: {
+          id: string;
+          client_id: string;
+          campaign_id: string;
+          ad_spend: number;
+          production_cost: number;
+          agency_hours: number;
+          hourly_rate: number;
+          other_cost: number;
+          attributed_revenue: number;
+          attributed_covers: number;
+          attributed_bookings: number;
+          reach: number;
+          engagement: number;
+          clicks: number;
+          top_performer: string;
+          result_summary: string;
+          next_recommendation: string;
+          updated_at: string | null;
+        };
+        Insert: {
+          id: string;
+          client_id: string;
+          campaign_id: string;
+          ad_spend?: number;
+          production_cost?: number;
+          agency_hours?: number;
+          hourly_rate?: number;
+          other_cost?: number;
+          attributed_revenue?: number;
+          attributed_covers?: number;
+          attributed_bookings?: number;
+          reach?: number;
+          engagement?: number;
+          clicks?: number;
+          top_performer?: string;
+          result_summary?: string;
+          next_recommendation?: string;
+          updated_at?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["campaign_roi_snapshots"]["Insert"]>;
+        Relationships: [];
+      };
       client_memberships: {
         Row: {
           id: string;

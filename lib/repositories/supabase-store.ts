@@ -12,6 +12,8 @@ import {
   mapBlogPostInsert,
   mapBlogPostRow,
   mapCampaignInsert,
+  mapCampaignRoiSnapshotInsert,
+  mapCampaignRoiSnapshotRow,
   mapCampaignRow,
   mapClientInsert,
   mapClientRow,
@@ -42,6 +44,7 @@ import type {
   Asset,
   BlogPost,
   Campaign,
+  CampaignRoiSnapshot,
   Client,
   ClientSettings,
   IntegrationConnection,
@@ -319,6 +322,34 @@ export const manualMetaPerformanceAdapter: EntityAdapter<ManualMetaPerformance> 
     const { error } = await supabase
       .from("manual_meta_performance")
       .upsert(mapManualMetaPerformanceInsert(performance), { onConflict: "id" });
+
+    if (error) {
+      throw error;
+    }
+  }
+};
+
+export const campaignRoiSnapshotAdapter: EntityAdapter<CampaignRoiSnapshot> = {
+  isConfigured: hasSupabaseCredentials,
+  async load(campaignId) {
+    const supabase = getSupabaseOrThrow();
+    const { data, error } = await supabase
+      .from("campaign_roi_snapshots")
+      .select("*")
+      .eq("campaign_id", campaignId)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    return data ? mapCampaignRoiSnapshotRow(data) : null;
+  },
+  async save(_, snapshot) {
+    const supabase = getSupabaseOrThrow();
+    const { error } = await supabase
+      .from("campaign_roi_snapshots")
+      .upsert(mapCampaignRoiSnapshotInsert(snapshot), { onConflict: "id" });
 
     if (error) {
       throw error;

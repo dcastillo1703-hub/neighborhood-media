@@ -5,6 +5,7 @@ import type {
   Asset,
   BlogPost,
   Campaign,
+  CampaignRoiSnapshot,
   Client,
   ClientMembership,
   ClientSettings,
@@ -281,6 +282,56 @@ export function mapCampaignInsert(campaign: Campaign): TableInsert<"campaigns"> 
     channels: campaign.channels,
     notes: campaign.notes,
     status: campaign.status
+  };
+}
+
+export function mapCampaignRoiSnapshotRow(
+  row: TableRow<"campaign_roi_snapshots">
+): CampaignRoiSnapshot {
+  return {
+    id: row.id,
+    clientId: row.client_id,
+    campaignId: row.campaign_id,
+    adSpend: row.ad_spend,
+    productionCost: row.production_cost,
+    agencyHours: row.agency_hours,
+    hourlyRate: row.hourly_rate,
+    otherCost: row.other_cost,
+    attributedRevenue: row.attributed_revenue,
+    attributedCovers: row.attributed_covers,
+    attributedBookings: row.attributed_bookings,
+    reach: row.reach,
+    engagement: row.engagement,
+    clicks: row.clicks,
+    topPerformer: row.top_performer,
+    resultSummary: row.result_summary,
+    nextRecommendation: row.next_recommendation,
+    updatedAt: row.updated_at ?? undefined
+  };
+}
+
+export function mapCampaignRoiSnapshotInsert(
+  snapshot: CampaignRoiSnapshot
+): TableInsert<"campaign_roi_snapshots"> {
+  return {
+    id: snapshot.id,
+    client_id: snapshot.clientId,
+    campaign_id: snapshot.campaignId,
+    ad_spend: snapshot.adSpend,
+    production_cost: snapshot.productionCost,
+    agency_hours: snapshot.agencyHours,
+    hourly_rate: snapshot.hourlyRate,
+    other_cost: snapshot.otherCost,
+    attributed_revenue: snapshot.attributedRevenue,
+    attributed_covers: snapshot.attributedCovers,
+    attributed_bookings: snapshot.attributedBookings,
+    reach: snapshot.reach,
+    engagement: snapshot.engagement,
+    clicks: snapshot.clicks,
+    top_performer: snapshot.topPerformer,
+    result_summary: snapshot.resultSummary,
+    next_recommendation: snapshot.nextRecommendation,
+    updated_at: snapshot.updatedAt ?? new Date().toISOString()
   };
 }
 

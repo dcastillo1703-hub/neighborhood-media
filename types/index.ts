@@ -82,6 +82,27 @@ export type ManualMetaPerformance = {
   updatedAt?: string;
 };
 
+export type CampaignRoiSnapshot = {
+  id: string;
+  clientId: string;
+  campaignId: string;
+  adSpend: number;
+  productionCost: number;
+  agencyHours: number;
+  hourlyRate: number;
+  otherCost: number;
+  attributedRevenue: number;
+  attributedCovers: number;
+  attributedBookings: number;
+  reach: number;
+  engagement: number;
+  clicks: number;
+  topPerformer: string;
+  resultSummary: string;
+  nextRecommendation: string;
+  updatedAt?: string;
+};
+
 export type RevenueModelInput = {
   mode: "monthly" | "weekly";
   averageCheck: number;

@@ -67,6 +67,28 @@ create table campaigns (
   created_at timestamptz default now()
 );
 
+create table campaign_roi_snapshots (
+  id text primary key,
+  client_id text not null references clients(id) on delete cascade,
+  campaign_id text not null references campaigns(id) on delete cascade,
+  ad_spend numeric not null default 0,
+  production_cost numeric not null default 0,
+  agency_hours numeric not null default 0,
+  hourly_rate numeric not null default 0,
+  other_cost numeric not null default 0,
+  attributed_revenue numeric not null default 0,
+  attributed_covers numeric not null default 0,
+  attributed_bookings numeric not null default 0,
+  reach integer not null default 0,
+  engagement integer not null default 0,
+  clicks integer not null default 0,
+  top_performer text not null default '',
+  result_summary text not null default '',
+  next_recommendation text not null default '',
+  updated_at timestamptz default now(),
+  unique (campaign_id)
+);
+
 create table assets (
   id text primary key,
   client_id text not null references clients(id) on delete cascade,
@@ -335,6 +357,7 @@ alter table clients enable row level security;
 alter table client_settings enable row level security;
 alter table weekly_metrics enable row level security;
 alter table campaigns enable row level security;
+alter table campaign_roi_snapshots enable row level security;
 alter table assets enable row level security;
 alter table blog_posts enable row level security;
 alter table planner_items enable row level security;

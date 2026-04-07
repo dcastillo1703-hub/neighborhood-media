@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   CalendarClock,
@@ -38,16 +38,31 @@ import { usePosts } from "@/lib/repositories/use-posts";
 import { useWeeklyMetrics } from "@/lib/repositories/use-weekly-metrics";
 import { useTheme } from "@/lib/theme-context";
 import { useApprovalsApi } from "@/lib/use-approvals-api";
+import { useCampaignRoi } from "@/lib/use-campaign-roi";
 import { useOperationsApi } from "@/lib/use-operations-api";
 import { usePublishingApi } from "@/lib/use-publishing-api";
 import { currency, number } from "@/lib/utils";
 import { validatePost } from "@/lib/validation";
 import { useWorkspaceContext } from "@/lib/workspace-context";
-import { OperationalTask, Post, PostStatus, TaskPriority } from "@/types";
+import { CampaignRoiSnapshot, OperationalTask, Post, PostStatus, TaskPriority } from "@/types";
 
 type CampaignWorkspaceView = "overview" | "list" | "board" | "calendar" | "performance";
 type CampaignBoardLane = "Draft" | "Review" | "Scheduled" | "Published";
 type CampaignTaskKind = "content" | "meeting" | "task";
+type CampaignRoiNumberField =
+  | "adSpend"
+  | "productionCost"
+  | "agencyHours"
+  | "hourlyRate"
+  | "otherCost"
+  | "attributedRevenue"
+  | "attributedCovers"
+  | "attributedBookings"
+  | "reach"
+  | "engagement"
+  | "clicks";
+
+type CampaignRoiNumberDraft = Record<CampaignRoiNumberField, string>;
 
 const campaignViews: Array<{
   id: CampaignWorkspaceView;
@@ -104,6 +119,22 @@ function createCampaignTask(workspaceId: string, clientId: string, campaignId: s
   };
 }
 
+function toNumberDraft(snapshot: CampaignRoiSnapshot): CampaignRoiNumberDraft {
+  return {
+    adSpend: snapshot.adSpend ? String(snapshot.adSpend) : "",
+    productionCost: snapshot.productionCost ? String(snapshot.productionCost) : "",
+    agencyHours: snapshot.agencyHours ? String(snapshot.agencyHours) : "",
+    hourlyRate: snapshot.hourlyRate ? String(snapshot.hourlyRate) : "",
+    otherCost: snapshot.otherCost ? String(snapshot.otherCost) : "",
+    attributedRevenue: snapshot.attributedRevenue ? String(snapshot.attributedRevenue) : "",
+    attributedCovers: snapshot.attributedCovers ? String(snapshot.attributedCovers) : "",
+    attributedBookings: snapshot.attributedBookings ? String(snapshot.attributedBookings) : "",
+    reach: snapshot.reach ? String(snapshot.reach) : "",
+    engagement: snapshot.engagement ? String(snapshot.engagement) : "",
+    clicks: snapshot.clicks ? String(snapshot.clicks) : ""
+  };
+}
+
 export default function CampaignDetailPage() {
   const params = useParams<{ campaignId: string }>();
   const campaignId = params.campaignId;
@@ -119,6 +150,13 @@ export default function CampaignDetailPage() {
   const { analyticsSnapshots } = useAnalyticsSnapshots(activeClient.id);
   const { approvals, ready: approvalsReady, reviewApproval } = useApprovalsApi(activeClient.id);
   const { jobs, ready: jobsReady, processJob } = usePublishingApi(activeClient.id);
+  const {
+    snapshot: roiSnapshot,
+    summary: roiSummary,
+    ready: roiReady,
+    error: roiError,
+    saveSnapshot: saveRoiSnapshot
+  } = useCampaignRoi(activeClient.id, campaignId);
   const { tasks, ready: tasksReady, error: tasksError, createTask } = useOperationsApi(
     workspace.id,
     activeClient.id
@@ -128,6 +166,10 @@ export default function CampaignDetailPage() {
     createCampaignTask(workspace.id, activeClient.id, campaignId)
   );
   const [taskKind, setTaskKind] = useState<CampaignTaskKind | null>(null);
+  const [roiDraft, setRoiDraft] = useState(roiSnapshot);
+  const [roiNumberDraft, setRoiNumberDraft] = useState<CampaignRoiNumberDraft>(() =>
+    toNumberDraft(roiSnapshot)
+  );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [savingTask, setSavingTask] = useState(false);
@@ -135,6 +177,11 @@ export default function CampaignDetailPage() {
   const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [processingJobId, setProcessingJobId] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<CampaignWorkspaceView>("overview");
+
+  useEffect(() => {
+    setRoiDraft(roiSnapshot);
+    setRoiNumberDraft(toNumberDraft(roiSnapshot));
+  }, [roiSnapshot]);
 
   const campaign = campaigns.find((item) => item.id === campaignId) ?? null;
   const overview = useMemo(
@@ -291,7 +338,7 @@ export default function CampaignDetailPage() {
     }
   };
 
-  if (!campaignsReady || !postsReady || !approvalsReady || !jobsReady || !tasksReady) {
+  if (!campaignsReady || !postsReady || !approvalsReady || !jobsReady || !tasksReady || !roiReady) {
     return <div className="text-sm text-muted-foreground">Loading campaign workspace...</div>;
   }
 
@@ -321,6 +368,28 @@ export default function CampaignDetailPage() {
   }
 
   const activeViewLabel = campaignViews.find((view) => view.id === activeView)?.label ?? "Overview";
+  const updateRoiNumber = (field: CampaignRoiNumberField, value: string) => {
+    setRoiNumberDraft((current) => ({
+      ...current,
+      [field]: value
+    }));
+    setRoiDraft((current) => ({
+      ...current,
+      [field]: Number(value) || 0
+    }));
+  };
+  const saveRoi = () => {
+    saveRoiSnapshot({
+      ...roiDraft,
+      ...Object.fromEntries(
+        Object.entries(roiNumberDraft).map(([field, value]) => [field, Number(value) || 0])
+      )
+    });
+  };
+  const roiNarrative =
+    roiSummary.totalInvestment > 0 || roiDraft.attributedRevenue > 0
+      ? `${campaign.name} has ${currency(roiDraft.attributedRevenue)} in tracked revenue against ${currency(roiSummary.totalInvestment)} in estimated investment, for a ${number(roiSummary.roiMultiple, 1)}x return.`
+      : "Add investment and outcome data to turn this campaign into a clear ROI story.";
 
   return (
     <div className="space-y-6 pb-28 sm:space-y-7 sm:pb-0">
@@ -948,34 +1017,141 @@ export default function CampaignDetailPage() {
       ) : null}
 
       {activeView === "performance" ? (
-      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+      <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
+        <Card id="roi-story" className="xl:col-span-2">
+          <CardHeader>
+            <div>
+              <CardDescription>Campaign ROI</CardDescription>
+              <CardTitle className="mt-3">Turn the work into a business result</CardTitle>
+            </div>
+          </CardHeader>
+          <div className="grid gap-4 xl:grid-cols-[0.82fr_1.18fr]">
+            <div className="rounded-[1rem] border border-border/70 bg-muted/25 p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className="normal-case tracking-[0.1em]">{roiSummary.status}</Badge>
+                {roiError ? <span className="text-xs text-primary">{roiError}</span> : null}
+              </div>
+              <p className="mt-4 text-balance text-xl font-medium leading-8 text-foreground">
+                {roiNarrative}
+              </p>
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                <ListCard>
+                  <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Investment</p>
+                  <p className="mt-2 text-2xl text-foreground">{currency(roiSummary.totalInvestment)}</p>
+                </ListCard>
+                <ListCard>
+                  <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Tracked revenue</p>
+                  <p className="mt-2 text-2xl text-foreground">{currency(roiDraft.attributedRevenue)}</p>
+                </ListCard>
+                <ListCard>
+                  <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Net lift</p>
+                  <p className="mt-2 text-2xl text-foreground">{currency(roiSummary.netReturn)}</p>
+                </ListCard>
+                <ListCard>
+                  <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">ROI multiple</p>
+                  <p className="mt-2 text-2xl text-foreground">{number(roiSummary.roiMultiple, 1)}x</p>
+                </ListCard>
+              </div>
+              <div className="mt-4 rounded-[1rem] border border-border/70 bg-card/80 p-4">
+                <p className="text-sm font-medium text-foreground">Next recommendation</p>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  {roiDraft.nextRecommendation || "Add the next action once you know whether to scale, adjust, or pause the campaign."}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid gap-4">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {[
+                  ["Ad spend", "adSpend"],
+                  ["Production cost", "productionCost"],
+                  ["Agency hours", "agencyHours"],
+                  ["Hourly rate", "hourlyRate"],
+                  ["Other cost", "otherCost"],
+                  ["Revenue", "attributedRevenue"],
+                  ["Covers", "attributedCovers"],
+                  ["Bookings", "attributedBookings"]
+                ].map(([label, field]) => (
+                  <div key={field}>
+                    <Label>{label}</Label>
+                    <Input
+                      inputMode="decimal"
+                      type="number"
+                      value={roiNumberDraft[field as CampaignRoiNumberField]}
+                      onChange={(event) => updateRoiNumber(field as CampaignRoiNumberField, event.target.value)}
+                    />
+                  </div>
+                ))}
+              </div>
+              <div className="grid gap-3 sm:grid-cols-3">
+                {[
+                  ["Reach", "reach"],
+                  ["Engagement", "engagement"],
+                  ["Clicks", "clicks"]
+                ].map(([label, field]) => (
+                  <div key={field}>
+                    <Label>{label}</Label>
+                    <Input
+                      inputMode="numeric"
+                      type="number"
+                      value={roiNumberDraft[field as CampaignRoiNumberField]}
+                      onChange={(event) => updateRoiNumber(field as CampaignRoiNumberField, event.target.value)}
+                    />
+                  </div>
+                ))}
+              </div>
+              <div>
+                <Label>Top performer</Label>
+                <Input
+                  value={roiDraft.topPerformer}
+                  placeholder="Ex. Friday brunch reel"
+                  onChange={(event) => setRoiDraft((current) => ({ ...current, topPerformer: event.target.value }))}
+                />
+              </div>
+              <div>
+                <Label>Result summary</Label>
+                <Textarea
+                  value={roiDraft.resultSummary}
+                  placeholder="What changed after this campaign ran?"
+                  onChange={(event) => setRoiDraft((current) => ({ ...current, resultSummary: event.target.value }))}
+                />
+              </div>
+              <div>
+                <Label>Next recommendation</Label>
+                <Textarea
+                  value={roiDraft.nextRecommendation}
+                  placeholder="What should the restaurant do next?"
+                  onChange={(event) => setRoiDraft((current) => ({ ...current, nextRecommendation: event.target.value }))}
+                />
+              </div>
+              <Button onClick={saveRoi}>Save ROI Snapshot</Button>
+            </div>
+          </div>
+        </Card>
+
         <Card id="performance-snapshot">
           <CardHeader>
             <div>
-              <CardDescription>Performance Snapshot</CardDescription>
-              <CardTitle className="mt-3">What this campaign is producing so far</CardTitle>
+              <CardDescription>Linked Data</CardDescription>
+              <CardTitle className="mt-3">Signals already attached to this campaign</CardTitle>
             </div>
           </CardHeader>
           <div className="grid gap-3 md:grid-cols-2">
             <ListCard>
-              <p className="text-sm text-muted-foreground">Attributed revenue</p>
+              <p className="text-sm text-muted-foreground">Analytics revenue</p>
               <p className="mt-2 text-2xl text-foreground">{currency(overview.attributedRevenue)}</p>
-              <p className="mt-2 text-sm text-muted-foreground">Revenue currently tied back to this campaign.</p>
             </ListCard>
             <ListCard>
-              <p className="text-sm text-muted-foreground">Attributed covers</p>
+              <p className="text-sm text-muted-foreground">Analytics covers</p>
               <p className="mt-2 text-2xl text-foreground">{number(overview.attributedCovers)}</p>
-              <p className="mt-2 text-sm text-muted-foreground">Dining demand currently attributed to this campaign.</p>
             </ListCard>
             <ListCard>
-              <p className="text-sm text-muted-foreground">Attributed tables</p>
+              <p className="text-sm text-muted-foreground">Analytics tables</p>
               <p className="mt-2 text-2xl text-foreground">{number(overview.attributedTables, 1)}</p>
-              <p className="mt-2 text-sm text-muted-foreground">Table demand translated from linked reporting.</p>
             </ListCard>
             <ListCard>
               <p className="text-sm text-muted-foreground">Linked weekly metrics</p>
               <p className="mt-2 text-2xl text-foreground">{number(overview.linkedMetrics.length)}</p>
-              <p className="mt-2 text-sm text-muted-foreground">Weekly performance entries tied to this campaign.</p>
             </ListCard>
           </div>
         </Card>
