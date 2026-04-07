@@ -42,7 +42,7 @@ import { useActivityEvents } from "@/lib/repositories/use-activity-events";
 import { useOperationalTasks } from "@/lib/repositories/use-operational-tasks";
 import { useWeeklyMetrics } from "@/lib/repositories/use-weekly-metrics";
 import { useApprovalsApi } from "@/lib/use-approvals-api";
-import { cn, currency, number, percent } from "@/lib/utils";
+import { cn, currency, number } from "@/lib/utils";
 import { useWorkspaceContext } from "@/lib/workspace-context";
 import type { ClientSettings } from "@/types";
 
@@ -55,6 +55,15 @@ type OverviewDraft = {
   overviewSummary: string;
   overviewPinnedCampaignId: string;
   overviewFeaturedMetric: ClientSettings["overviewFeaturedMetric"];
+  overviewCards: OverviewCardDraft[];
+};
+
+type OverviewCardDraft = {
+  id: "primary" | "review" | "publish";
+  label: string;
+  value: string;
+  detail: string;
+  href: Route;
 };
 
 type ClientAction = {
@@ -66,16 +75,62 @@ type ClientAction = {
   date?: string;
 };
 
-function toOverviewDraft(settings: ClientSettings): OverviewDraft {
+const overviewStatePrefix = "__client_home_v1__";
+
+function decodeOverviewSummary(value: string): {
+  summary: string;
+  cards?: OverviewCardDraft[];
+} {
+  if (!value.startsWith(overviewStatePrefix)) {
+    return { summary: value };
+  }
+
+  try {
+    const parsed = JSON.parse(value.slice(overviewStatePrefix.length)) as {
+      summary?: unknown;
+      cards?: unknown;
+    };
+
+    return {
+      summary: typeof parsed.summary === "string" ? parsed.summary : "",
+      cards: Array.isArray(parsed.cards)
+        ? parsed.cards
+            .filter((card): card is OverviewCardDraft => {
+              if (!card || typeof card !== "object") return false;
+              const item = card as Partial<OverviewCardDraft>;
+              return (
+                (item.id === "primary" || item.id === "review" || item.id === "publish") &&
+                typeof item.label === "string" &&
+                typeof item.value === "string" &&
+                typeof item.detail === "string" &&
+                typeof item.href === "string"
+              );
+            })
+            .slice(0, 3)
+        : undefined
+    };
+  } catch {
+    return { summary: value.replace(overviewStatePrefix, "") };
+  }
+}
+
+function encodeOverviewSummary(summary: string, cards: OverviewCardDraft[]) {
+  return `${overviewStatePrefix}${JSON.stringify({ summary, cards })}`;
+}
+
+function toOverviewDraft(settings: ClientSettings, fallbackCards: OverviewCardDraft[] = []): OverviewDraft {
+  const decodedOverview = decodeOverviewSummary(settings.overviewSummary);
+
   return {
     averageCheck: String(settings.averageCheck),
     weeklyCovers: String(settings.weeklyCovers),
     monthlyCovers: String(settings.monthlyCovers),
     growthTarget: String(settings.defaultGrowthTarget),
     overviewHeadline: settings.overviewHeadline,
-    overviewSummary: settings.overviewSummary,
+    overviewSummary: decodedOverview.summary,
     overviewPinnedCampaignId: settings.overviewPinnedCampaignId ?? "",
-    overviewFeaturedMetric: settings.overviewFeaturedMetric
+    overviewFeaturedMetric: settings.overviewFeaturedMetric,
+    overviewCards: decodedOverview.cards?.length === 3 ? decodedOverview.cards : fallbackCards
   };
 }
 
@@ -127,6 +182,7 @@ export default function DashboardPage() {
   const pendingApprovals = approvals.filter((approval) => approval.status === "Pending");
   const nextScheduledItem = scheduledContent[0] ?? null;
   const nextTask = openTasks[0] ?? null;
+  const decodedOverview = useMemo(() => decodeOverviewSummary(settings.overviewSummary), [settings.overviewSummary]);
   const clientFirstName =
     profile?.fullName?.split(" ")[0] ??
     profile?.email?.split("@")[0] ??
@@ -178,16 +234,6 @@ export default function DashboardPage() {
     return actions.slice(0, 4);
   }, [nextScheduledItem, nextTask, pendingApprovals]);
 
-  const performancePulse: Array<{ label: string; value: string; href: Route }> = [
-    { label: "Weekly covers", value: number(model.weeklyCovers), href: "/performance#business-snapshot" as Route },
-    { label: "Weekly revenue", value: currency(model.weeklyRevenue), href: "/performance#business-snapshot" as Route },
-    { label: "Growth target", value: percent(revenueModelDefaults.growthTarget), href: "/revenue-modeling#growth-target" as Route }
-  ];
-
-  useEffect(() => {
-    setOverviewDraft(toOverviewDraft(settings));
-  }, [settings]);
-
   const featuredMetric = useMemo(() => {
     switch (settings.overviewFeaturedMetric) {
       case "weekly-revenue":
@@ -218,6 +264,43 @@ export default function DashboardPage() {
     }
   }, [analyticsSnapshots, model.weeklyCovers, model.weeklyRevenue, openTasks.length, settings.overviewFeaturedMetric]);
 
+  const defaultHomeCards = useMemo<OverviewCardDraft[]>(() => [
+    {
+      id: "primary",
+      label: featuredMetric.label,
+      value: featuredMetric.value,
+      detail: "The one number to keep in view this week.",
+      href: featuredMetric.href
+    },
+    {
+      id: "review",
+      label: "Waiting on Review",
+      value: approvalsReady ? number(pendingApprovals.length) : "...",
+      detail: "Content or requests that need a client decision.",
+      href: "/approvals" as Route
+    },
+    {
+      id: "publish",
+      label: "Next Publish",
+      value: nextScheduledItem ? nextScheduledItem.platform : "None",
+      detail: nextScheduledItem?.content ?? "No scheduled content is on the calendar yet.",
+      href: "/calendar" as Route
+    }
+  ], [approvalsReady, featuredMetric, nextScheduledItem, pendingApprovals.length]);
+
+  const clientHomeCards =
+    decodedOverview.cards?.length === 3 ? decodedOverview.cards : defaultHomeCards;
+
+  const performancePulse: Array<{ label: string; value: string; href: Route }> = clientHomeCards.map((card) => ({
+    label: card.label,
+    value: card.value,
+    href: card.href
+  }));
+
+  useEffect(() => {
+    setOverviewDraft(toOverviewDraft(settings, defaultHomeCards));
+  }, [defaultHomeCards, settings]);
+
   const saveOverview = () => {
     setSettings((current) => ({
       ...current,
@@ -226,7 +309,7 @@ export default function DashboardPage() {
       monthlyCovers: Number(overviewDraft.monthlyCovers) || 0,
       defaultGrowthTarget: Number(overviewDraft.growthTarget) || 0,
       overviewHeadline: overviewDraft.overviewHeadline.trim(),
-      overviewSummary: overviewDraft.overviewSummary.trim(),
+      overviewSummary: encodeOverviewSummary(overviewDraft.overviewSummary.trim(), overviewDraft.overviewCards),
       overviewPinnedCampaignId: overviewDraft.overviewPinnedCampaignId || undefined,
       overviewFeaturedMetric: overviewDraft.overviewFeaturedMetric
     }));
@@ -255,13 +338,14 @@ export default function DashboardPage() {
             <p className="text-sm font-semibold text-white/70">{formatToday()}</p>
             <h1 className="mt-2 text-4xl font-semibold tracking-[-0.05em]">{getGreeting(clientFirstName)}</h1>
           </div>
-          <Link
+          <button
             className="rounded-2xl border border-white/10 bg-white/5 p-3 text-white/70"
-            href="/settings"
-            aria-label="Open account settings"
+            type="button"
+            onClick={() => setIsEditingOverview((current) => !current)}
+            aria-label="Customize client home"
           >
             <MoreHorizontal className="h-5 w-5" />
-          </Link>
+          </button>
         </div>
 
         <div className="mt-8 rounded-[1.75rem] border border-white/10 bg-[#1b1c1f] p-5">
@@ -302,6 +386,16 @@ export default function DashboardPage() {
             )}
           </div>
         </div>
+
+        <div className="mt-5 grid gap-3">
+          {clientHomeCards.map((card) => (
+            <Link className="rounded-[1.45rem] border border-white/10 bg-[#1b1c1f] p-4" href={card.href} key={card.id}>
+              <p className="text-sm text-white/50">{card.label}</p>
+              <p className="mt-2 truncate text-3xl font-semibold tracking-[-0.04em] text-white">{card.value}</p>
+              <p className="mt-2 line-clamp-2 text-sm leading-6 text-white/50">{card.detail}</p>
+            </Link>
+          ))}
+        </div>
       </section>
 
       <div className="hidden items-start justify-between gap-6 sm:flex">
@@ -309,7 +403,7 @@ export default function DashboardPage() {
           eyebrow="Client Home"
           title={`${activeClient.name} home`}
           description={
-            settings.overviewSummary ||
+            decodedOverview.summary ||
             "A calmer client-facing view of what needs review, what is going out next, and how the restaurant is tracking."
           }
         />
@@ -392,8 +486,81 @@ export default function DashboardPage() {
               </div>
             </div>
 
+            <div className="rounded-[1.25rem] border border-border/70 bg-card/55 p-4">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Top overview cards</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Customize the three rounded cards shown first on desktop and mobile.</p>
+                </div>
+                <Button
+                  onClick={() =>
+                    setOverviewDraft((current) => ({
+                      ...current,
+                      overviewCards: defaultHomeCards
+                    }))
+                  }
+                  type="button"
+                  variant="outline"
+                >
+                  Use live defaults
+                </Button>
+              </div>
+              <div className="mt-4 grid gap-4 lg:grid-cols-3">
+                {overviewDraft.overviewCards.map((card, index) => (
+                  <div className="rounded-[1rem] border border-border/70 bg-background/60 p-4" key={card.id}>
+                    <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Card {index + 1}</p>
+                    <div className="mt-4 space-y-3">
+                      <div>
+                        <Label>Label</Label>
+                        <Input
+                          value={card.label}
+                          onChange={(event) =>
+                            setOverviewDraft((current) => ({
+                              ...current,
+                              overviewCards: current.overviewCards.map((item) =>
+                                item.id === card.id ? { ...item, label: event.target.value } : item
+                              )
+                            }))
+                          }
+                        />
+                      </div>
+                      <div>
+                        <Label>Value</Label>
+                        <Input
+                          value={card.value}
+                          onChange={(event) =>
+                            setOverviewDraft((current) => ({
+                              ...current,
+                              overviewCards: current.overviewCards.map((item) =>
+                                item.id === card.id ? { ...item, value: event.target.value } : item
+                              )
+                            }))
+                          }
+                        />
+                      </div>
+                      <div>
+                        <Label>Detail</Label>
+                        <Textarea
+                          className="min-h-24"
+                          value={card.detail}
+                          onChange={(event) =>
+                            setOverviewDraft((current) => ({
+                              ...current,
+                              overviewCards: current.overviewCards.map((item) =>
+                                item.id === card.id ? { ...item, detail: event.target.value } : item
+                              )
+                            }))
+                          }
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div className="flex justify-end gap-3">
-              <Button variant="outline" onClick={() => setOverviewDraft(toOverviewDraft(settings))}>
+              <Button variant="outline" onClick={() => setOverviewDraft(toOverviewDraft(settings, defaultHomeCards))}>
                 Reset
               </Button>
               <Button onClick={saveOverview}>Save Client Home</Button>
@@ -403,34 +570,15 @@ export default function DashboardPage() {
       ) : null}
 
       <motion.div animate={{ opacity: 1, y: 0 }} className="grid gap-4 md:grid-cols-3" initial={{ opacity: 0, y: 12 }}>
-        <Link href={featuredMetric.href}>
-          <Card className="h-full p-5">
-            <p className="text-sm text-muted-foreground">{featuredMetric.label}</p>
-            <p className="mt-3 font-display text-4xl text-foreground">{featuredMetric.value}</p>
-            <p className="mt-4 text-sm leading-6 text-muted-foreground">The one number to keep in view this week.</p>
-          </Card>
-        </Link>
-        <Link href="/approvals">
-          <Card className="h-full p-5">
-            <p className="text-sm text-muted-foreground">Waiting on Review</p>
-            <p className="mt-3 font-display text-4xl text-foreground">{approvalsReady ? number(pendingApprovals.length) : "..."}</p>
-            <p className="mt-4 text-sm leading-6 text-muted-foreground">Content or requests that need a client decision.</p>
-          </Card>
-        </Link>
-        <Link href="/calendar">
-          <Card className="h-full p-5">
-            <p className="text-sm text-muted-foreground">Next Publish</p>
-            <p className="mt-3 truncate font-display text-4xl text-foreground">{nextScheduledItem ? nextScheduledItem.platform : "None"}</p>
-            {nextScheduledItem ? (
-              <div className="mt-4 space-y-2">
-                <DatePill value={nextScheduledItem.date} />
-                <p className="line-clamp-2 text-sm leading-6 text-muted-foreground">{nextScheduledItem.content}</p>
-              </div>
-            ) : (
-              <p className="mt-4 line-clamp-2 text-sm leading-6 text-muted-foreground">No scheduled content is on the calendar yet.</p>
-            )}
-          </Card>
-        </Link>
+        {clientHomeCards.map((card) => (
+          <Link href={card.href} key={card.id}>
+            <Card className="h-full p-5">
+              <p className="text-sm text-muted-foreground">{card.label}</p>
+              <p className="mt-3 truncate font-display text-4xl text-foreground">{card.value}</p>
+              <p className="mt-4 line-clamp-3 text-sm leading-6 text-muted-foreground">{card.detail}</p>
+            </Card>
+          </Link>
+        ))}
       </motion.div>
 
       <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
@@ -495,7 +643,7 @@ export default function DashboardPage() {
           {leadCampaign && pinnedCampaign ? (
             <div className="space-y-5">
               <p className="text-sm leading-6 text-muted-foreground">
-                {pinnedCampaign.objective || settings.overviewHeadline || buildImpactSentence(activeClient.name, revenueModelDefaults)}
+                {pinnedCampaign.objective || settings.overviewHeadline || decodedOverview.summary || buildImpactSentence(activeClient.name, revenueModelDefaults)}
               </p>
               <div className="grid gap-3 text-sm">
                 <div className="flex items-center justify-between rounded-2xl bg-muted/50 px-4 py-3">
