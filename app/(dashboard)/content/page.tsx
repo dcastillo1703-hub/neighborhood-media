@@ -50,6 +50,7 @@ export default function ContentPage() {
   const { jobs } = usePublishingApi(activeClient.id);
   const mobileAgendaDays = useMemo(() => getMobileAgendaDays(), []);
   const [selectedDate, setSelectedDate] = useState(() => mobileAgendaDays[0]?.dateKey ?? formatDateKey(new Date()));
+  const [mobileTaskView, setMobileTaskView] = useState<"list" | "calendar">("calendar");
 
   const scheduledPosts = getScheduledPosts(posts);
   const pendingApprovals = approvals.filter((approval) => approval.status === "Pending");
@@ -101,6 +102,56 @@ export default function ContentPage() {
       campaignId: item.campaignId
     }))
   ];
+  const mobileTasks = [
+    ...scheduledPosts.map((post) => ({
+      id: `post-${post.id}`,
+      title: post.goal,
+      eyebrow: `${post.platform} content`,
+      detail: post.content || "Scheduled content item.",
+      status: post.status,
+      dateKey: post.publishDate,
+      campaignId: post.campaignId
+    })),
+    ...pendingApprovals.map((approval) => {
+      const linkedPost = posts.find((post) => post.id === approval.entityId);
+
+      return {
+        id: `approval-${approval.id}`,
+        title: approval.summary,
+        eyebrow: "Approval",
+        detail: approval.note ?? "Needs review.",
+        status: approval.status,
+        dateKey: linkedPost?.publishDate,
+        campaignId: linkedPost?.campaignId
+      };
+    }),
+    ...queuedPublishJobs.map((job) => {
+      const linkedPost = posts.find((post) => post.id === job.postId);
+
+      return {
+        id: `job-${job.id}`,
+        title: `${job.provider} publish job`,
+        eyebrow: "Publishing",
+        detail: job.detail,
+        status: job.status,
+        dateKey: job.scheduledFor?.split("T")[0],
+        campaignId: linkedPost?.campaignId
+      };
+    }),
+    ...planningBacklog.map((item) => ({
+      id: `planner-${item.id}`,
+      title: item.campaignGoal,
+      eyebrow: `${item.platform} planner`,
+      detail: item.caption,
+      status: item.status,
+      dateKey: undefined,
+      campaignId: item.campaignId
+    }))
+  ].sort((left, right) => (left.dateKey ?? "9999-12-31").localeCompare(right.dateKey ?? "9999-12-31"));
+  const todayKey = mobileAgendaDays[0]?.dateKey ?? formatDateKey(new Date());
+  const todayTasks = mobileTasks.filter((task) => task.dateKey === todayKey);
+  const upcomingTasks = mobileTasks.filter((task) => task.dateKey && task.dateKey > todayKey).slice(0, 8);
+  const unscheduledTasks = mobileTasks.filter((task) => !task.dateKey).slice(0, 8);
 
   if (!ready) {
     return <div className="text-sm text-muted-foreground">Loading content workspace...</div>;
@@ -127,78 +178,145 @@ export default function ContentPage() {
           <h1 className="mt-2 text-4xl font-semibold tracking-[-0.06em]">My tasks</h1>
         </div>
 
-        <div className="mt-7 rounded-[1.65rem] border border-white/12 bg-white/[0.035] p-4">
-          <div className="flex items-center justify-between">
-            <p className="text-lg font-semibold">Calendar</p>
-            <p className="text-sm text-white/45">{number(scheduledPosts.length + planningBacklog.length)} total</p>
-          </div>
-          <div className="mt-4 grid grid-cols-7 gap-2">
-            {mobileAgendaDays.map((day) => {
-              const selected = day.dateKey === selectedDate;
-              const hasWork =
-                scheduledPosts.some((post) => post.publishDate === day.dateKey) ||
-                queuedPublishJobs.some((job) => job.scheduledFor?.startsWith(day.dateKey));
-
-              return (
-                <button
-                  className={[
-                    "rounded-2xl px-1 py-3 text-center transition",
-                    selected ? "bg-white text-[#202024]" : "bg-white/[0.04] text-white/62"
-                  ].join(" ")}
-                  key={day.dateKey}
-                  type="button"
-                  onClick={() => setSelectedDate(day.dateKey)}
-                >
-                  <span className="block text-[0.66rem] font-semibold uppercase">{day.day}</span>
-                  <span className="mt-1 block text-lg font-semibold">{day.number}</span>
-                  <span className={["mx-auto mt-1 block h-1.5 w-1.5 rounded-full", hasWork ? "bg-current" : "bg-transparent"].join(" ")} />
-                </button>
-              );
-            })}
-          </div>
+        <div className="mt-6 inline-flex rounded-[1.15rem] border border-white/12 bg-white/[0.04] p-1">
+          {(["list", "calendar"] as const).map((view) => (
+            <button
+              className={[
+                "rounded-[0.9rem] px-5 py-2 text-sm font-semibold capitalize transition",
+                mobileTaskView === view ? "bg-white text-[#202024]" : "text-white/55"
+              ].join(" ")}
+              key={view}
+              type="button"
+              onClick={() => setMobileTaskView(view)}
+            >
+              {view}
+            </button>
+          ))}
         </div>
 
-        <div className="mt-7">
-          <p className="text-sm font-semibold text-[var(--app-accent)]">
-            {selectedDay?.label ?? "Today"}
-          </p>
-          <h2 className="mt-2 text-3xl font-semibold tracking-[-0.04em]">
-            {selectedDayTasks.length ? "Scheduled for this day" : "Nothing due here"}
-          </h2>
-          <div className="mt-5 space-y-3">
-            {selectedDayTasks.length ? (
-              selectedDayTasks.map((task) => {
-                const linkedCampaign = campaigns.find((campaign) => campaign.id === task.campaignId);
+        {mobileTaskView === "calendar" ? (
+          <>
+            <div className="mt-6 rounded-[1.65rem] border border-white/12 bg-white/[0.035] p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-lg font-semibold">Calendar</p>
+                <p className="text-sm text-white/45">{number(scheduledPosts.length + planningBacklog.length)} total</p>
+              </div>
+              <div className="mt-4 grid grid-cols-7 gap-2">
+                {mobileAgendaDays.map((day) => {
+                  const selected = day.dateKey === selectedDate;
+                  const hasWork =
+                    scheduledPosts.some((post) => post.publishDate === day.dateKey) ||
+                    queuedPublishJobs.some((job) => job.scheduledFor?.startsWith(day.dateKey));
 
-                return (
-                  <div className="rounded-[1.35rem] border border-white/12 bg-white/[0.035] p-4" key={task.id}>
-                    <div className="flex items-start gap-3">
-                      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/45 text-white/65">
-                        ✓
-                      </span>
-                      <div className="min-w-0">
-                        <p className="text-xs uppercase tracking-[0.18em] text-white/38">{task.eyebrow}</p>
-                        <p className="mt-1 text-lg font-semibold text-white">{task.title}</p>
-                        <p className="mt-2 line-clamp-2 text-sm leading-6 text-white/52">{task.detail}</p>
-                        <div className="mt-3 flex flex-wrap gap-2 text-xs text-white/48">
-                          <span className="rounded-full bg-white/[0.06] px-2.5 py-1">{task.status}</span>
-                          {linkedCampaign ? (
-                            <span className="rounded-full bg-white/[0.06] px-2.5 py-1">{linkedCampaign.name}</span>
-                          ) : null}
+                  return (
+                    <button
+                      className={[
+                        "rounded-2xl px-1 py-3 text-center transition",
+                        selected ? "bg-white text-[#202024]" : "bg-white/[0.04] text-white/62"
+                      ].join(" ")}
+                      key={day.dateKey}
+                      type="button"
+                      onClick={() => setSelectedDate(day.dateKey)}
+                    >
+                      <span className="block text-[0.66rem] font-semibold uppercase">{day.day}</span>
+                      <span className="mt-1 block text-lg font-semibold">{day.number}</span>
+                      <span className={["mx-auto mt-1 block h-1.5 w-1.5 rounded-full", hasWork ? "bg-current" : "bg-transparent"].join(" ")} />
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="mt-7">
+              <p className="text-sm font-semibold text-[var(--app-accent)]">
+                {selectedDay?.label ?? "Today"}
+              </p>
+              <h2 className="mt-2 text-3xl font-semibold tracking-[-0.04em]">
+                {selectedDayTasks.length ? "Scheduled for this day" : "Nothing due here"}
+              </h2>
+              <div className="mt-5 space-y-3">
+                {selectedDayTasks.length ? (
+                  selectedDayTasks.map((task) => {
+                    const linkedCampaign = campaigns.find((campaign) => campaign.id === task.campaignId);
+
+                    return (
+                      <div className="rounded-[1.35rem] border border-white/12 bg-white/[0.035] p-4" key={task.id}>
+                        <div className="flex items-start gap-3">
+                          <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/45 text-white/65">
+                            ✓
+                          </span>
+                          <div className="min-w-0">
+                            <p className="text-xs uppercase tracking-[0.18em] text-white/38">{task.eyebrow}</p>
+                            <p className="mt-1 text-lg font-semibold text-white">{task.title}</p>
+                            <p className="mt-2 line-clamp-2 text-sm leading-6 text-white/52">{task.detail}</p>
+                            <div className="mt-3 flex flex-wrap gap-2 text-xs text-white/48">
+                              <span className="rounded-full bg-white/[0.06] px-2.5 py-1">{task.status}</span>
+                              {linkedCampaign ? (
+                                <span className="rounded-full bg-white/[0.06] px-2.5 py-1">{linkedCampaign.name}</span>
+                              ) : null}
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    );
+                  })
+                ) : (
+                  <div className="rounded-[1.65rem] border border-white/12 p-6 text-white/58">
+                    <p className="text-lg text-white">No tasks for this date</p>
+                    <p className="mt-2 text-sm leading-6">Pick another day above, or add content inside a campaign.</p>
                   </div>
-                );
-              })
-            ) : (
-              <div className="rounded-[1.65rem] border border-white/12 p-6 text-white/58">
-                <p className="text-lg text-white">No tasks for this date</p>
-                <p className="mt-2 text-sm leading-6">Pick another day above, or add content inside a campaign.</p>
+                )}
               </div>
-            )}
+            </div>
+          </>
+        ) : (
+          <div className="mt-7 space-y-7">
+            {[
+              ["Today", todayTasks],
+              ["Upcoming", upcomingTasks],
+              ["Unscheduled", unscheduledTasks]
+            ].map(([section, sectionTasks]) => (
+              <section key={String(section)}>
+                <div className="flex items-center justify-between">
+                  <h2 className="text-2xl font-semibold tracking-[-0.04em]">{String(section)}</h2>
+                  <span className="rounded-full bg-white/[0.06] px-2.5 py-1 text-xs text-white/48">
+                    {Array.isArray(sectionTasks) ? number(sectionTasks.length) : 0}
+                  </span>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {Array.isArray(sectionTasks) && sectionTasks.length ? (
+                    sectionTasks.map((task) => {
+                      const linkedCampaign = campaigns.find((campaign) => campaign.id === task.campaignId);
+
+                      return (
+                        <div className="rounded-[1.2rem] border border-white/10 bg-white/[0.035] px-4 py-3" key={task.id}>
+                          <div className="flex items-start gap-3">
+                            <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-white/42 text-xs text-white/62">
+                              ✓
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-base font-semibold text-white">{task.title}</p>
+                              <div className="mt-1 flex flex-wrap gap-2 text-xs text-white/45">
+                                <span>{task.eyebrow}</span>
+                                {task.dateKey ? <DatePill className="border-white/12 bg-white/[0.06] text-white/58" value={task.dateKey} /> : null}
+                                {linkedCampaign ? <span>{linkedCampaign.name}</span> : null}
+                              </div>
+                            </div>
+                            <span className="text-xs text-white/38">{task.status}</span>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <p className="rounded-[1.2rem] border border-white/10 px-4 py-3 text-sm text-white/45">
+                      Nothing here.
+                    </p>
+                  )}
+                </div>
+              </section>
+            ))}
           </div>
-        </div>
+        )}
       </div>
 
       <div className="hidden flex-wrap gap-x-5 gap-y-2 rounded-[1rem] border border-border/70 bg-card/70 px-4 py-3 text-sm text-muted-foreground sm:flex">
