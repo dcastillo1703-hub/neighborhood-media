@@ -196,6 +196,7 @@ export default function CampaignDetailPage() {
   const [processingJobId, setProcessingJobId] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<CampaignWorkspaceView>("overview");
   const [selectedItem, setSelectedItem] = useState<SelectedCampaignItem | null>(null);
+  const [mobileViewMenuOpen, setMobileViewMenuOpen] = useState(false);
   const [selectedPostDraft, setSelectedPostDraft] = useState<Post | null>(null);
   const [selectedTaskDraft, setSelectedTaskDraft] = useState<OperationalTask | null>(null);
   const [selectedNote, setSelectedNote] = useState("");
@@ -1798,8 +1799,43 @@ export default function CampaignDetailPage() {
         </div>
       ) : null}
 
-      <div className="fixed inset-x-0 bottom-[4.25rem] z-40 flex justify-center px-3 sm:hidden">
-        <div className="flex max-w-[calc(100vw-1.5rem)] items-center gap-1.5 rounded-[1.35rem] border border-white/15 bg-[#202024]/95 p-1.5 text-white shadow-[0_18px_60px_rgba(0,0,0,0.35)] backdrop-blur">
+      {mobileViewMenuOpen ? (
+        <div
+          className="fixed inset-0 z-40 bg-transparent sm:hidden"
+          onClick={() => setMobileViewMenuOpen(false)}
+        />
+      ) : null}
+
+      <div className="fixed inset-x-0 bottom-[6.75rem] z-40 flex justify-center px-3 sm:hidden">
+        <div className="relative flex max-w-[calc(100vw-1.5rem)] items-center gap-1.5 rounded-[1.35rem] border border-white/15 bg-[#202024]/95 p-1.5 text-white shadow-[0_18px_60px_rgba(0,0,0,0.35)] backdrop-blur">
+          {mobileViewMenuOpen ? (
+            <div className="absolute bottom-[calc(100%+0.65rem)] left-1/2 w-[min(18rem,calc(100vw-2rem))] -translate-x-1/2 rounded-[1.25rem] border border-white/12 bg-[#202024] p-2 text-white shadow-[0_20px_60px_rgba(0,0,0,0.36)]">
+              <p className="px-3 pb-2 pt-1 text-xs uppercase tracking-[0.18em] text-white/45">
+                Switch view
+              </p>
+              <div className="grid gap-1">
+                {campaignViews.map((view) => (
+                  <button
+                    key={view.id}
+                    className={[
+                      "rounded-[0.95rem] px-3 py-2.5 text-left transition",
+                      activeView === view.id
+                        ? "bg-white/[0.08] text-white"
+                        : "text-white/62 hover:bg-white/[0.05] hover:text-white"
+                    ].join(" ")}
+                    type="button"
+                    onClick={() => {
+                      setActiveView(view.id);
+                      setMobileViewMenuOpen(false);
+                    }}
+                  >
+                    <span className="block text-sm font-semibold">{view.label}</span>
+                    <span className="mt-0.5 block text-xs text-white/45">{view.description}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
           <button
             aria-label="Board view"
             className="rounded-[1rem] border p-2.5"
@@ -1812,9 +1848,10 @@ export default function CampaignDetailPage() {
           <button
             className="flex min-w-[7.25rem] items-center justify-center gap-2 rounded-[1rem] border border-white/15 px-4 py-2.5 text-base font-medium"
             type="button"
+            onClick={() => setMobileViewMenuOpen((current) => !current)}
           >
             {activeViewLabel}
-            <ChevronUp className="h-4 w-4" />
+            <ChevronUp className={["h-4 w-4 transition", mobileViewMenuOpen ? "rotate-180" : ""].join(" ")} />
           </button>
           <button
             aria-label="Add content"
