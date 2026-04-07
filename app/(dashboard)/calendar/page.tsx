@@ -6,10 +6,9 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { PageHeader } from "@/components/dashboard/page-header";
-import { StatGrid } from "@/components/dashboard/stat-grid";
-import { MetricCard } from "@/components/metric-card";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { DatePill } from "@/components/ui/date-pill";
 import { useActiveClient } from "@/lib/client-context";
 import { useCampaigns } from "@/lib/repositories/use-campaigns";
 import { usePosts } from "@/lib/repositories/use-posts";
@@ -108,7 +107,7 @@ export default function CampaignCalendarPage() {
   }
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-6">
       <PageHeader
         eyebrow="Calendar"
         title="Campaign calendar"
@@ -120,19 +119,18 @@ export default function CampaignCalendarPage() {
         }
       />
 
-      <StatGrid>
-        <MetricCard href="/calendar#monthly-calendar" label="Visible Campaigns" value={number(visibleCampaigns.length)} detail="Campaigns that touch the current calendar month." />
-        <MetricCard href="/calendar#monthly-calendar" label="Scheduled Posts" value={number(visiblePosts.length)} detail="Campaign-linked posts scheduled inside this month." />
-        <MetricCard href="/calendar#monthly-calendar" label="Active This Month" value={number(visibleCampaigns.filter((campaign) => campaign.status === "Active").length)} detail="Live campaigns currently in market during this month." />
-        <MetricCard href="/calendar#monthly-calendar" label="Planning This Month" value={number(visibleCampaigns.filter((campaign) => campaign.status === "Planning").length)} detail="Upcoming campaigns still being staged." />
-        <MetricCard href="/calendar#monthly-calendar" label="Completed This Month" value={number(visibleCampaigns.filter((campaign) => campaign.status === "Completed").length)} detail="Campaigns that wrap during this month." tone="olive" />
-      </StatGrid>
+      <div className="flex flex-wrap gap-x-5 gap-y-2 rounded-[1rem] border border-border/70 bg-card/70 px-4 py-3 text-sm text-muted-foreground">
+        <span><strong className="font-medium text-foreground">{number(visibleCampaigns.length)}</strong> campaigns</span>
+        <span><strong className="font-medium text-foreground">{number(visiblePosts.length)}</strong> scheduled posts</span>
+        <span><strong className="font-medium text-foreground">{number(visibleCampaigns.filter((campaign) => campaign.status === "Active").length)}</strong> active</span>
+        <span><strong className="font-medium text-foreground">{number(visibleCampaigns.filter((campaign) => campaign.status === "Planning").length)}</strong> planning</span>
+      </div>
 
-      <Card id="monthly-calendar">
-        <CardHeader>
+      <Card id="monthly-calendar" className="overflow-hidden p-0">
+        <CardHeader className="border-b border-border/70 px-4 py-4 sm:px-5">
           <div>
             <CardDescription>Monthly Calendar</CardDescription>
-            <CardTitle className="mt-3">{monthLabel}</CardTitle>
+            <CardTitle className="mt-2">{monthLabel}</CardTitle>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row">
             <button
@@ -153,11 +151,11 @@ export default function CampaignCalendarPage() {
             </button>
           </div>
         </CardHeader>
-        <div className="space-y-4 xl:hidden">
+        <div className="space-y-3 p-3 xl:hidden">
           {agendaDays.length ? (
             agendaDays.map((day) => (
               <div
-                className="rounded-[1.2rem] border border-border bg-card/70 p-4"
+                className="rounded-[1rem] border border-border bg-card/70 p-3.5"
                 key={day.dateKey}
               >
                 <p className="text-sm font-medium text-foreground">
@@ -206,10 +204,10 @@ export default function CampaignCalendarPage() {
           )}
         </div>
 
-        <div className="hidden grid-cols-7 gap-3 xl:grid">
+        <div className="hidden grid-cols-7 gap-px bg-border xl:grid">
           {weekdayLabels.map((label) => (
             <div
-              className="px-2 text-xs uppercase tracking-[0.18em] text-muted-foreground"
+              className="bg-muted/30 px-3 py-2 text-xs uppercase tracking-[0.18em] text-muted-foreground"
               key={label}
             >
               {label}
@@ -217,10 +215,10 @@ export default function CampaignCalendarPage() {
           ))}
           {calendarDays.map((day) => (
             <div
-              className={`min-h-44 min-w-0 overflow-hidden rounded-[1.2rem] border p-3 ${
+              className={`min-h-40 min-w-0 overflow-hidden p-3 ${
                 day.inCurrentMonth
-                  ? "border-border bg-card/70"
-                  : "border-border/50 bg-muted/20"
+                  ? "bg-card/80"
+                  : "bg-muted/20"
               }`}
               key={day.dateKey}
             >
@@ -268,26 +266,28 @@ export default function CampaignCalendarPage() {
         </div>
       </Card>
 
-      <Card>
-        <CardHeader>
+      <Card className="overflow-hidden p-0">
+        <CardHeader className="border-b border-border/70 px-4 py-4 sm:px-5">
           <div>
             <CardDescription>Campaigns In View</CardDescription>
-            <CardTitle className="mt-3">What is on the board this month</CardTitle>
+            <CardTitle className="mt-2">What is on the board this month</CardTitle>
           </div>
         </CardHeader>
-        <div className="space-y-3">
+        <div className="divide-y divide-border/70">
           {visibleCampaigns.length ? (
             visibleCampaigns.map((campaign) => (
               <Link
-                className="block rounded-[1.2rem] border border-border bg-card/70 p-4 transition hover:border-primary/30"
+                className="block px-4 py-4 transition hover:bg-primary/5 sm:px-5"
                 href={`/campaigns/${campaign.id}`}
                 key={campaign.id}
               >
                 <p className="font-medium text-foreground">{campaign.name}</p>
                 <p className="mt-2 text-sm text-muted-foreground">{campaign.objective}</p>
-                <p className="mt-3 text-xs uppercase tracking-[0.16em] text-primary">
-                  {campaign.startDate} to {campaign.endDate}
-                </p>
+                <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                  <DatePill value={campaign.startDate} />
+                  <span className="text-xs text-muted-foreground">to</span>
+                  <DatePill value={campaign.endDate} />
+                </div>
                 <p className="mt-2 text-xs text-muted-foreground">
                   {visiblePosts.filter((post) => post.campaignId === campaign.id).length} scheduled posts this month
                 </p>

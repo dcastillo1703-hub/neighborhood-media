@@ -262,6 +262,13 @@ export type IntegrationSetup = {
   tokenStatus?: "missing" | "ready" | "stale";
   connectedAssetType?: "facebook-page" | "instagram-business-account";
   connectedAssetLabel?: string;
+  availableAssets?: Array<{
+    id: string;
+    label: string;
+    type: "facebook-page" | "instagram-business-account";
+    connectedPageId?: string;
+    username?: string;
+  }>;
   capabilities?: string[];
   connectionMode?: "meta-business-suite" | "direct";
 };
@@ -273,9 +280,12 @@ export type MetaBusinessChannelSummary = {
   authStatus: IntegrationSetup["authStatus"];
   tokenStatus: IntegrationSetup["tokenStatus"];
   authorizationUrl?: string;
+  externalAccountId?: string;
+  connectedAssetLabel?: string;
   nextAction?: string;
   scopeSummary?: string;
   capabilities: string[];
+  availableAssets?: NonNullable<IntegrationSetup["availableAssets"]>;
   scheduledPosts: number;
   queuedPublishJobs: number;
   publishedJobs: number;

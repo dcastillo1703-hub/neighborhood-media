@@ -99,7 +99,64 @@ export function useMetaBusinessSuite(clientId: string) {
                   scopeSummary:
                     payload.connection.setup?.scopeSummary ?? channel.scopeSummary,
                   capabilities:
-                    payload.connection.setup?.capabilities ?? channel.capabilities
+                    payload.connection.setup?.capabilities ?? channel.capabilities,
+                  availableAssets:
+                    payload.connection.setup?.availableAssets ?? channel.availableAssets,
+                  accountLabel: payload.connection.accountLabel,
+                  externalAccountId:
+                    payload.connection.setup?.externalAccountId ?? channel.externalAccountId,
+                  connectedAssetLabel:
+                    payload.connection.setup?.connectedAssetLabel ?? channel.connectedAssetLabel
+                }
+              : channel
+          )
+        };
+      });
+
+      return payload;
+    },
+    async selectAsset(provider: "facebook" | "instagram", assetId: string) {
+      const response = await fetch("/api/meta-suite/select", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ clientId, provider, assetId })
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to select Meta account.");
+      }
+
+      const payload = (await response.json()) as {
+        connection: IntegrationConnection;
+      };
+
+      setSummary((current) => {
+        if (!current) {
+          return current;
+        }
+
+        return {
+          ...current,
+          channels: current.channels.map((channel) =>
+            channel.provider === provider
+              ? {
+                  ...channel,
+                  accountLabel: payload.connection.accountLabel,
+                  status: payload.connection.status,
+                  authStatus:
+                    payload.connection.setup?.authStatus ?? channel.authStatus,
+                  tokenStatus:
+                    payload.connection.setup?.tokenStatus ?? channel.tokenStatus,
+                  externalAccountId:
+                    payload.connection.setup?.externalAccountId ?? channel.externalAccountId,
+                  connectedAssetLabel:
+                    payload.connection.setup?.connectedAssetLabel ?? channel.connectedAssetLabel,
+                  nextAction:
+                    payload.connection.setup?.nextAction ?? channel.nextAction,
+                  availableAssets:
+                    payload.connection.setup?.availableAssets ?? channel.availableAssets
                 }
               : channel
           )

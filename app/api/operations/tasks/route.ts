@@ -33,6 +33,8 @@ export async function POST(request: NextRequest) {
     dueDate: parsed.data.dueDate,
     assigneeUserId: parsed.data.assigneeUserId,
     assigneeName: parsed.data.assigneeName,
+    linkedEntityType: parsed.data.linkedEntityType,
+    linkedEntityId: parsed.data.linkedEntityId,
     createdAt: new Date().toISOString()
   };
 

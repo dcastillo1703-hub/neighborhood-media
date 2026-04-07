@@ -44,7 +44,8 @@ export default function SettingsPage() {
     summary: metaSummary,
     ready: metaReady,
     error: metaError,
-    beginConnection
+    beginConnection,
+    selectAsset
   } = useMetaBusinessSuite(activeClient.id);
   const {
     config: manualMeta,
@@ -56,6 +57,7 @@ export default function SettingsPage() {
   const [connectingProvider, setConnectingProvider] = useState<"facebook" | "instagram" | null>(
     null
   );
+  const [selectingAsset, setSelectingAsset] = useState<string | null>(null);
 
   const readyConnections = connections.filter((connection) => connection.status === "Ready");
 
@@ -66,6 +68,19 @@ export default function SettingsPage() {
       await beginConnection(provider);
     } finally {
       setConnectingProvider(null);
+    }
+  };
+
+  const chooseMetaAsset = async (
+    provider: "facebook" | "instagram",
+    assetId: string
+  ) => {
+    setSelectingAsset(`${provider}-${assetId}`);
+
+    try {
+      await selectAsset(provider, assetId);
+    } finally {
+      setSelectingAsset(null);
     }
   };
 
@@ -201,6 +216,42 @@ export default function SettingsPage() {
                   <p className="mt-3 text-sm text-muted-foreground">
                     {channel.nextAction ?? "Complete Meta connection setup."}
                   </p>
+                  {channel.availableAssets?.length ? (
+                    <div className="mt-4 rounded-2xl border border-border/70 bg-card/65 p-4">
+                      <p className="text-sm font-medium text-foreground">Choose connected account</p>
+                      <div className="mt-3 space-y-2">
+                        {channel.availableAssets.map((asset) => {
+                          const selected = asset.id === channel.externalAccountId;
+
+                          return (
+                            <div
+                              className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between"
+                              key={asset.id}
+                            >
+                              <div>
+                                <p className="font-medium text-foreground">{asset.label}</p>
+                                <p className="mt-1 text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                                  {asset.type}
+                                </p>
+                              </div>
+                              <Button
+                                disabled={selected || selectingAsset === `${channel.provider}-${asset.id}`}
+                                onClick={() => void chooseMetaAsset(channel.provider, asset.id)}
+                                size="sm"
+                                variant={selected ? "default" : "outline"}
+                              >
+                                {selected
+                                  ? "Selected"
+                                  : selectingAsset === `${channel.provider}-${asset.id}`
+                                    ? "Selecting..."
+                                    : "Use this account"}
+                              </Button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
                   <div className="mt-4 flex flex-wrap gap-3">
                     <Button
                       disabled={connectingProvider === channel.provider}

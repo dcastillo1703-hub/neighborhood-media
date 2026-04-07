@@ -89,10 +89,13 @@ function summarizeMetaChannel(
     tokenStatus: connection?.setup?.tokenStatus ?? fallbackSetup.tokenStatus ?? "missing",
     authorizationUrl:
       connection?.setup?.authorizationUrl ?? fallbackSetup.authorizationUrl,
+    externalAccountId: connection?.setup?.externalAccountId,
+    connectedAssetLabel: connection?.setup?.connectedAssetLabel,
     nextAction: connection?.setup?.nextAction ?? fallbackSetup.nextAction,
     scopeSummary: connection?.setup?.scopeSummary ?? fallbackSetup.scopeSummary,
     capabilities:
       connection?.setup?.capabilities ?? fallbackSetup.capabilities ?? [],
+    availableAssets: connection?.setup?.availableAssets,
     scheduledPosts: channelPosts.filter((post) => post.status === "Scheduled").length,
     queuedPublishJobs: channelJobs.filter((job: PublishJob) =>
       ["Queued", "Processing", "Blocked"].includes(job.status)

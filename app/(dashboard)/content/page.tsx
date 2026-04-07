@@ -1,13 +1,8 @@
 "use client";
 
-import Link from "next/link";
-
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { ListCard } from "@/components/dashboard/list-card";
 import { PageHeader } from "@/components/dashboard/page-header";
-import { StatGrid } from "@/components/dashboard/stat-grid";
-import { MetricCard } from "@/components/metric-card";
-import { buttonVariants } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { DatePill } from "@/components/ui/date-pill";
 import { useActiveClient } from "@/lib/client-context";
@@ -45,30 +40,30 @@ export default function ContentPage() {
   }
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-6">
       <PageHeader
         eyebrow="Content"
         title="Plan, review, and schedule content"
         description="Keep the restaurant content pipeline in one place: what is drafted, what is scheduled, and what is still waiting on approval."
       />
 
-      <StatGrid>
-        <MetricCard href="/content#scheduled-content" label="Scheduled Posts" value={number(scheduledPosts.length)} detail="Content already slotted to go live." />
-        <MetricCard href="/approvals" label="Pending Approvals" value={number(pendingApprovals.length)} detail="Posts that still need a sign-off before they can publish." />
-        <MetricCard href="/content#planner-queue" label="Planner Backlog" value={number(planningBacklog.length)} detail="Ideas and scheduled items still moving through the content pipeline." />
-        <MetricCard href="/post-creator" label="Queued Publish Jobs" value={number(queuedPublishJobs.length)} detail="Publishing jobs currently waiting, processing, or blocked." />
-        <MetricCard href="/content#deep-workspaces" label="Ready Assets" value={number(assets.filter((asset) => asset.status === "Ready").length)} detail="Approved assets available for new content." tone="olive" />
-      </StatGrid>
+      <div className="flex flex-wrap gap-x-5 gap-y-2 rounded-[1rem] border border-border/70 bg-card/70 px-4 py-3 text-sm text-muted-foreground">
+        <span><strong className="font-medium text-foreground">{number(scheduledPosts.length)}</strong> scheduled</span>
+        <span><strong className="font-medium text-foreground">{number(pendingApprovals.length)}</strong> pending approval</span>
+        <span><strong className="font-medium text-foreground">{number(planningBacklog.length)}</strong> planner items</span>
+        <span><strong className="font-medium text-foreground">{number(queuedPublishJobs.length)}</strong> publish jobs</span>
+        <span><strong className="font-medium text-foreground">{number(assets.filter((asset) => asset.status === "Ready").length)}</strong> ready assets</span>
+      </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-        <Card id="scheduled-content">
-          <CardHeader>
+      <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+        <Card id="scheduled-content" className="overflow-hidden p-0">
+          <CardHeader className="border-b border-border/70 px-4 py-4 sm:px-5">
             <div>
               <CardDescription>Scheduled Content</CardDescription>
-              <CardTitle className="mt-3">Next items going live</CardTitle>
+              <CardTitle className="mt-2">Next items going live</CardTitle>
             </div>
           </CardHeader>
-          <div className="space-y-3">
+          <div className="divide-y divide-border/70">
             {scheduledPosts.length ? (
               scheduledPosts.slice(0, 6).map((post) => {
                 const linkedCampaign = campaigns.find((campaign) => campaign.id === post.campaignId);
@@ -77,7 +72,7 @@ export default function ContentPage() {
                 );
 
                 return (
-                  <ListCard key={post.id}>
+                  <ListCard key={post.id} className="rounded-none border-0 bg-transparent px-4 py-4 hover:bg-primary/5 sm:px-5">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
@@ -114,17 +109,17 @@ export default function ContentPage() {
         </Card>
 
         <div className="space-y-6">
-          <Card id="planner-queue">
-            <CardHeader>
+          <Card id="planner-queue" className="overflow-hidden p-0">
+            <CardHeader className="border-b border-border/70 px-4 py-4 sm:px-5">
               <div>
                 <CardDescription>Planner Queue</CardDescription>
-                <CardTitle className="mt-3">Ideas still in motion</CardTitle>
+                <CardTitle className="mt-2">Ideas still in motion</CardTitle>
               </div>
             </CardHeader>
-            <div className="space-y-3">
+            <div className="divide-y divide-border/70">
               {planningBacklog.length ? (
                 planningBacklog.slice(0, 5).map((item) => (
-                  <ListCard key={item.id}>
+                  <ListCard key={item.id} className="rounded-none border-0 bg-transparent px-4 py-4 hover:bg-primary/5 sm:px-5">
                     <p className="font-medium text-foreground">
                       {item.dayOfWeek} · {item.platform}
                     </p>
@@ -146,22 +141,6 @@ export default function ContentPage() {
             </div>
           </Card>
 
-          <Card id="deep-workspaces">
-            <CardHeader>
-              <div>
-                <CardDescription>Deep Workspaces</CardDescription>
-                <CardTitle className="mt-3">Open detailed tools when needed</CardTitle>
-              </div>
-            </CardHeader>
-            <div className="grid gap-3">
-              <Link className={buttonVariants({ variant: "outline" })} href="/post-creator">
-                Open post composer
-              </Link>
-              <Link className={buttonVariants({ variant: "outline" })} href="/marketing-planner">
-                Open planning board
-              </Link>
-            </div>
-          </Card>
         </div>
       </div>
     </div>

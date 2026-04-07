@@ -7,6 +7,7 @@ import {
 import { buildMetaSetupState } from "@/lib/integrations/meta";
 import { integrationEnv } from "@/lib/integrations/config";
 import { mapIntegrationConnectionRow } from "@/lib/supabase/mappers";
+import type { IntegrationSetup } from "@/types";
 
 type MetaOAuthState = {
   provider: "facebook" | "instagram";
@@ -29,6 +30,29 @@ type MetaManagedPage = {
     username?: string;
   };
 };
+
+function getPublicMetaAssets(
+  provider: "facebook" | "instagram",
+  managedPages: MetaManagedPage[]
+): NonNullable<IntegrationSetup["availableAssets"]> {
+  if (provider === "facebook") {
+    return managedPages.map((page) => ({
+      id: page.id,
+      label: page.name,
+      type: "facebook-page" as const
+    }));
+  }
+
+  return managedPages
+    .filter((page) => page.instagram_business_account)
+    .map((page) => ({
+      id: page.instagram_business_account!.id,
+      label: page.instagram_business_account!.username ?? page.name,
+      type: "instagram-business-account" as const,
+      connectedPageId: page.id,
+      username: page.instagram_business_account!.username
+    }));
+}
 
 async function getSupabaseServerClient() {
   const serverModule = await import("@/lib/supabase/server");
@@ -179,7 +203,8 @@ export async function completeMetaOAuthCallback(code: string, state: string) {
     pageName: selectedPage.name,
     pageAccessToken: selectedPage.access_token,
     instagramBusinessAccountId: selectedPage.instagram_business_account?.id,
-    instagramUsername: selectedPage.instagram_business_account?.username
+    instagramUsername: selectedPage.instagram_business_account?.username,
+    availablePages: managedPages
   };
 
   const setup = {
@@ -200,8 +225,9 @@ export async function completeMetaOAuthCallback(code: string, state: string) {
       decodedState.provider === "instagram"
         ? selectedPage.instagram_business_account?.username ?? selectedPage.name
         : selectedPage.name,
+    availableAssets: getPublicMetaAssets(decodedState.provider, managedPages),
     nextAction:
-      "Connected. Next step is wiring live publish and sync execution against the stored Meta tokens.",
+      "Connected. If this is not the right account, choose another available Meta asset in Settings.",
     lastCheckedAt: new Date().toISOString()
   };
 
@@ -234,6 +260,86 @@ export async function completeMetaOAuthCallback(code: string, state: string) {
     provider: decodedState.provider,
     connection: mapIntegrationConnectionRow(data as Parameters<typeof mapIntegrationConnectionRow>[0])
   };
+}
+
+export async function selectMetaBusinessAsset(input: {
+  clientId: string;
+  provider: "facebook" | "instagram";
+  assetId: string;
+}) {
+  const rawConnection = await getRawIntegrationConnection(input.clientId, input.provider);
+  const connection = mapIntegrationConnectionRow(rawConnection);
+  const parsed = parseIntegrationNotes(rawConnection.notes);
+  const secret = decryptMetaCredentialSecret(parsed.secretBlob);
+
+  if (!secret?.availablePages?.length) {
+    throw new Error("No Meta account options are stored yet. Complete Meta login first.");
+  }
+
+  const selectedPage =
+    input.provider === "instagram"
+      ? secret.availablePages.find(
+          (page) => page.instagram_business_account?.id === input.assetId
+        )
+      : secret.availablePages.find((page) => page.id === input.assetId);
+
+  if (!selectedPage) {
+    throw new Error("Selected Meta account was not found in the stored account options.");
+  }
+
+  const selectedLabel =
+    input.provider === "instagram"
+      ? selectedPage.instagram_business_account?.username ?? selectedPage.name
+      : selectedPage.name;
+  const nextSecret: MetaCredentialSecret = {
+    ...secret,
+    pageId: selectedPage.id,
+    pageName: selectedPage.name,
+    pageAccessToken: selectedPage.access_token,
+    instagramBusinessAccountId: selectedPage.instagram_business_account?.id,
+    instagramUsername: selectedPage.instagram_business_account?.username
+  };
+  const setup = {
+    ...connection.setup,
+    authStatus: "connected" as const,
+    tokenStatus: "ready" as const,
+    externalAccountId:
+      input.provider === "instagram"
+        ? selectedPage.instagram_business_account?.id ?? selectedPage.id
+        : selectedPage.id,
+    connectedAssetType:
+      input.provider === "instagram"
+        ? ("instagram-business-account" as const)
+        : ("facebook-page" as const),
+    connectedAssetLabel: selectedLabel,
+    availableAssets: getPublicMetaAssets(input.provider, secret.availablePages),
+    nextAction: "Connected to the selected Meta account.",
+    lastCheckedAt: new Date().toISOString()
+  };
+
+  const supabase = await getSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("integration_connections")
+    .update({
+      account_label: selectedLabel,
+      status: "Ready",
+      last_sync_at: new Date().toISOString(),
+      notes: composeIntegrationNotes(
+        connection.notes,
+        setup,
+        encryptMetaCredentialSecret(nextSecret)
+      )
+    })
+    .eq("id", connection.id)
+    .eq("client_id", input.clientId)
+    .select("*")
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  return mapIntegrationConnectionRow(data as Parameters<typeof mapIntegrationConnectionRow>[0]);
 }
 
 export async function getStoredMetaCredentialSecret(

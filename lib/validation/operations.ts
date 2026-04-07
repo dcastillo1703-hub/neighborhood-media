@@ -12,7 +12,9 @@ export const createOperationalTaskSchema = z.object({
   priority: taskPrioritySchema,
   dueDate: z.string().min(1).optional(),
   assigneeUserId: z.string().min(1).optional(),
-  assigneeName: z.string().min(1).optional()
+  assigneeName: z.string().min(1).optional(),
+  linkedEntityType: z.enum(["campaign", "post", "integration", "metric"]).optional(),
+  linkedEntityId: z.string().min(1).optional()
 });
 
 export const updateOperationalTaskStatusSchema = z.object({

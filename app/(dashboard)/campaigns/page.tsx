@@ -11,6 +11,7 @@ import { ListCard } from "@/components/dashboard/list-card";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { DatePill } from "@/components/ui/date-pill";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -182,7 +183,7 @@ export default function CampaignsPage() {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <PageHeader
         className="hidden sm:flex"
         eyebrow="Campaign management"
@@ -201,7 +202,7 @@ export default function CampaignsPage() {
         }
       />
 
-      <div className="-mx-3 -mt-4 bg-[#202024] px-5 pb-8 pt-8 text-white sm:hidden">
+      <div className="-mx-3 -mt-3 min-h-[calc(100vh-4rem)] bg-[#202024] px-4 pb-28 pt-7 text-white sm:hidden">
         <div className="flex items-center justify-between">
           <Link className="inline-flex items-center gap-2 text-lg text-white/85" href="/">
             <ChevronLeft className="h-5 w-5" />
@@ -212,7 +213,7 @@ export default function CampaignsPage() {
             <Plus className="h-5 w-5" />
           </button>
         </div>
-        <div className="mt-8 flex gap-8 border-b border-white/12 text-lg font-semibold text-white/45">
+        <div className="mt-7 flex gap-6 overflow-x-auto border-b border-white/12 text-base font-semibold text-white/45">
           <span className="pb-3">Recents</span>
           <span className="pb-3">Starred</span>
           <span className="border-b-2 border-white pb-3 text-white">Member of</span>
@@ -221,18 +222,18 @@ export default function CampaignsPage() {
           {campaignOverviews.length ? (
             campaignOverviews.map((overview, index) => (
               <Link
-                className="flex items-center gap-4 rounded-3xl px-1 py-2 transition hover:bg-white/5"
+                className="flex items-center gap-3 rounded-2xl px-1 py-2 transition hover:bg-white/5"
                 href={`/campaigns/${overview.campaign.id}` as never}
                 key={`${overview.campaign.id}-mobile`}
               >
                 <span
-                  className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl text-[#202024]"
+                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-[#202024]"
                   style={{ backgroundColor: ["#b8c4a0", "#c7a25b", "#92a7d9", "#f06b4f"][index % 4] }}
                 >
-                  <LayoutList className="h-7 w-7" />
+                  <LayoutList className="h-6 w-6" />
                 </span>
                 <div className="min-w-0">
-                  <p className="truncate text-2xl font-medium text-white">{overview.campaign.name}</p>
+                  <p className="truncate text-xl font-medium text-white">{overview.campaign.name}</p>
                   <p className="mt-1 truncate text-sm text-white/45">{overview.campaign.objective}</p>
                 </div>
               </Link>
@@ -245,7 +246,7 @@ export default function CampaignsPage() {
           )}
         </div>
         <Button
-          className="fixed bottom-[6.7rem] right-5 z-40 h-14 rounded-[1.35rem] bg-[#f06b4f] px-6 text-base text-white shadow-[0_18px_50px_rgba(0,0,0,0.3)]"
+          className="fixed bottom-[6rem] right-4 z-40 h-[3.25rem] rounded-[1.25rem] bg-[#f06b4f] px-5 text-sm text-white shadow-[0_18px_50px_rgba(0,0,0,0.3)]"
           onClick={() => setCreateOpen(true)}
         >
           <Plus className="mr-2 h-5 w-5" />
@@ -425,18 +426,26 @@ export default function CampaignsPage() {
         </div>
       ) : null}
 
-      <Card id="campaign-overview" className="hidden sm:block">
-        <CardHeader className="items-center">
+      <Card id="campaign-overview" className="hidden overflow-hidden p-0 sm:block">
+        <CardHeader className="items-center border-b border-border/70 px-5 py-4">
           <div>
             <CardDescription>Campaigns</CardDescription>
-            <CardTitle className="mt-3">Project list</CardTitle>
+            <CardTitle className="mt-2">Project list</CardTitle>
           </div>
           <p className="text-sm text-muted-foreground">{number(campaigns.length)} total</p>
         </CardHeader>
-        <div className="space-y-3">
+        <div className="hidden border-b border-border/70 bg-muted/30 px-5 py-2 text-[0.68rem] uppercase tracking-[0.14em] text-muted-foreground lg:grid lg:grid-cols-[minmax(0,1.2fr)_8rem_10rem_6rem_8rem_7rem]">
+          <span>Name</span>
+          <span>Status</span>
+          <span>Dates</span>
+          <span>Posts</span>
+          <span>Revenue</span>
+          <span />
+        </div>
+        <div className="divide-y divide-border/70">
           {campaignOverviews.length ? (
             campaignOverviews.map((overview) => (
-              <ListCard key={overview.campaign.id}>
+              <ListCard key={overview.campaign.id} className="rounded-none border-0 bg-transparent px-5 py-4 hover:bg-primary/5">
                 <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_9rem_10rem_8rem_8rem_8rem] lg:items-center">
                   <div className="min-w-0">
                     <Link
@@ -465,9 +474,11 @@ export default function CampaignsPage() {
                   </div>
                   <div>
                     <p className="text-[0.65rem] uppercase tracking-[0.16em] text-muted-foreground lg:hidden">Dates</p>
-                    <p className="mt-1 text-sm text-muted-foreground lg:mt-0">
-                      {overview.campaign.startDate} to {overview.campaign.endDate}
-                    </p>
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5 lg:mt-0">
+                      <DatePill value={overview.campaign.startDate} />
+                      <span className="text-xs text-muted-foreground">to</span>
+                      <DatePill value={overview.campaign.endDate} />
+                    </div>
                   </div>
                   <div>
                     <p className="text-[0.65rem] uppercase tracking-[0.16em] text-muted-foreground lg:hidden">Posts</p>

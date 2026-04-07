@@ -10,6 +10,15 @@ type MetaCredentialSecret = {
   pageAccessToken?: string;
   instagramBusinessAccountId?: string;
   instagramUsername?: string;
+  availablePages?: Array<{
+    id: string;
+    name: string;
+    access_token?: string;
+    instagram_business_account?: {
+      id: string;
+      username?: string;
+    };
+  }>;
 };
 
 const ALGORITHM = "aes-256-gcm";

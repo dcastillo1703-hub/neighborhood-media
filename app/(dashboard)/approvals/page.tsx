@@ -1,14 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { ListCard } from "@/components/dashboard/list-card";
 import { PageHeader } from "@/components/dashboard/page-header";
-import { StatGrid } from "@/components/dashboard/stat-grid";
-import { MetricCard } from "@/components/metric-card";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { DatePill } from "@/components/ui/date-pill";
 import { useAuth } from "@/lib/auth-context";
@@ -60,32 +57,32 @@ export default function ApprovalsPage() {
   }
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-6">
       <PageHeader
         eyebrow="Approvals"
         title="Review what is waiting on sign-off"
         description="Keep one clean queue for client review, internal approval, and operational blockers before content goes live."
       />
 
-      <StatGrid>
-        <MetricCard href="/approvals#approval-queue" label="Pending Reviews" value={number(pendingApprovals.length)} detail="Content that cannot publish until someone approves it." />
-        <MetricCard href="/approvals#approval-queue" label="Approved Items" value={number(approvals.filter((approval) => approval.status === "Approved").length)} detail="Requests that are cleared to move forward." />
-        <MetricCard href="/approvals#approval-queue" label="Needs Changes" value={number(approvals.filter((approval) => approval.status === "Changes Requested").length)} detail="Items that still need edits before they re-enter review." />
-        <MetricCard href="/approvals#open-tasks" label="Open Tasks" value={number(openTasks.length)} detail="Operational work still attached to this client." tone="olive" />
-      </StatGrid>
+      <div className="flex flex-wrap gap-x-5 gap-y-2 rounded-[1rem] border border-border/70 bg-card/70 px-4 py-3 text-sm text-muted-foreground">
+        <span><strong className="font-medium text-foreground">{number(pendingApprovals.length)}</strong> pending</span>
+        <span><strong className="font-medium text-foreground">{number(approvals.filter((approval) => approval.status === "Approved").length)}</strong> approved</span>
+        <span><strong className="font-medium text-foreground">{number(approvals.filter((approval) => approval.status === "Changes Requested").length)}</strong> needs changes</span>
+        <span><strong className="font-medium text-foreground">{number(openTasks.length)}</strong> open tasks</span>
+      </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-        <Card id="approval-queue">
-          <CardHeader>
+      <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+        <Card id="approval-queue" className="overflow-hidden p-0">
+          <CardHeader className="border-b border-border/70 px-4 py-4 sm:px-5">
             <div>
               <CardDescription>Approval Queue</CardDescription>
-              <CardTitle className="mt-3">Pending review</CardTitle>
+              <CardTitle className="mt-2">Pending review</CardTitle>
             </div>
           </CardHeader>
-          <div className="space-y-3">
+          <div className="divide-y divide-border/70">
             {pendingApprovals.length ? (
               pendingApprovals.map((approval) => (
-                <ListCard key={approval.id}>
+                <ListCard key={approval.id} className="rounded-none border-0 bg-transparent px-4 py-4 hover:bg-primary/5 sm:px-5">
                   <p className="font-medium text-foreground">{approval.summary}</p>
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                     <span>Requested by {approval.requesterName}</span>
@@ -123,17 +120,17 @@ export default function ApprovalsPage() {
         </Card>
 
         <div className="space-y-6">
-          <Card id="open-tasks">
-            <CardHeader>
+          <Card id="open-tasks" className="overflow-hidden p-0">
+            <CardHeader className="border-b border-border/70 px-4 py-4 sm:px-5">
               <div>
                 <CardDescription>Execution Queue</CardDescription>
-                <CardTitle className="mt-3">Related open work</CardTitle>
+                <CardTitle className="mt-2">Related open work</CardTitle>
               </div>
             </CardHeader>
-            <div className="space-y-3">
+            <div className="divide-y divide-border/70">
               {openTasks.length ? (
                 openTasks.slice(0, 5).map((task) => (
-                  <ListCard key={task.id}>
+                  <ListCard key={task.id} className="rounded-none border-0 bg-transparent px-4 py-4 hover:bg-primary/5 sm:px-5">
                     <p className="font-medium text-foreground">{task.title}</p>
                     <p className="mt-2 text-sm text-muted-foreground">{task.detail}</p>
                     <p className="mt-3 text-xs uppercase tracking-[0.16em] text-primary">
@@ -147,23 +144,6 @@ export default function ApprovalsPage() {
                   description="There are no active blockers attached to this client."
                 />
               )}
-            </div>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <div>
-                <CardDescription>Deep Workspaces</CardDescription>
-                <CardTitle className="mt-3">Open the detailed queues</CardTitle>
-              </div>
-            </CardHeader>
-            <div className="grid gap-3">
-              <Link className={buttonVariants({ variant: "outline" })} href="/operations">
-                Open operations board
-              </Link>
-              <Link className={buttonVariants({ variant: "outline" })} href="/post-creator">
-                Open content review workspace
-              </Link>
             </div>
           </Card>
         </div>

@@ -23,16 +23,16 @@ export function PageHeader({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, ease: "easeOut" }}
       className={cn(
-        "mb-8 flex flex-col gap-5 lg:mb-10 lg:flex-row lg:items-end lg:justify-between",
+        "mb-6 flex flex-col gap-4 lg:mb-8 lg:flex-row lg:items-end lg:justify-between",
         className
       )}
     >
       <div className="max-w-3xl">
         {eyebrow ? <Badge>{eyebrow}</Badge> : null}
-        <h1 className="mt-4 max-w-4xl font-display text-[2.45rem] leading-[0.98] tracking-[-0.03em] text-foreground sm:text-5xl lg:mt-5 lg:text-6xl">
+        <h1 className="mt-3 max-w-4xl font-display text-[2rem] leading-[1] tracking-[-0.035em] text-foreground sm:text-[2.75rem] lg:mt-4 lg:text-5xl">
           {title}
         </h1>
-        <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground sm:text-[1.02rem] sm:leading-8">
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-[0.98rem] sm:leading-7">
           {description}
         </p>
       </div>

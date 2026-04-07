@@ -2,10 +2,9 @@ import type { IntegrationConnection } from "@/types";
 import { integrationEnv, isIntegrationConfigured } from "@/lib/integrations/config";
 
 export const metaProviderScopes = {
-  facebook: ["pages_show_list", "pages_read_engagement", "pages_manage_posts"],
+  facebook: ["pages_show_list", "pages_read_engagement"],
   instagram: [
     "instagram_basic",
-    "instagram_content_publish",
     "instagram_manage_insights",
     "pages_show_list"
   ]

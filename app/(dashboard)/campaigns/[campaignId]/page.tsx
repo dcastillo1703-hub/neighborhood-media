@@ -3,7 +3,18 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { CalendarDays, CheckCircle2, ChevronLeft, ChevronUp, LayoutList, MoreHorizontal, Plus } from "lucide-react";
+import {
+  CalendarClock,
+  CalendarDays,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronUp,
+  ClipboardList,
+  LayoutList,
+  Megaphone,
+  MoreHorizontal,
+  Plus
+} from "lucide-react";
 
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { ListCard } from "@/components/dashboard/list-card";
@@ -27,13 +38,16 @@ import { usePosts } from "@/lib/repositories/use-posts";
 import { useWeeklyMetrics } from "@/lib/repositories/use-weekly-metrics";
 import { useTheme } from "@/lib/theme-context";
 import { useApprovalsApi } from "@/lib/use-approvals-api";
+import { useOperationsApi } from "@/lib/use-operations-api";
 import { usePublishingApi } from "@/lib/use-publishing-api";
 import { currency, number } from "@/lib/utils";
 import { validatePost } from "@/lib/validation";
-import { Post, PostStatus } from "@/types";
+import { useWorkspaceContext } from "@/lib/workspace-context";
+import { OperationalTask, Post, PostStatus, TaskPriority } from "@/types";
 
 type CampaignWorkspaceView = "overview" | "list" | "board" | "calendar" | "performance";
 type CampaignBoardLane = "Draft" | "Review" | "Scheduled" | "Published";
+type CampaignTaskKind = "content" | "meeting" | "task";
 
 const campaignViews: Array<{
   id: CampaignWorkspaceView;
@@ -48,6 +62,17 @@ const campaignViews: Array<{
 ];
 
 const boardLanes: CampaignBoardLane[] = ["Draft", "Review", "Scheduled", "Published"];
+const taskKindOptions: Array<{
+  id: CampaignTaskKind;
+  label: string;
+  description: string;
+  icon: typeof Megaphone;
+}> = [
+  { id: "content", label: "Content", description: "Instagram, Facebook, TikTok, email, or story post.", icon: Megaphone },
+  { id: "meeting", label: "Meeting", description: "Client call, shoot planning, review session, or check-in.", icon: CalendarClock },
+  { id: "task", label: "General task", description: "Anything that needs to happen for this campaign.", icon: ClipboardList }
+];
+const taskPriorities: TaskPriority[] = ["Low", "Medium", "High"];
 
 function createCampaignPost(clientId: string, campaignId: string): Post {
   return {
@@ -64,11 +89,27 @@ function createCampaignPost(clientId: string, campaignId: string): Post {
   };
 }
 
+function createCampaignTask(workspaceId: string, clientId: string, campaignId: string): OperationalTask {
+  return {
+    id: "",
+    workspaceId,
+    clientId,
+    title: "",
+    detail: "",
+    status: "Backlog",
+    priority: "Medium",
+    dueDate: "",
+    linkedEntityType: "campaign",
+    linkedEntityId: campaignId
+  };
+}
+
 export default function CampaignDetailPage() {
   const params = useParams<{ campaignId: string }>();
   const campaignId = params.campaignId;
   const { activeClient } = useActiveClient();
   const { profile } = useAuth();
+  const { workspace } = useWorkspaceContext();
   const { accent } = useTheme();
   const { campaigns, ready: campaignsReady, error: campaignsError } = useCampaigns(activeClient.id);
   const { posts, addPost, ready: postsReady, error: postsError } = usePosts(activeClient.id);
@@ -78,9 +119,19 @@ export default function CampaignDetailPage() {
   const { analyticsSnapshots } = useAnalyticsSnapshots(activeClient.id);
   const { approvals, ready: approvalsReady, reviewApproval } = useApprovalsApi(activeClient.id);
   const { jobs, ready: jobsReady, processJob } = usePublishingApi(activeClient.id);
+  const { tasks, ready: tasksReady, error: tasksError, createTask } = useOperationsApi(
+    workspace.id,
+    activeClient.id
+  );
   const [draft, setDraft] = useState<Post>(() => createCampaignPost(activeClient.id, campaignId));
+  const [taskDraft, setTaskDraft] = useState<OperationalTask>(() =>
+    createCampaignTask(workspace.id, activeClient.id, campaignId)
+  );
+  const [taskKind, setTaskKind] = useState<CampaignTaskKind | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [savingTask, setSavingTask] = useState(false);
+  const [taskError, setTaskError] = useState<string | null>(null);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [processingJobId, setProcessingJobId] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<CampaignWorkspaceView>("overview");
@@ -115,10 +166,21 @@ export default function CampaignDetailPage() {
     [overview]
   );
   const linkedPosts = overview?.linkedPosts ?? [];
+  const campaignTasks = useMemo(
+    () =>
+      tasks.filter(
+        (task) =>
+          task.linkedEntityType === "campaign" &&
+          task.linkedEntityId === campaignId &&
+          (!task.clientId || task.clientId === activeClient.id)
+      ),
+    [activeClient.id, campaignId, tasks]
+  );
   const pendingReviews = campaignApprovals.filter((approval) => approval.status === "Pending").length;
   const queuedPublishJobs = campaignPublishJobs.filter((job) =>
     ["Queued", "Processing", "Blocked"].includes(job.status)
   ).length;
+  const openCampaignTasks = campaignTasks.filter((task) => task.status !== "Done").length;
 
   const getPostApproval = (postId: string) =>
     campaignApprovals.find((item) => item.entityId === postId);
@@ -154,6 +216,7 @@ export default function CampaignDetailPage() {
         status
       });
       setDraft(createCampaignPost(activeClient.id, campaignId));
+      setTaskKind(null);
       setErrors({});
     } catch (error) {
       setErrors({
@@ -195,12 +258,45 @@ export default function CampaignDetailPage() {
     }
   };
 
-  if (!campaignsReady || !postsReady || !approvalsReady || !jobsReady) {
+  const saveOperationalTask = async () => {
+    if (!taskDraft.title.trim()) {
+      setTaskError("Task title is required.");
+      return;
+    }
+
+    if (!taskDraft.detail.trim()) {
+      setTaskError("Add a short detail so the task is useful later.");
+      return;
+    }
+
+    setSavingTask(true);
+    setTaskError(null);
+
+    try {
+      await createTask({
+        ...taskDraft,
+        workspaceId: workspace.id,
+        clientId: activeClient.id,
+        linkedEntityType: "campaign",
+        linkedEntityId: campaignId,
+        assigneeName: taskDraft.assigneeName || profile?.fullName || profile?.email || undefined,
+        dueDate: taskDraft.dueDate || undefined
+      });
+      setTaskDraft(createCampaignTask(workspace.id, activeClient.id, campaignId));
+      setTaskKind(null);
+    } catch (error) {
+      setTaskError(error instanceof Error ? error.message : "Unable to create campaign task.");
+    } finally {
+      setSavingTask(false);
+    }
+  };
+
+  if (!campaignsReady || !postsReady || !approvalsReady || !jobsReady || !tasksReady) {
     return <div className="text-sm text-muted-foreground">Loading campaign workspace...</div>;
   }
 
-  if (campaignsError || postsError) {
-    return <div className="text-sm text-destructive">{campaignsError ?? postsError}</div>;
+  if (campaignsError || postsError || tasksError) {
+    return <div className="text-sm text-destructive">{campaignsError ?? postsError ?? tasksError}</div>;
   }
 
   if (!campaign || !overview) {
@@ -227,9 +323,9 @@ export default function CampaignDetailPage() {
   const activeViewLabel = campaignViews.find((view) => view.id === activeView)?.label ?? "Overview";
 
   return (
-    <div className="space-y-10 pb-28 sm:pb-0">
+    <div className="space-y-6 pb-28 sm:space-y-7 sm:pb-0">
       <div
-        className="-mx-3 -mt-4 px-5 pb-8 pt-8 sm:hidden"
+        className="-mx-3 -mt-3 px-4 pb-6 pt-7 sm:hidden"
         style={{ backgroundColor: accent.bg, color: accent.text }}
       >
         <div className="flex items-center justify-between gap-4">
@@ -247,9 +343,9 @@ export default function CampaignDetailPage() {
             <MoreHorizontal className="h-6 w-6" />
           </div>
         </div>
-        <div className="mt-8 flex items-center gap-4">
-          <LayoutList className="h-8 w-8" />
-          <h1 className="text-5xl font-semibold tracking-[-0.06em]">{campaign.name}</h1>
+        <div className="mt-7 flex items-center gap-3">
+          <LayoutList className="h-7 w-7 shrink-0" />
+          <h1 className="min-w-0 text-4xl font-semibold leading-[0.95] tracking-[-0.055em]">{campaign.name}</h1>
         </div>
       </div>
 
@@ -270,43 +366,33 @@ export default function CampaignDetailPage() {
         }
       />
 
-      <Card id="campaign-workspace" className="hidden overflow-hidden p-0 sm:block">
-        <div className="border-b border-border/70 px-5 py-4 sm:px-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <Card id="campaign-workspace" className="hidden overflow-hidden rounded-[1rem] p-0 shadow-none sm:block">
+        <div className="border-b border-border/70 px-5 py-4">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge className="normal-case tracking-[0.14em]">{campaign.status}</Badge>
-                <span className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
-                  {campaign.startDate} to {campaign.endDate}
-                </span>
+                <Badge className="normal-case tracking-[0.1em]">{campaign.status}</Badge>
+                <DatePill value={campaign.startDate} />
+                <span className="text-xs text-muted-foreground">to</span>
+                <DatePill value={campaign.endDate} />
               </div>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">{campaign.objective}</p>
             </div>
-            <Button className="w-full sm:w-auto" onClick={() => setActiveView("overview")}>
-              Add Content
+            <Button className="w-full shrink-0 sm:w-auto" size="sm" onClick={() => setActiveView("overview")}>
+              Add task
             </Button>
           </div>
-          <div className="mt-5 grid gap-2 text-sm sm:grid-cols-4">
-            <div className="rounded-2xl border border-border/70 bg-card/65 px-4 py-3">
-              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Posts</p>
-              <p className="mt-2 text-lg text-foreground">{number(linkedPosts.length)}</p>
-            </div>
-            <div className="rounded-2xl border border-border/70 bg-card/65 px-4 py-3">
-              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Reviews</p>
-              <p className="mt-2 text-lg text-foreground">{number(pendingReviews)}</p>
-            </div>
-            <div className="rounded-2xl border border-border/70 bg-card/65 px-4 py-3">
-              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Publishing</p>
-              <p className="mt-2 text-lg text-foreground">{number(queuedPublishJobs)}</p>
-            </div>
-            <div className="rounded-2xl border border-border/70 bg-card/65 px-4 py-3">
-              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Revenue</p>
-              <p className="mt-2 text-lg text-foreground">{currency(overview.attributedRevenue)}</p>
-            </div>
+          <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-sm text-muted-foreground">
+            <span><strong className="font-medium text-foreground">{number(linkedPosts.length + campaignTasks.length)}</strong> tasks</span>
+            <span><strong className="font-medium text-foreground">{number(linkedPosts.length)}</strong> content</span>
+            <span><strong className="font-medium text-foreground">{number(pendingReviews)}</strong> reviews</span>
+            <span><strong className="font-medium text-foreground">{number(queuedPublishJobs)}</strong> publish jobs</span>
+            <span><strong className="font-medium text-foreground">{number(openCampaignTasks)}</strong> open ops</span>
+            <span><strong className="font-medium text-foreground">{currency(overview.attributedRevenue)}</strong> revenue</span>
           </div>
         </div>
 
-        <div className="flex gap-2 overflow-x-auto px-3 py-3 sm:px-4">
+        <div className="flex gap-5 overflow-x-auto px-5">
           {campaignViews.map((view) => {
             const selected = activeView === view.id;
 
@@ -314,16 +400,15 @@ export default function CampaignDetailPage() {
               <button
                 key={view.id}
                 className={[
-                  "min-w-[9rem] rounded-full border px-4 py-2.5 text-left transition",
+                  "border-b-2 px-0 py-3 text-sm font-medium transition",
                   selected
-                    ? "border-primary/45 bg-primary/10 text-foreground shadow-[0_12px_30px_rgba(149,114,46,0.12)]"
-                    : "border-border bg-card/60 text-muted-foreground hover:border-primary/25 hover:bg-primary/5 hover:text-foreground"
+                    ? "border-primary text-foreground"
+                    : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
                 ].join(" ")}
                 type="button"
                 onClick={() => setActiveView(view.id)}
               >
-                <span className="block text-sm font-medium">{view.label}</span>
-                <span className="mt-1 block text-[0.68rem] leading-4 opacity-80">{view.description}</span>
+                {view.label}
               </button>
             );
           })}
@@ -348,7 +433,7 @@ export default function CampaignDetailPage() {
               </div>
               <div className="rounded-2xl bg-white/5 px-5 py-4 text-center">
                 <p className="text-sm text-white/50">Due</p>
-                <p className="mt-3 text-4xl text-white/45">{number(queuedPublishJobs)}</p>
+                <p className="mt-3 text-4xl text-white/45">{number(queuedPublishJobs + openCampaignTasks)}</p>
               </div>
             </div>
             <div className="mt-5 h-2 rounded-full bg-white/5">
@@ -359,7 +444,7 @@ export default function CampaignDetailPage() {
             </div>
             <div className="mt-4 flex items-center justify-between text-sm text-white/55">
               <span>{linkedPosts.length ? Math.round((linkedPosts.filter((post) => post.status === "Published").length / linkedPosts.length) * 100) : 0}% complete</span>
-              <span>{number(linkedPosts.length)} total tasks</span>
+              <span>{number(linkedPosts.length + campaignTasks.length)} total tasks</span>
             </div>
           </div>
 
@@ -387,6 +472,7 @@ export default function CampaignDetailPage() {
           <div className="mt-10 space-y-7 text-xl text-white">
             {[
               ["Connected content", linkedPosts.length],
+              ["Campaign tasks", campaignTasks.length],
               ["Approvals", campaignApprovals.length],
               ["Publishing jobs", campaignPublishJobs.length],
               ["Weekly metrics", overview.linkedMetrics.length]
@@ -447,111 +533,221 @@ export default function CampaignDetailPage() {
         <Card id="content-composer">
           <CardHeader>
             <div>
-              <CardDescription>Create Content</CardDescription>
-              <CardTitle className="mt-3">Add content directly inside the campaign</CardTitle>
+              <CardDescription>Add Task</CardDescription>
+              <CardTitle className="mt-3">Choose what this campaign needs next</CardTitle>
             </div>
           </CardHeader>
           <div className="grid gap-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <Label>Platform</Label>
-                <Select
-                  value={draft.platform}
-                  onChange={(value) =>
-                    setDraft((current) => ({ ...current, platform: value as Post["platform"] }))
-                  }
-                  options={["Instagram", "Facebook", "TikTok", "Email", "Stories"].map((value) => ({
-                    label: value,
-                    value
-                  }))}
-                />
+            <div className="grid gap-3 sm:grid-cols-3">
+              {taskKindOptions.map((option) => {
+                const Icon = option.icon;
+                const selected = taskKind === option.id;
+
+                return (
+                  <button
+                    key={option.id}
+                    className={[
+                      "rounded-[1rem] border px-4 py-4 text-left transition",
+                      selected
+                        ? "border-primary/45 bg-primary/10"
+                        : "border-border bg-card/70 hover:border-primary/30 hover:bg-primary/5"
+                    ].join(" ")}
+                    type="button"
+                    onClick={() => {
+                      setTaskKind(option.id);
+                      setErrors({});
+                      setTaskError(null);
+                      if (option.id === "meeting") {
+                        setTaskDraft((current) => ({
+                          ...current,
+                          title: current.title || "Schedule campaign check-in",
+                          detail: current.detail || "Meeting for this campaign."
+                        }));
+                      }
+                    }}
+                  >
+                    <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                      <Icon className="h-4 w-4" />
+                    </span>
+                    <span className="mt-3 block font-medium text-foreground">{option.label}</span>
+                    <span className="mt-1 block text-xs leading-5 text-muted-foreground">{option.description}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {taskKind === "content" ? (
+              <div className="grid gap-4 rounded-[1rem] border border-border/70 bg-muted/25 p-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <Label>Platform</Label>
+                    <Select
+                      value={draft.platform}
+                      onChange={(value) =>
+                        setDraft((current) => ({ ...current, platform: value as Post["platform"] }))
+                      }
+                      options={["Instagram", "Facebook", "TikTok", "Email", "Stories"].map((value) => ({
+                        label: value,
+                        value
+                      }))}
+                    />
+                  </div>
+                  <div>
+                    <Label>Publish Date</Label>
+                    <Input
+                      type="date"
+                      value={draft.publishDate}
+                      onChange={(event) =>
+                        setDraft((current) => ({ ...current, publishDate: event.target.value }))
+                      }
+                    />
+                    {errors.publishDate ? <p className="mt-2 text-xs text-primary">{errors.publishDate}</p> : null}
+                  </div>
+                </div>
+                <div>
+                  <Label>Goal</Label>
+                  <Input
+                    value={draft.goal}
+                    onChange={(event) => setDraft((current) => ({ ...current, goal: event.target.value }))}
+                    placeholder="Push Thursday reservations"
+                  />
+                  {errors.goal ? <p className="mt-2 text-xs text-primary">{errors.goal}</p> : null}
+                </div>
+                <div>
+                  <Label>Call To Action</Label>
+                  <Input
+                    value={draft.cta}
+                    onChange={(event) => setDraft((current) => ({ ...current, cta: event.target.value }))}
+                    placeholder="Reserve tonight"
+                  />
+                  {errors.cta ? <p className="mt-2 text-xs text-primary">{errors.cta}</p> : null}
+                </div>
+                <div>
+                  <Label>Post Content</Label>
+                  <Textarea
+                    value={draft.content}
+                    onChange={(event) =>
+                      setDraft((current) => ({ ...current, content: event.target.value }))
+                    }
+                    placeholder="Write the caption, offer, or email copy for this campaign."
+                  />
+                  {errors.content ? <p className="mt-2 text-xs text-primary">{errors.content}</p> : null}
+                </div>
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <Button disabled={saving} onClick={() => void savePost("Draft")} variant="outline">
+                    Save Draft
+                  </Button>
+                  <Button disabled={saving} onClick={() => void savePost("Scheduled")}>
+                    Save Scheduled
+                  </Button>
+                </div>
+                {errors.form ? <p className="text-xs text-primary">{errors.form}</p> : null}
               </div>
-              <div>
-                <Label>Publish Date</Label>
-                <Input
-                  type="date"
-                  value={draft.publishDate}
-                  onChange={(event) =>
-                    setDraft((current) => ({ ...current, publishDate: event.target.value }))
-                  }
-                />
-                {errors.publishDate ? <p className="mt-2 text-xs text-primary">{errors.publishDate}</p> : null}
+            ) : null}
+
+            {taskKind === "meeting" || taskKind === "task" ? (
+              <div className="grid gap-4 rounded-[1rem] border border-border/70 bg-muted/25 p-4">
+                <div>
+                  <Label>{taskKind === "meeting" ? "Meeting Name" : "Task Name"}</Label>
+                  <Input
+                    value={taskDraft.title}
+                    onChange={(event) => setTaskDraft((current) => ({ ...current, title: event.target.value }))}
+                    placeholder={taskKind === "meeting" ? "Ex. Campaign check-in with owner" : "Ex. Confirm brunch photo shot list"}
+                  />
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <Label>Due Date</Label>
+                    <Input
+                      type="date"
+                      value={taskDraft.dueDate ?? ""}
+                      onChange={(event) => setTaskDraft((current) => ({ ...current, dueDate: event.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <Label>Priority</Label>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {taskPriorities.map((priority) => (
+                        <button
+                          key={priority}
+                          className={[
+                            "rounded-full border px-3 py-2 text-sm transition",
+                            taskDraft.priority === priority
+                              ? "border-primary/45 bg-primary/10 text-foreground"
+                              : "border-border bg-card/70 text-muted-foreground hover:border-primary/25 hover:text-foreground"
+                          ].join(" ")}
+                          type="button"
+                          onClick={() => setTaskDraft((current) => ({ ...current, priority }))}
+                        >
+                          {priority}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <Label>Details</Label>
+                  <Textarea
+                    value={taskDraft.detail}
+                    onChange={(event) => setTaskDraft((current) => ({ ...current, detail: event.target.value }))}
+                    placeholder={taskKind === "meeting" ? "What should this meeting cover?" : "What needs to happen?"}
+                  />
+                </div>
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <Button disabled={savingTask} onClick={() => void saveOperationalTask()}>
+                    {savingTask ? "Saving..." : taskKind === "meeting" ? "Add Meeting" : "Add Task"}
+                  </Button>
+                  <Button disabled={savingTask} variant="outline" onClick={() => setTaskKind(null)}>
+                    Cancel
+                  </Button>
+                </div>
+                {taskError ? <p className="text-xs text-primary">{taskError}</p> : null}
               </div>
-            </div>
-            <div>
-              <Label>Goal</Label>
-              <Input
-                value={draft.goal}
-                onChange={(event) => setDraft((current) => ({ ...current, goal: event.target.value }))}
-                placeholder="Push Thursday reservations"
-              />
-              {errors.goal ? <p className="mt-2 text-xs text-primary">{errors.goal}</p> : null}
-            </div>
-            <div>
-              <Label>Call To Action</Label>
-              <Input
-                value={draft.cta}
-                onChange={(event) => setDraft((current) => ({ ...current, cta: event.target.value }))}
-                placeholder="Reserve tonight"
-              />
-              {errors.cta ? <p className="mt-2 text-xs text-primary">{errors.cta}</p> : null}
-            </div>
-            <div>
-              <Label>Post Content</Label>
-              <Textarea
-                value={draft.content}
-                onChange={(event) =>
-                  setDraft((current) => ({ ...current, content: event.target.value }))
-                }
-                placeholder="Write the caption, offer, or email copy for this campaign."
-              />
-              {errors.content ? <p className="mt-2 text-xs text-primary">{errors.content}</p> : null}
-            </div>
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <Button disabled={saving} onClick={() => void savePost("Draft")} variant="outline">
-                Save Draft
-              </Button>
-              <Button disabled={saving} onClick={() => void savePost("Scheduled")}>
-                Save Scheduled
-              </Button>
-            </div>
-            {errors.form ? <p className="text-xs text-primary">{errors.form}</p> : null}
+            ) : null}
           </div>
         </Card>
       </div>
       ) : null}
 
       {activeView === "list" ? (
-      <Card id="campaign-list">
-        <CardHeader>
+      <Card id="campaign-list" className="overflow-hidden p-0">
+        <CardHeader className="border-b border-border/70 px-4 py-4 sm:px-5">
           <div>
             <CardDescription>Campaign List</CardDescription>
-            <CardTitle className="mt-3">Every content item in this campaign</CardTitle>
+            <CardTitle className="mt-2">Every content item in this campaign</CardTitle>
           </div>
         </CardHeader>
-        <div className="space-y-3">
-          {linkedPosts.length ? (
-            linkedPosts.map((post) => {
+        <div className="hidden border-b border-border/70 bg-muted/30 px-4 py-2 text-[0.68rem] uppercase tracking-[0.14em] text-muted-foreground sm:grid sm:grid-cols-[minmax(0,1fr)_8rem_9rem_9rem_9rem] sm:px-5">
+          <span>Task</span>
+          <span>Status</span>
+          <span>Approval</span>
+          <span>Publish</span>
+          <span>CTA</span>
+        </div>
+        <div className="divide-y divide-border/70">
+          {linkedPosts.length || campaignTasks.length ? (
+            <>
+            {linkedPosts.map((post) => {
               const approval = getPostApproval(post.id);
               const publishJob = getPostPublishJob(post.id);
 
               return (
                 <div key={post.id}>
-                  <ListCard className="sm:hidden">
+                  <ListCard className="m-3 bg-[#202024] text-white sm:hidden">
                     <div className="grid grid-cols-[2rem_1fr_auto] items-center gap-3">
-                      <CheckCircle2 className="h-6 w-6 text-muted-foreground" />
+                      <CheckCircle2 className="h-6 w-6 text-white/55" />
                       <div className="min-w-0">
-                        <p className="truncate text-lg font-medium text-foreground">{post.goal}</p>
-                        <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                        <p className="truncate text-lg font-medium text-white">{post.goal}</p>
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-white/55">
                           <span>{post.platform}</span>
                           <DatePill value={post.publishDate} fallback="No date" />
                         </div>
                       </div>
-                      <MoreHorizontal className="h-5 w-5 text-muted-foreground" />
+                      <MoreHorizontal className="h-5 w-5 text-white/55" />
                     </div>
                   </ListCard>
-                  <ListCard className="hidden sm:block">
-                    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_8rem_9rem_9rem_9rem] lg:items-center">
+                  <ListCard className="hidden rounded-none border-0 bg-transparent px-4 py-3 hover:bg-primary/5 sm:block sm:px-5">
+                    <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_8rem_9rem_9rem_9rem] sm:items-center">
                       <div>
                         <p className="font-medium text-foreground">{post.goal}</p>
                         <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
@@ -580,40 +776,82 @@ export default function CampaignDetailPage() {
                   </ListCard>
                 </div>
               );
-            })
+            })}
+            {campaignTasks.map((task) => (
+              <div key={task.id}>
+                <ListCard className="m-3 bg-[#202024] text-white sm:hidden">
+                  <div className="grid grid-cols-[2rem_1fr_auto] items-center gap-3">
+                    <CheckCircle2 className="h-6 w-6 text-white/55" />
+                    <div className="min-w-0">
+                      <p className="truncate text-lg font-medium text-white">{task.title}</p>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-white/55">
+                        <span>{task.priority}</span>
+                        <DatePill value={task.dueDate} fallback="No date" />
+                      </div>
+                    </div>
+                    <MoreHorizontal className="h-5 w-5 text-white/55" />
+                  </div>
+                </ListCard>
+                <ListCard className="hidden rounded-none border-0 bg-transparent px-4 py-3 hover:bg-primary/5 sm:block sm:px-5">
+                  <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_8rem_9rem_9rem_9rem] sm:items-center">
+                    <div>
+                      <p className="font-medium text-foreground">{task.title}</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                        <span>{task.priority}</span>
+                        <DatePill value={task.dueDate} fallback="No date" />
+                      </div>
+                      <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{task.detail}</p>
+                    </div>
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{task.status}</p>
+                    <p className="text-xs uppercase tracking-[0.16em] text-primary">Task</p>
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">No publish job</p>
+                    <p className="text-sm text-muted-foreground">No CTA</p>
+                  </div>
+                </ListCard>
+              </div>
+            ))}
+            </>
           ) : (
-            <EmptyState title="No campaign posts yet" description="Use Overview to add the first post for this campaign." />
+            <EmptyState title="No campaign tasks yet" description="Use Overview to add content, meetings, or general tasks for this campaign." />
           )}
         </div>
       </Card>
       ) : null}
 
       {activeView === "board" ? (
-      <Card id="campaign-board">
-        <CardHeader>
+      <Card id="campaign-board" className="overflow-hidden p-0">
+        <CardHeader className="border-b border-border/70 px-4 py-4 sm:px-5">
           <div>
             <CardDescription>Campaign Board</CardDescription>
-            <CardTitle className="mt-3">Move work through the publishing rhythm</CardTitle>
+            <CardTitle className="mt-2">Move work through the publishing rhythm</CardTitle>
           </div>
         </CardHeader>
-        <div className="grid gap-4 lg:grid-cols-4">
+        <div className="grid gap-3 p-3 sm:p-4 lg:grid-cols-4">
           {boardLanes.map((lane) => {
             const lanePosts = getBoardLanePosts(lane);
+            const laneTasks =
+              lane === "Draft"
+                ? campaignTasks.filter((task) => task.status !== "Done")
+                : lane === "Published"
+                  ? campaignTasks.filter((task) => task.status === "Done")
+                  : [];
+            const laneItemCount = lanePosts.length + laneTasks.length;
 
             return (
-              <div className="rounded-3xl border border-border bg-card/55 p-4" key={lane}>
+              <div className="rounded-[1rem] border border-border bg-muted/25 p-3" key={lane}>
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-sm font-medium text-foreground">{lane}</p>
-                  <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary">{lanePosts.length}</span>
+                  <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary">{laneItemCount}</span>
                 </div>
                 <div className="mt-4 space-y-3">
-                  {lanePosts.length ? (
-                    lanePosts.map((post) => {
+                  {laneItemCount ? (
+                    <>
+                    {lanePosts.map((post) => {
                       const approval = getPostApproval(post.id);
                       const publishJob = getPostPublishJob(post.id);
 
                       return (
-                        <ListCard key={post.id}>
+                        <ListCard key={post.id} className="bg-card">
                           <div className="flex items-start justify-between gap-3">
                             <p className="font-medium text-foreground">{post.goal}</p>
                             <span className="rounded-full bg-primary/10 px-2 py-1 text-[0.65rem] uppercase tracking-[0.12em] text-primary">
@@ -630,9 +868,28 @@ export default function CampaignDetailPage() {
                           </div>
                         </ListCard>
                       );
-                    })
+                    })}
+                    {laneTasks.map((task) => (
+                      <ListCard key={task.id} className="bg-card">
+                        <div className="flex items-start justify-between gap-3">
+                          <p className="font-medium text-foreground">{task.title}</p>
+                          <span className="rounded-full bg-primary/10 px-2 py-1 text-[0.65rem] uppercase tracking-[0.12em] text-primary">
+                            Task
+                          </span>
+                        </div>
+                        <div className="mt-2">
+                          <DatePill value={task.dueDate} fallback="No date" />
+                        </div>
+                        <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">{task.detail}</p>
+                        <div className="mt-3 flex flex-wrap gap-2 text-[0.65rem] uppercase tracking-[0.14em] text-muted-foreground">
+                          <span>{task.status}</span>
+                          <span>{task.priority}</span>
+                        </div>
+                      </ListCard>
+                    ))}
+                    </>
                   ) : (
-                    <p className="rounded-2xl border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
+                    <p className="rounded-[0.9rem] border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
                       No {lane.toLowerCase()} posts.
                     </p>
                   )}
@@ -832,11 +1089,11 @@ export default function CampaignDetailPage() {
       </div>
       ) : null}
 
-      <div className="fixed inset-x-0 bottom-[4.6rem] z-40 flex justify-center sm:hidden">
-        <div className="flex items-center gap-2 rounded-[1.5rem] border border-white/15 bg-[#202024]/95 p-1.5 text-white shadow-[0_18px_60px_rgba(0,0,0,0.35)] backdrop-blur">
+      <div className="fixed inset-x-0 bottom-[4.25rem] z-40 flex justify-center px-3 sm:hidden">
+        <div className="flex max-w-[calc(100vw-1.5rem)] items-center gap-1.5 rounded-[1.35rem] border border-white/15 bg-[#202024]/95 p-1.5 text-white shadow-[0_18px_60px_rgba(0,0,0,0.35)] backdrop-blur">
           <button
             aria-label="Board view"
-            className="rounded-[1.1rem] border p-3"
+            className="rounded-[1rem] border p-2.5"
             style={{ backgroundColor: accent.soft, borderColor: accent.bg, color: accent.bg }}
             type="button"
             onClick={() => setActiveView("board")}
@@ -844,7 +1101,7 @@ export default function CampaignDetailPage() {
             <LayoutList className="h-5 w-5" />
           </button>
           <button
-            className="flex min-w-[8.5rem] items-center justify-center gap-2 rounded-[1.1rem] border border-white/15 px-5 py-3 text-lg font-medium"
+            className="flex min-w-[7.25rem] items-center justify-center gap-2 rounded-[1rem] border border-white/15 px-4 py-2.5 text-base font-medium"
             type="button"
           >
             {activeViewLabel}
@@ -852,7 +1109,7 @@ export default function CampaignDetailPage() {
           </button>
           <button
             aria-label="Add content"
-            className="rounded-[1.1rem] p-4"
+            className="rounded-[1rem] p-3"
             style={{ backgroundColor: accent.bg, color: accent.text }}
             type="button"
             onClick={() => setActiveView("overview")}
