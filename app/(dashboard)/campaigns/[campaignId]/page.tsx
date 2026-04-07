@@ -59,6 +59,12 @@ import {
 type CampaignWorkspaceView = "overview" | "list" | "board" | "calendar" | "performance";
 type CampaignBoardLane = "Draft" | "Review" | "Scheduled" | "Published";
 type CampaignTaskKind = "content" | "meeting" | "task";
+type CampaignOverviewSection =
+  | "content"
+  | "tasks"
+  | "approvals"
+  | "publishing"
+  | "metrics";
 type SelectedCampaignItem =
   | { type: "post"; item: Post }
   | { type: "task"; item: OperationalTask };
@@ -197,6 +203,7 @@ export default function CampaignDetailPage() {
   const [activeView, setActiveView] = useState<CampaignWorkspaceView>("overview");
   const [selectedItem, setSelectedItem] = useState<SelectedCampaignItem | null>(null);
   const [mobileViewMenuOpen, setMobileViewMenuOpen] = useState(false);
+  const [openOverviewSections, setOpenOverviewSections] = useState<CampaignOverviewSection[]>([]);
   const [selectedPostDraft, setSelectedPostDraft] = useState<Post | null>(null);
   const [selectedTaskDraft, setSelectedTaskDraft] = useState<OperationalTask | null>(null);
   const [selectedNote, setSelectedNote] = useState("");
@@ -528,6 +535,13 @@ export default function CampaignDetailPage() {
   }
 
   const activeViewLabel = campaignViews.find((view) => view.id === activeView)?.label ?? "Overview";
+  const toggleOverviewSection = (section: CampaignOverviewSection) => {
+    setOpenOverviewSections((current) =>
+      current.includes(section)
+        ? current.filter((item) => item !== section)
+        : [...current, section]
+    );
+  };
   const updateRoiNumber = (field: CampaignRoiNumberField, value: string) => {
     setRoiNumberDraft((current) => ({
       ...current,
@@ -729,22 +743,116 @@ export default function CampaignDetailPage() {
             </div>
           </div>
 
-          <div className="mt-10 space-y-7 text-xl text-white">
+          <div className="mt-10 divide-y divide-white/10 overflow-hidden rounded-[1.35rem] border border-white/10 text-white">
             {[
-              ["Connected content", linkedPosts.length],
-              ["Campaign tasks", campaignTasks.length],
-              ["Approvals", campaignApprovals.length],
-              ["Publishing jobs", campaignPublishJobs.length],
-              ["Weekly metrics", overview.linkedMetrics.length]
-            ].map(([label, value]) => (
-              <div className="flex items-center justify-between" key={String(label)}>
-                <div className="flex items-center gap-4">
-                  <ChevronUp className="h-4 w-4 rotate-90 text-white/50" />
-                  <span>{label}</span>
+              { id: "content" as const, label: "Connected content", value: linkedPosts.length },
+              { id: "tasks" as const, label: "Campaign tasks", value: campaignTasks.length },
+              { id: "approvals" as const, label: "Approvals", value: campaignApprovals.length },
+              { id: "publishing" as const, label: "Publishing jobs", value: campaignPublishJobs.length },
+              { id: "metrics" as const, label: "Weekly metrics", value: overview.linkedMetrics.length }
+            ].map((section) => {
+              const open = openOverviewSections.includes(section.id);
+
+              return (
+                <div key={section.id}>
+                  <button
+                    className="flex w-full items-center justify-between gap-4 px-4 py-4 text-left transition hover:bg-white/[0.03]"
+                    type="button"
+                    onClick={() => toggleOverviewSection(section.id)}
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <ChevronUp
+                        className={[
+                          "h-4 w-4 shrink-0 text-white/50 transition",
+                          open ? "rotate-180" : "rotate-90"
+                        ].join(" ")}
+                      />
+                      <span className="truncate text-lg">{section.label}</span>
+                    </div>
+                    <span className="rounded-full bg-white/[0.06] px-2.5 py-1 text-sm text-white/60">
+                      {section.value}
+                    </span>
+                  </button>
+                  {open ? (
+                    <div className="space-y-2 px-4 pb-4 text-sm text-white/58">
+                      {section.id === "content" ? (
+                        linkedPosts.length ? (
+                          linkedPosts.slice(0, 4).map((post) => (
+                            <button
+                              className="block w-full rounded-[1rem] bg-white/[0.035] px-3 py-3 text-left"
+                              key={post.id}
+                              type="button"
+                              onClick={() => setSelectedItem({ type: "post", item: post })}
+                            >
+                              <span className="block truncate font-medium text-white/86">{post.goal}</span>
+                              <span className="mt-1 flex items-center gap-2 text-white/48">
+                                {post.platform}
+                                <DatePill value={post.publishDate} fallback="No date" />
+                              </span>
+                            </button>
+                          ))
+                        ) : (
+                          <p className="rounded-[1rem] bg-white/[0.035] px-3 py-3">No connected content yet.</p>
+                        )
+                      ) : null}
+                      {section.id === "tasks" ? (
+                        campaignTasks.length ? (
+                          campaignTasks.slice(0, 4).map((task) => (
+                            <button
+                              className="block w-full rounded-[1rem] bg-white/[0.035] px-3 py-3 text-left"
+                              key={task.id}
+                              type="button"
+                              onClick={() => setSelectedItem({ type: "task", item: task })}
+                            >
+                              <span className="block truncate font-medium text-white/86">{task.title}</span>
+                              <span className="mt-1 block text-white/48">{task.status} · {task.priority}</span>
+                            </button>
+                          ))
+                        ) : (
+                          <p className="rounded-[1rem] bg-white/[0.035] px-3 py-3">No campaign tasks yet.</p>
+                        )
+                      ) : null}
+                      {section.id === "approvals" ? (
+                        campaignApprovals.length ? (
+                          campaignApprovals.slice(0, 4).map((approval) => (
+                            <div className="rounded-[1rem] bg-white/[0.035] px-3 py-3" key={approval.id}>
+                              <p className="truncate font-medium text-white/86">{approval.summary}</p>
+                              <p className="mt-1 text-white/48">{approval.status}</p>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="rounded-[1rem] bg-white/[0.035] px-3 py-3">No approvals yet.</p>
+                        )
+                      ) : null}
+                      {section.id === "publishing" ? (
+                        campaignPublishJobs.length ? (
+                          campaignPublishJobs.slice(0, 4).map((job) => (
+                            <div className="rounded-[1rem] bg-white/[0.035] px-3 py-3" key={job.id}>
+                              <p className="truncate font-medium capitalize text-white/86">{job.provider}</p>
+                              <p className="mt-1 text-white/48">{job.status}</p>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="rounded-[1rem] bg-white/[0.035] px-3 py-3">No publishing jobs yet.</p>
+                        )
+                      ) : null}
+                      {section.id === "metrics" ? (
+                        overview.linkedMetrics.length ? (
+                          overview.linkedMetrics.slice(0, 4).map((metric) => (
+                            <div className="rounded-[1rem] bg-white/[0.035] px-3 py-3" key={metric.id}>
+                              <p className="truncate font-medium text-white/86">{metric.weekLabel}</p>
+                              <p className="mt-1 text-white/48">{number(metric.covers)} covers</p>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="rounded-[1rem] bg-white/[0.035] px-3 py-3">No weekly metrics linked yet.</p>
+                        )
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
-                <span className="text-white/55">{value}</span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </Card>
 
