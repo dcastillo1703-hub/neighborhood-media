@@ -28,6 +28,19 @@ import { currency, number } from "@/lib/utils";
 import { validateCampaign } from "@/lib/validation";
 import { Campaign, CampaignStatus } from "@/types";
 
+type CampaignDefaultView = "Overview" | "List" | "Board" | "Calendar" | "Performance";
+
+const defaultViewOptions: Array<{
+  label: CampaignDefaultView;
+  description: string;
+}> = [
+  { label: "Overview", description: "Brief, content, and next steps in one calm workspace." },
+  { label: "List", description: "A linear execution queue for posts and approvals." },
+  { label: "Board", description: "Draft, review, scheduled, and published work lanes." },
+  { label: "Calendar", description: "A date-first view for launch timing and posting rhythm." },
+  { label: "Performance", description: "Covers, tables, and revenue impact once the work is live." }
+];
+
 const createEmptyCampaign = (clientId: string): Campaign => ({
   id: "",
   clientId,
@@ -54,6 +67,7 @@ export default function CampaignsPage() {
   const { analyticsSnapshots } = useAnalyticsSnapshots(activeClient.id);
   const [draft, setDraft] = useState<Campaign>(createEmptyCampaign(activeClient.id));
   const [channelDraft, setChannelDraft] = useState("");
+  const [defaultView, setDefaultView] = useState<CampaignDefaultView>("Overview");
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const campaignOverviews = useMemo(
@@ -69,13 +83,17 @@ export default function CampaignsPage() {
     }
 
     void addCampaign({
-      ...draft,
-      ...result.data,
-      clientId: activeClient.id
-    })
+        ...draft,
+        ...result.data,
+        notes: result.data.notes
+          ? `${result.data.notes}\n\nDefault workspace view: ${defaultView}`
+          : `Default workspace view: ${defaultView}`,
+        clientId: activeClient.id
+      })
       .then(() => {
         setErrors({});
         setDraft(createEmptyCampaign(activeClient.id));
+        setDefaultView("Overview");
         setChannelDraft("");
       })
       .catch(() => {
@@ -142,7 +160,7 @@ export default function CampaignsPage() {
       <PageHeader
         eyebrow="Campaign management"
         title="Campaigns"
-        description="Manage campaigns, linked content, assets, and weekly metrics."
+        description="Start with a simple campaign shell, then run content, approvals, calendar, and performance from the campaign workspace."
         actions={
           <Link className={buttonVariants({ variant: "outline", size: "sm" })} href="/calendar">
             Open campaign calendar
@@ -163,6 +181,9 @@ export default function CampaignsPage() {
             <div>
               <CardDescription>New Campaign</CardDescription>
               <CardTitle className="mt-3">Create a campaign shell</CardTitle>
+              <p className="mt-3 max-w-2xl text-sm text-muted-foreground">
+                Keep this first step light. Add content, approvals, and performance once the campaign workspace exists.
+              </p>
             </div>
           </CardHeader>
           <div className="grid gap-4">
@@ -247,6 +268,31 @@ export default function CampaignsPage() {
             <div>
               <Label>Notes</Label>
               <Textarea value={draft.notes} onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))} />
+            </div>
+            <div>
+              <Label>Default Workspace View</Label>
+              <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                {defaultViewOptions.map((option) => {
+                  const selected = option.label === defaultView;
+
+                  return (
+                    <button
+                      key={option.label}
+                      className={[
+                        "rounded-3xl border px-4 py-4 text-left transition",
+                        selected
+                          ? "border-primary/45 bg-primary/10 shadow-[0_14px_35px_rgba(149,114,46,0.12)]"
+                          : "border-border bg-card/70 hover:border-primary/25 hover:bg-primary/5"
+                      ].join(" ")}
+                      type="button"
+                      onClick={() => setDefaultView(option.label)}
+                    >
+                      <span className="block text-sm font-medium text-foreground">{option.label}</span>
+                      <span className="mt-2 block text-xs leading-5 text-muted-foreground">{option.description}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
             {errors.form ? <p className="text-xs text-primary">{errors.form}</p> : null}
             <Button className="w-full sm:w-auto" onClick={saveCampaign}>Create Campaign</Button>

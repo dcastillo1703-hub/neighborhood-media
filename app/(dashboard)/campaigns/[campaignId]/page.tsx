@@ -30,6 +30,20 @@ import { currency, number } from "@/lib/utils";
 import { validatePost } from "@/lib/validation";
 import { Post, PostStatus } from "@/types";
 
+type CampaignWorkspaceView = "overview" | "list" | "board" | "calendar" | "performance";
+
+const campaignViews: Array<{
+  id: CampaignWorkspaceView;
+  label: string;
+  description: string;
+}> = [
+  { id: "overview", label: "Overview", description: "Brief and new content" },
+  { id: "list", label: "List", description: "Every work item" },
+  { id: "board", label: "Board", description: "Status lanes" },
+  { id: "calendar", label: "Calendar", description: "Scheduled dates" },
+  { id: "performance", label: "Performance", description: "Covers and revenue" }
+];
+
 function createCampaignPost(clientId: string, campaignId: string): Post {
   return {
     id: "",
@@ -63,6 +77,7 @@ export default function CampaignDetailPage() {
   const [saving, setSaving] = useState(false);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [processingJobId, setProcessingJobId] = useState<string | null>(null);
+  const [activeView, setActiveView] = useState<CampaignWorkspaceView>("overview");
 
   const campaign = campaigns.find((item) => item.id === campaignId) ?? null;
   const overview = useMemo(
@@ -93,6 +108,7 @@ export default function CampaignDetailPage() {
         .sort((left, right) => left.publishDate.localeCompare(right.publishDate)),
     [overview]
   );
+  const linkedPosts = overview?.linkedPosts ?? [];
 
   const savePost = async (status: PostStatus) => {
     const result = validatePost({ ...draft, status });
@@ -203,12 +219,38 @@ export default function CampaignDetailPage() {
 
       <StatGrid>
         <MetricCard href="/campaigns" label="Status" value={campaign.status} detail={`${campaign.startDate} to ${campaign.endDate}`} />
-        <MetricCard href="#content-composer" label="Campaign Posts" value={number(overview.linkedPosts.length)} detail="Posts currently linked to this campaign." />
-        <MetricCard href="#approval-queue" label="Pending Reviews" value={number(campaignApprovals.filter((approval) => approval.status === "Pending").length)} detail="Linked posts still waiting on approval." />
-        <MetricCard href="#publishing-queue" label="Queued Publish Jobs" value={number(campaignPublishJobs.filter((job) => ["Queued", "Processing", "Blocked"].includes(job.status)).length)} detail="Publishing jobs currently tied to this campaign." />
+        <MetricCard href="#campaign-workspace" label="Campaign Posts" value={number(overview.linkedPosts.length)} detail="Posts currently linked to this campaign." />
+        <MetricCard href="#campaign-workspace" label="Pending Reviews" value={number(campaignApprovals.filter((approval) => approval.status === "Pending").length)} detail="Linked posts still waiting on approval." />
+        <MetricCard href="#campaign-workspace" label="Queued Publish Jobs" value={number(campaignPublishJobs.filter((job) => ["Queued", "Processing", "Blocked"].includes(job.status)).length)} detail="Publishing jobs currently tied to this campaign." />
         <MetricCard href="#performance-snapshot" label="Attributed Revenue" value={currency(overview.attributedRevenue)} detail="Revenue currently tied to this campaign in reporting." tone="olive" />
       </StatGrid>
 
+      <Card id="campaign-workspace" className="p-3 sm:p-4">
+        <div className="grid gap-2 sm:grid-cols-5">
+          {campaignViews.map((view) => {
+            const selected = activeView === view.id;
+
+            return (
+              <button
+                key={view.id}
+                className={[
+                  "rounded-3xl border px-4 py-3 text-left transition",
+                  selected
+                    ? "border-primary/45 bg-primary/10 shadow-[0_12px_30px_rgba(149,114,46,0.12)]"
+                    : "border-border bg-card/60 hover:border-primary/25 hover:bg-primary/5"
+                ].join(" ")}
+                type="button"
+                onClick={() => setActiveView(view.id)}
+              >
+                <span className="block text-sm font-medium text-foreground">{view.label}</span>
+                <span className="mt-1 block text-[0.7rem] leading-4 text-muted-foreground">{view.description}</span>
+              </button>
+            );
+          })}
+        </div>
+      </Card>
+
+      {activeView === "overview" ? (
       <div className="grid gap-6 xl:grid-cols-[0.82fr_1.18fr]">
         <Card id="campaign-brief">
           <CardHeader>
@@ -327,7 +369,85 @@ export default function CampaignDetailPage() {
           </div>
         </Card>
       </div>
+      ) : null}
 
+      {activeView === "list" ? (
+      <Card id="campaign-list">
+        <CardHeader>
+          <div>
+            <CardDescription>Campaign List</CardDescription>
+            <CardTitle className="mt-3">Every content item in this campaign</CardTitle>
+          </div>
+        </CardHeader>
+        <div className="space-y-3">
+          {linkedPosts.length ? (
+            linkedPosts.map((post) => {
+              const approval = campaignApprovals.find((item) => item.entityId === post.id);
+              const publishJob = campaignPublishJobs.find((item) => item.postId === post.id);
+
+              return (
+                <ListCard key={post.id}>
+                  <div className="grid gap-4 lg:grid-cols-[1fr_10rem_10rem_10rem] lg:items-center">
+                    <div>
+                      <p className="font-medium text-foreground">{post.goal}</p>
+                      <p className="mt-2 text-sm text-muted-foreground">{post.platform} · {post.publishDate || "No date yet"}</p>
+                      <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{post.content}</p>
+                    </div>
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{post.status}</p>
+                    <p className="text-xs uppercase tracking-[0.16em] text-primary">{approval?.status ?? "No approval"}</p>
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{publishJob?.status ?? "No publish job"}</p>
+                  </div>
+                </ListCard>
+              );
+            })
+          ) : (
+            <EmptyState title="No campaign posts yet" description="Use Overview to add the first post for this campaign." />
+          )}
+        </div>
+      </Card>
+      ) : null}
+
+      {activeView === "board" ? (
+      <Card id="campaign-board">
+        <CardHeader>
+          <div>
+            <CardDescription>Campaign Board</CardDescription>
+            <CardTitle className="mt-3">Move work through the publishing rhythm</CardTitle>
+          </div>
+        </CardHeader>
+        <div className="grid gap-4 lg:grid-cols-3">
+          {(["Draft", "Scheduled", "Published"] as PostStatus[]).map((status) => {
+            const lanePosts = linkedPosts.filter((post) => post.status === status);
+
+            return (
+              <div className="rounded-3xl border border-border bg-card/55 p-4" key={status}>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-medium text-foreground">{status}</p>
+                  <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary">{lanePosts.length}</span>
+                </div>
+                <div className="mt-4 space-y-3">
+                  {lanePosts.length ? (
+                    lanePosts.map((post) => (
+                      <ListCard key={post.id}>
+                        <p className="font-medium text-foreground">{post.goal}</p>
+                        <p className="mt-2 text-sm text-muted-foreground">{post.platform} · {post.publishDate || "No date yet"}</p>
+                        <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">{post.content}</p>
+                      </ListCard>
+                    ))
+                  ) : (
+                    <p className="rounded-2xl border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
+                      No {status.toLowerCase()} posts.
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+      ) : null}
+
+      {activeView === "calendar" ? (
       <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
         <Card id="scheduled-timeline">
           <CardHeader>
@@ -369,7 +489,11 @@ export default function CampaignDetailPage() {
             )}
           </div>
         </Card>
+      </div>
+      ) : null}
 
+      {activeView === "performance" ? (
+      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
         <Card id="performance-snapshot">
           <CardHeader>
             <div>
@@ -398,58 +522,6 @@ export default function CampaignDetailPage() {
               <p className="mt-2 text-2xl text-foreground">{number(overview.linkedMetrics.length)}</p>
               <p className="mt-2 text-sm text-muted-foreground">Weekly performance entries tied to this campaign.</p>
             </ListCard>
-          </div>
-        </Card>
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
-        <Card id="approval-queue">
-          <CardHeader>
-            <div>
-              <CardDescription>Approval Queue</CardDescription>
-              <CardTitle className="mt-3">Review what is still blocking launch</CardTitle>
-            </div>
-          </CardHeader>
-          <div className="space-y-3">
-            {campaignApprovals.length ? (
-              campaignApprovals.map((approval) => (
-                <ListCard key={approval.id}>
-                  <p className="font-medium text-foreground">{approval.summary}</p>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    Requested by {approval.requesterName} on {approval.requestedAt.slice(0, 10)}
-                  </p>
-                  {approval.note ? <p className="mt-2 text-sm text-muted-foreground">{approval.note}</p> : null}
-                  {approval.status === "Pending" ? (
-                    <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-                      <Button
-                        disabled={reviewingId === approval.id}
-                        onClick={() => void handleReview(approval.id, "Approved")}
-                        size="sm"
-                      >
-                        Approve
-                      </Button>
-                      <Button
-                        disabled={reviewingId === approval.id}
-                        onClick={() => void handleReview(approval.id, "Changes Requested")}
-                        size="sm"
-                        variant="outline"
-                      >
-                        Request Changes
-                      </Button>
-                    </div>
-                  ) : (
-                    <p className="mt-4 text-xs uppercase tracking-[0.16em] text-primary">
-                      {approval.status}
-                    </p>
-                  )}
-                </ListCard>
-              ))
-            ) : (
-              <EmptyState
-                title="No campaign approvals"
-                description="Approvals for posts created in this campaign will appear here automatically."
-              />
-            )}
           </div>
         </Card>
 
@@ -502,6 +574,61 @@ export default function CampaignDetailPage() {
           </div>
         </Card>
       </div>
+      ) : null}
+
+      {activeView === "list" ? (
+      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+        <Card id="approval-queue">
+          <CardHeader>
+            <div>
+              <CardDescription>Approval Queue</CardDescription>
+              <CardTitle className="mt-3">Review what is still blocking launch</CardTitle>
+            </div>
+          </CardHeader>
+          <div className="space-y-3">
+            {campaignApprovals.length ? (
+              campaignApprovals.map((approval) => (
+                <ListCard key={approval.id}>
+                  <p className="font-medium text-foreground">{approval.summary}</p>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Requested by {approval.requesterName} on {approval.requestedAt.slice(0, 10)}
+                  </p>
+                  {approval.note ? <p className="mt-2 text-sm text-muted-foreground">{approval.note}</p> : null}
+                  {approval.status === "Pending" ? (
+                    <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                      <Button
+                        disabled={reviewingId === approval.id}
+                        onClick={() => void handleReview(approval.id, "Approved")}
+                        size="sm"
+                      >
+                        Approve
+                      </Button>
+                      <Button
+                        disabled={reviewingId === approval.id}
+                        onClick={() => void handleReview(approval.id, "Changes Requested")}
+                        size="sm"
+                        variant="outline"
+                      >
+                        Request Changes
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="mt-4 text-xs uppercase tracking-[0.16em] text-primary">
+                      {approval.status}
+                    </p>
+                  )}
+                </ListCard>
+              ))
+            ) : (
+              <EmptyState
+                title="No campaign approvals"
+                description="Approvals for posts created in this campaign will appear here automatically."
+              />
+            )}
+          </div>
+        </Card>
+      </div>
+      ) : null}
     </div>
   );
 }
