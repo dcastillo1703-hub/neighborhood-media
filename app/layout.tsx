@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { Metadata, Viewport } from "next";
 
 import { AuthProvider } from "@/lib/auth-context";
+import { ThemeProvider } from "@/lib/theme-context";
 import { ServiceWorkerRegister } from "@/components/pwa/service-worker-register";
 
 import "./globals.css";
@@ -36,10 +37,12 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <AuthProvider>
-          <ServiceWorkerRegister />
-          {children}
-        </AuthProvider>
+        <ThemeProvider>
+          <AuthProvider>
+            <ServiceWorkerRegister />
+            {children}
+          </AuthProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

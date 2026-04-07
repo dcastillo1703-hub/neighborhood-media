@@ -10,6 +10,7 @@ import { StatGrid } from "@/components/dashboard/stat-grid";
 import { MetricCard } from "@/components/metric-card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { DatePill } from "@/components/ui/date-pill";
 import { useAuth } from "@/lib/auth-context";
 import { useActiveClient } from "@/lib/client-context";
 import { useOperationsApi } from "@/lib/use-operations-api";
@@ -86,9 +87,10 @@ export default function ApprovalsPage() {
               pendingApprovals.map((approval) => (
                 <ListCard key={approval.id}>
                   <p className="font-medium text-foreground">{approval.summary}</p>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    Requested by {approval.requesterName} on {approval.requestedAt.slice(0, 10)}
-                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                    <span>Requested by {approval.requesterName}</span>
+                    <DatePill value={approval.requestedAt} />
+                  </div>
                   {approval.note ? (
                     <p className="mt-2 text-sm text-muted-foreground">{approval.note}</p>
                   ) : null}

@@ -2,29 +2,43 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Bell, CheckCircle2, Home, Search, UserRound } from "lucide-react";
 
-import { navigation } from "@/components/layout/sidebar";
 import { cn } from "@/lib/utils";
+
+const mobileNavigation = [
+  { href: "/", label: "Home", icon: Home },
+  { href: "/content", label: "My tasks", icon: CheckCircle2 },
+  { href: "/approvals", label: "Inbox", icon: Bell },
+  { href: "/campaigns", label: "Search", icon: Search },
+  { href: "/settings", label: "Account", icon: UserRound }
+] as const;
 
 export function MobileNav() {
   const pathname = usePathname();
 
   return (
-    <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:hidden">
-      {navigation.map((item) => (
-        <Link
-          className={cn(
-            "rounded-2xl border px-3 py-3 text-center text-sm transition",
-            pathname === item.href
-              ? "border-primary/40 bg-[linear-gradient(180deg,rgba(189,156,87,0.95),rgba(166,136,75,0.9))] text-primary-foreground"
-              : "border-border bg-card/70 text-muted-foreground hover:border-primary/25 hover:bg-accent/30"
-          )}
-          href={item.href}
-          key={item.href}
-        >
-          {item.label}
-        </Link>
-      ))}
-    </div>
+    <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-white/10 bg-[#202024]/95 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 text-white shadow-[0_-18px_45px_rgba(0,0,0,0.25)] backdrop-blur lg:hidden">
+      <div className="grid grid-cols-5">
+        {mobileNavigation.map((item) => {
+          const Icon = item.icon;
+          const active = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
+
+          return (
+            <Link
+              className={cn(
+                "flex flex-col items-center justify-center gap-1 rounded-2xl px-2 py-1.5 text-[0.7rem] font-medium transition",
+                active ? "text-white" : "text-white/50"
+              )}
+              href={item.href}
+              key={item.href}
+            >
+              <Icon className={cn("h-6 w-6", active ? "stroke-[2.4]" : "stroke-[2]")} />
+              <span>{item.label}</span>
+            </Link>
+          );
+        })}
+      </div>
+    </nav>
   );
 }

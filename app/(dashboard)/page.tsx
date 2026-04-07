@@ -4,31 +4,32 @@ import { useEffect, useMemo, useState } from "react";
 import type { Route } from "next";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import {
+  CalendarDays,
+  CheckCircle2,
+  ChevronRight,
+  Circle,
+  Clock3,
+  MessageSquare,
+  MoreHorizontal,
+  Pencil,
+  TrendingUp
+} from "lucide-react";
 
-import { ChartShell } from "@/components/charts/chart-shell";
 import { EmptyState } from "@/components/dashboard/empty-state";
-import { ListCard } from "@/components/dashboard/list-card";
 import { PageHeader } from "@/components/dashboard/page-header";
-import { StatGrid } from "@/components/dashboard/stat-grid";
-import { MetricCard } from "@/components/metric-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { DatePill } from "@/components/ui/date-pill";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { useActiveClient } from "@/lib/client-context";
 import { useAuth } from "@/lib/auth-context";
+import { useActiveClient } from "@/lib/client-context";
 import { calculateRevenueModel } from "@/lib/calculations";
 import { getCampaignOverview } from "@/lib/domain/campaigns";
 import { buildScheduledContent } from "@/lib/domain/content";
-import { buildWeeklyPerformance } from "@/lib/domain/performance";
-import {
-  summarizeChannelContribution,
-  summarizeCampaignRecaps,
-  summarizeRoi
-} from "@/lib/domain/reporting";
 import { buildImpactSentence } from "@/lib/domain/revenue";
 import { useAnalyticsSnapshots } from "@/lib/repositories/use-analytics-snapshots";
 import { useAssets } from "@/lib/repositories/use-assets";
@@ -40,17 +41,10 @@ import { usePosts } from "@/lib/repositories/use-posts";
 import { useActivityEvents } from "@/lib/repositories/use-activity-events";
 import { useOperationalTasks } from "@/lib/repositories/use-operational-tasks";
 import { useWeeklyMetrics } from "@/lib/repositories/use-weekly-metrics";
-import { currency, number, percent } from "@/lib/utils";
+import { useApprovalsApi } from "@/lib/use-approvals-api";
+import { cn, currency, number, percent } from "@/lib/utils";
 import { useWorkspaceContext } from "@/lib/workspace-context";
 import type { ClientSettings } from "@/types";
-
-const quickLinks: Array<{ href: Route; title: string; detail: string }> = [
-  { href: "/campaigns", title: "Live Campaign", detail: "Open the campaign currently shaping the week and review the assets, posts, and targets tied to it." },
-  { href: "/performance", title: "Client Story", detail: "Translate this week’s execution into covers, tables, revenue, and a client-ready performance view." },
-  { href: "/approvals", title: "Team Queue", detail: "See what is waiting on approval, what is blocked, and what needs a push before launch." },
-  { href: "/settings", title: "Channel Health", detail: "Confirm which channels and team permissions are ready before you promise publishing or reporting." },
-  { href: "/content", title: "Next Publish", detail: "Draft, review, and schedule the next piece of content without losing campaign context." }
-];
 
 type OverviewDraft = {
   averageCheck: string;
@@ -61,12 +55,15 @@ type OverviewDraft = {
   overviewSummary: string;
   overviewPinnedCampaignId: string;
   overviewFeaturedMetric: ClientSettings["overviewFeaturedMetric"];
-  overviewShowSchedule: boolean;
-  overviewShowTrafficTrend: boolean;
-  overviewShowChannelContribution: boolean;
-  overviewShowQuickLinks: boolean;
-  overviewShowCampaignRecaps: boolean;
-  overviewShowRecentActivity: boolean;
+};
+
+type ClientAction = {
+  id: string;
+  title: string;
+  detail: string;
+  href: Route;
+  tone: "review" | "schedule" | "task";
+  date?: string;
 };
 
 function toOverviewDraft(settings: ClientSettings): OverviewDraft {
@@ -78,14 +75,23 @@ function toOverviewDraft(settings: ClientSettings): OverviewDraft {
     overviewHeadline: settings.overviewHeadline,
     overviewSummary: settings.overviewSummary,
     overviewPinnedCampaignId: settings.overviewPinnedCampaignId ?? "",
-    overviewFeaturedMetric: settings.overviewFeaturedMetric,
-    overviewShowSchedule: settings.overviewShowSchedule,
-    overviewShowTrafficTrend: settings.overviewShowTrafficTrend,
-    overviewShowChannelContribution: settings.overviewShowChannelContribution,
-    overviewShowQuickLinks: settings.overviewShowQuickLinks,
-    overviewShowCampaignRecaps: settings.overviewShowCampaignRecaps,
-    overviewShowRecentActivity: settings.overviewShowRecentActivity
+    overviewFeaturedMetric: settings.overviewFeaturedMetric
   };
+}
+
+function getGreeting(name: string) {
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+
+  return `${greeting}, ${name}`;
+}
+
+function formatToday() {
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    month: "long",
+    day: "2-digit"
+  }).format(new Date());
 }
 
 export default function DashboardPage() {
@@ -102,32 +108,29 @@ export default function DashboardPage() {
   const { analyticsSnapshots } = useAnalyticsSnapshots(activeClient.id);
   const { tasks } = useOperationalTasks(workspace.id);
   const { events } = useActivityEvents(workspace.id);
+  const { approvals, ready: approvalsReady, reviewApproval } = useApprovalsApi(activeClient.id);
   const [isEditingOverview, setIsEditingOverview] = useState(false);
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [overviewDraft, setOverviewDraft] = useState<OverviewDraft>(() => toOverviewDraft(settings));
 
   const model = calculateRevenueModel(revenueModelDefaults);
-  const weeklyData = buildWeeklyPerformance(metrics, revenueModelDefaults.averageCheck);
-  const scheduledContent = buildScheduledContent(posts, items).slice(0, 4);
+  const scheduledContent = buildScheduledContent(posts, items).slice(0, 5);
   const workspaceTasks = tasks.filter((task) => !task.clientId || task.clientId === activeClient.id);
-  const activity = events.filter((item) => !item.clientId || item.clientId === activeClient.id).slice(0, 4);
-  const roiSummary = summarizeRoi(analyticsSnapshots);
-  const channelContribution = summarizeChannelContribution(analyticsSnapshots);
-  const campaignRecaps = summarizeCampaignRecaps(campaigns, analyticsSnapshots);
-  const nextScheduledItem = scheduledContent[0] ?? null;
-  const nextTask = workspaceTasks
+  const openTasks = workspaceTasks
     .filter((task) => task.status !== "Done")
     .sort((left, right) => {
-      if (!left.dueDate) {
-        return 1;
-      }
-
-      if (!right.dueDate) {
-        return -1;
-      }
-
+      if (!left.dueDate) return 1;
+      if (!right.dueDate) return -1;
       return new Date(left.dueDate).getTime() - new Date(right.dueDate).getTime();
-    })[0] ?? null;
-  const operatorName = profile?.fullName ?? profile?.email?.split("@")[0] ?? "there";
+    });
+  const recentActivity = events.filter((item) => !item.clientId || item.clientId === activeClient.id).slice(0, 3);
+  const pendingApprovals = approvals.filter((approval) => approval.status === "Pending");
+  const nextScheduledItem = scheduledContent[0] ?? null;
+  const nextTask = openTasks[0] ?? null;
+  const clientFirstName =
+    profile?.fullName?.split(" ")[0] ??
+    profile?.email?.split("@")[0] ??
+    "there";
   const pinnedCampaign =
     campaigns.find((campaign) => campaign.id === settings.overviewPinnedCampaignId) ??
     campaigns.find((campaign) => campaign.status === "Active") ??
@@ -137,6 +140,50 @@ export default function DashboardPage() {
     ? getCampaignOverview(pinnedCampaign, posts, blogPosts, assets, metrics, analyticsSnapshots)
     : null;
 
+  const clientActions = useMemo<ClientAction[]>(() => {
+    const actions: ClientAction[] = [];
+
+    if (pendingApprovals[0]) {
+      actions.push({
+        id: pendingApprovals[0].id,
+        title: pendingApprovals[0].summary,
+        detail: pendingApprovals[0].note ?? "Waiting on approval before this can move forward.",
+        href: "/approvals",
+        tone: "review"
+      });
+    }
+
+    if (nextScheduledItem) {
+      actions.push({
+        id: nextScheduledItem.id,
+        title: nextScheduledItem.content,
+        detail: nextScheduledItem.platform,
+        href: "/calendar",
+        tone: "schedule",
+        date: nextScheduledItem.date
+      });
+    }
+
+    if (nextTask) {
+      actions.push({
+        id: nextTask.id,
+        title: nextTask.title,
+        detail: nextTask.status,
+        href: "/approvals#open-tasks",
+        tone: "task",
+        date: nextTask.dueDate
+      });
+    }
+
+    return actions.slice(0, 4);
+  }, [nextScheduledItem, nextTask, pendingApprovals]);
+
+  const performancePulse: Array<{ label: string; value: string; href: Route }> = [
+    { label: "Weekly covers", value: number(model.weeklyCovers), href: "/performance#business-snapshot" as Route },
+    { label: "Weekly revenue", value: currency(model.weeklyRevenue), href: "/performance#business-snapshot" as Route },
+    { label: "Growth target", value: percent(revenueModelDefaults.growthTarget), href: "/revenue-modeling#growth-target" as Route }
+  ];
+
   useEffect(() => {
     setOverviewDraft(toOverviewDraft(settings));
   }, [settings]);
@@ -145,35 +192,31 @@ export default function DashboardPage() {
     switch (settings.overviewFeaturedMetric) {
       case "weekly-revenue":
         return {
-          label: "Featured KPI · Weekly Revenue",
+          label: "Weekly Revenue",
           value: currency(model.weeklyRevenue),
-          detail: "Live weekly revenue pace based on the current average check and cover assumptions.",
-          href: "/performance#business-snapshot"
+          href: "/performance#business-snapshot" as Route
         };
       case "tracked-revenue":
         return {
-          label: "Featured KPI · Tracked Revenue",
-          value: currency(roiSummary.revenue),
-          detail: "Revenue currently tied back to campaign and content activity.",
-          href: "/performance#campaign-impact"
+          label: "Tracked Revenue",
+          value: currency(analyticsSnapshots.reduce((total, snapshot) => total + snapshot.attributedRevenue, 0)),
+          href: "/performance#campaign-impact" as Route
         };
       case "open-tasks":
         return {
-          label: "Featured KPI · Open Tasks",
-          value: number(workspaceTasks.filter((task) => task.status !== "Done").length),
-          detail: "Execution items still in motion for this client.",
-          href: "/approvals#open-tasks"
+          label: "Open Items",
+          value: number(openTasks.length),
+          href: "/approvals#open-tasks" as Route
         };
       case "weekly-covers":
       default:
         return {
-          label: "Featured KPI · Weekly Covers",
+          label: "Weekly Covers",
           value: number(model.weeklyCovers),
-          detail: "Current weekly dining volume tied to this account.",
-          href: "/performance#business-snapshot"
+          href: "/performance#business-snapshot" as Route
         };
     }
-  }, [model.weeklyCovers, model.weeklyRevenue, roiSummary.revenue, settings.overviewFeaturedMetric, workspaceTasks]);
+  }, [analyticsSnapshots, model.weeklyCovers, model.weeklyRevenue, openTasks.length, settings.overviewFeaturedMetric]);
 
   const saveOverview = () => {
     setSettings((current) => ({
@@ -185,28 +228,94 @@ export default function DashboardPage() {
       overviewHeadline: overviewDraft.overviewHeadline.trim(),
       overviewSummary: overviewDraft.overviewSummary.trim(),
       overviewPinnedCampaignId: overviewDraft.overviewPinnedCampaignId || undefined,
-      overviewFeaturedMetric: overviewDraft.overviewFeaturedMetric,
-      overviewShowSchedule: overviewDraft.overviewShowSchedule,
-      overviewShowTrafficTrend: overviewDraft.overviewShowTrafficTrend,
-      overviewShowChannelContribution: overviewDraft.overviewShowChannelContribution,
-      overviewShowQuickLinks: overviewDraft.overviewShowQuickLinks,
-      overviewShowCampaignRecaps: overviewDraft.overviewShowCampaignRecaps,
-      overviewShowRecentActivity: overviewDraft.overviewShowRecentActivity
+      overviewFeaturedMetric: overviewDraft.overviewFeaturedMetric
     }));
     setIsEditingOverview(false);
   };
 
-  return (
-    <div className="space-y-10">
-      <PageHeader
-        eyebrow="Overview"
-        title={`${activeClient.name} at a glance`}
-        description={`Welcome back, ${operatorName}. This is the working view for ${activeClient.name}: current performance, active work, and the scheduled week.`}
-      />
+  const handleReview = async (approvalId: string, status: "Approved" | "Changes Requested") => {
+    setReviewingId(approvalId);
 
-      <div className="flex justify-end">
-        <Button variant={isEditingOverview ? "outline" : "default"} onClick={() => setIsEditingOverview((current) => !current)}>
-          {isEditingOverview ? "Close Editor" : "Edit Overview"}
+    try {
+      await reviewApproval(approvalId, {
+        status,
+        note: status === "Approved" ? "Approved from the client home dashboard." : "Requested changes from the client home dashboard.",
+        approverName: profile?.fullName ?? profile?.email ?? "Client"
+      });
+    } finally {
+      setReviewingId(null);
+    }
+  };
+
+  return (
+    <div className="space-y-6 sm:space-y-8">
+      <section className="-mx-4 -mt-4 rounded-b-[2rem] bg-[#202124] px-4 pb-6 pt-7 text-white shadow-[0_18px_60px_rgba(0,0,0,0.22)] sm:hidden">
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-sm font-semibold text-white/70">{formatToday()}</p>
+            <h1 className="mt-2 text-4xl font-semibold tracking-[-0.05em]">{getGreeting(clientFirstName)}</h1>
+          </div>
+          <Link
+            className="rounded-2xl border border-white/10 bg-white/5 p-3 text-white/70"
+            href="/settings"
+            aria-label="Open account settings"
+          >
+            <MoreHorizontal className="h-5 w-5" />
+          </Link>
+        </div>
+
+        <div className="mt-8 rounded-[1.75rem] border border-white/10 bg-[#1b1c1f] p-5">
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl font-semibold tracking-[-0.04em]">Needs attention</h2>
+            <Link className="text-sm font-medium text-white/60" href="/approvals">
+              View all
+            </Link>
+          </div>
+          <div className="mt-5 space-y-5">
+            {clientActions.length ? (
+              clientActions.map((action) => (
+                <Link className="flex items-start gap-4" href={action.href} key={action.id}>
+                  <span
+                    className={cn(
+                      "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border",
+                      action.tone === "review" ? "border-[var(--app-accent-bg)] text-[var(--app-accent-bg)]" : "border-white/25 text-white/60"
+                    )}
+                  >
+                    {action.tone === "review" ? <MessageSquare className="h-4 w-4" /> : <Circle className="h-4 w-4" />}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-lg font-semibold">{action.title}</span>
+                    <span className="mt-1 flex flex-wrap items-center gap-2 text-sm leading-5 text-white/55">
+                      <span>{action.detail}</span>
+                      {action.date ? (
+                        <DatePill className="border-white/15 bg-white/10 text-white/75" value={action.date} />
+                      ) : null}
+                    </span>
+                  </span>
+                </Link>
+              ))
+            ) : (
+              <div className="flex items-center gap-4 text-white/65">
+                <CheckCircle2 className="h-9 w-9 text-[var(--app-accent-bg)]" />
+                <p className="text-base">Nothing needs approval right now.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <div className="hidden items-start justify-between gap-6 sm:flex">
+        <PageHeader
+          eyebrow="Client Home"
+          title={`${activeClient.name} home`}
+          description={
+            settings.overviewSummary ||
+            "A calmer client-facing view of what needs review, what is going out next, and how the restaurant is tracking."
+          }
+        />
+        <Button className="shrink-0" variant="outline" onClick={() => setIsEditingOverview((current) => !current)}>
+          <Pencil className="mr-2 h-4 w-4" />
+          {isEditingOverview ? "Close" : "Customize"}
         </Button>
       </div>
 
@@ -214,8 +323,8 @@ export default function DashboardPage() {
         <Card>
           <CardHeader>
             <div>
-              <CardDescription>Overview Editor</CardDescription>
-              <CardTitle className="mt-3">Change the overview without touching code</CardTitle>
+              <CardDescription>Client Home Settings</CardDescription>
+              <CardTitle className="mt-3">Tune the story the client sees first</CardTitle>
             </div>
           </CardHeader>
           <div className="grid gap-6">
@@ -238,21 +347,21 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+            <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
               <div className="space-y-4">
                 <div>
                   <Label>Headline</Label>
-                  <Input value={overviewDraft.overviewHeadline} onChange={(event) => setOverviewDraft((current) => ({ ...current, overviewHeadline: event.target.value }))} placeholder="Set the headline you want at the top of the overview." />
+                  <Input value={overviewDraft.overviewHeadline} onChange={(event) => setOverviewDraft((current) => ({ ...current, overviewHeadline: event.target.value }))} placeholder="Set the headline you want at the top of the client home." />
                 </div>
                 <div>
-                  <Label>Summary</Label>
-                  <Textarea value={overviewDraft.overviewSummary} onChange={(event) => setOverviewDraft((current) => ({ ...current, overviewSummary: event.target.value }))} placeholder="Add the note or context you want the team to see first." />
+                  <Label>Client Note</Label>
+                  <Textarea value={overviewDraft.overviewSummary} onChange={(event) => setOverviewDraft((current) => ({ ...current, overviewSummary: event.target.value }))} placeholder="Add the context you want the client to see first." />
                 </div>
               </div>
 
               <div className="space-y-4">
                 <div>
-                  <Label>Featured KPI</Label>
+                  <Label>Featured Metric</Label>
                   <Select
                     value={overviewDraft.overviewFeaturedMetric}
                     onChange={(value) =>
@@ -265,7 +374,7 @@ export default function DashboardPage() {
                       { label: "Weekly Covers", value: "weekly-covers" },
                       { label: "Weekly Revenue", value: "weekly-revenue" },
                       { label: "Tracked Revenue", value: "tracked-revenue" },
-                      { label: "Open Tasks", value: "open-tasks" }
+                      { label: "Open Items", value: "open-tasks" }
                     ]}
                   />
                 </div>
@@ -283,277 +392,218 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {[
-                ["overviewShowSchedule", "Show live schedule"],
-                ["overviewShowTrafficTrend", "Show traffic trend chart"],
-                ["overviewShowChannelContribution", "Show channel contribution chart"],
-                ["overviewShowQuickLinks", "Show quick links"],
-                ["overviewShowCampaignRecaps", "Show campaign recaps"],
-                ["overviewShowRecentActivity", "Show recent activity"]
-              ].map(([field, label]) => (
-                <label
-                  key={field}
-                  className="flex items-center justify-between rounded-2xl border border-border/70 bg-card/65 px-4 py-3 text-sm text-foreground"
-                >
-                  <span>{label}</span>
-                  <input
-                    checked={overviewDraft[field as keyof Pick<
-                      OverviewDraft,
-                      | "overviewShowSchedule"
-                      | "overviewShowTrafficTrend"
-                      | "overviewShowChannelContribution"
-                      | "overviewShowQuickLinks"
-                      | "overviewShowCampaignRecaps"
-                      | "overviewShowRecentActivity"
-                    >] as boolean}
-                    onChange={(event) =>
-                      setOverviewDraft((current) => ({
-                        ...current,
-                        [field]: event.target.checked
-                      }))
-                    }
-                    type="checkbox"
-                  />
-                </label>
-              ))}
-            </div>
-
             <div className="flex justify-end gap-3">
               <Button variant="outline" onClick={() => setOverviewDraft(toOverviewDraft(settings))}>
                 Reset
               </Button>
-              <Button onClick={saveOverview}>Save Overview</Button>
+              <Button onClick={saveOverview}>Save Client Home</Button>
             </div>
           </div>
         </Card>
       ) : null}
 
-      <motion.div animate={{ opacity: 1, y: 0 }} className="space-y-10" initial={{ opacity: 0, y: 16 }}>
-        <StatGrid>
-          <MetricCard href={featuredMetric.href} label={featuredMetric.label} value={featuredMetric.value} detail={featuredMetric.detail} />
-          <MetricCard href="/performance#business-snapshot" label="Weekly Covers" value={number(model.weeklyCovers)} detail="Current weekly dining volume tied to this account." />
-          <MetricCard href="/performance#business-snapshot" label="Weekly Revenue" value={currency(model.weeklyRevenue)} detail="Current weekly revenue pace based on check average and cover volume." />
-          <MetricCard href="/revenue-modeling#growth-target" label="Growth Target" value={percent(revenueModelDefaults.growthTarget)} detail="Lift goal you are modeling against right now." />
-          <MetricCard href="/performance#campaign-impact" label="Tracked Revenue" value={currency(roiSummary.revenue)} detail="Revenue currently tied back to campaign and content activity." tone="olive" />
-          <MetricCard href="/approvals#open-tasks" label="Open Tasks" value={number(workspaceTasks.filter((task) => task.status !== "Done").length)} detail="Execution items still in motion for this client." />
-        </StatGrid>
+      <motion.div animate={{ opacity: 1, y: 0 }} className="grid gap-4 md:grid-cols-3" initial={{ opacity: 0, y: 12 }}>
+        <Link href={featuredMetric.href}>
+          <Card className="h-full p-5">
+            <p className="text-sm text-muted-foreground">{featuredMetric.label}</p>
+            <p className="mt-3 font-display text-4xl text-foreground">{featuredMetric.value}</p>
+            <p className="mt-4 text-sm leading-6 text-muted-foreground">The one number to keep in view this week.</p>
+          </Card>
+        </Link>
+        <Link href="/approvals">
+          <Card className="h-full p-5">
+            <p className="text-sm text-muted-foreground">Waiting on Review</p>
+            <p className="mt-3 font-display text-4xl text-foreground">{approvalsReady ? number(pendingApprovals.length) : "..."}</p>
+            <p className="mt-4 text-sm leading-6 text-muted-foreground">Content or requests that need a client decision.</p>
+          </Card>
+        </Link>
+        <Link href="/calendar">
+          <Card className="h-full p-5">
+            <p className="text-sm text-muted-foreground">Next Publish</p>
+            <p className="mt-3 truncate font-display text-4xl text-foreground">{nextScheduledItem ? nextScheduledItem.platform : "None"}</p>
+            {nextScheduledItem ? (
+              <div className="mt-4 space-y-2">
+                <DatePill value={nextScheduledItem.date} />
+                <p className="line-clamp-2 text-sm leading-6 text-muted-foreground">{nextScheduledItem.content}</p>
+              </div>
+            ) : (
+              <p className="mt-4 line-clamp-2 text-sm leading-6 text-muted-foreground">No scheduled content is on the calendar yet.</p>
+            )}
+          </Card>
+        </Link>
       </motion.div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-        <Card className="overflow-hidden">
-          <CardHeader className="items-end">
-            <div>
-              <CardDescription>Pinned Narrative</CardDescription>
-              <CardTitle className="mt-3 text-3xl leading-tight">
-                {settings.overviewHeadline || buildImpactSentence(activeClient.name, revenueModelDefaults)}
-              </CardTitle>
-              <p className="mt-4 max-w-3xl text-sm text-muted-foreground">
-                {settings.overviewSummary || "Use the overview editor to pin a custom narrative, choose the KPI to feature, and control which sections show up on this page."}
-              </p>
-              {pinnedCampaign ? (
-                <p className="mt-4 text-sm text-foreground">
-                  <span className="text-muted-foreground">Pinned campaign:</span> {pinnedCampaign.name} · {pinnedCampaign.status}
-                </p>
-              ) : null}
-            </div>
-          </CardHeader>
-        </Card>
-
-        <Card>
+      <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+        <Card id="client-review">
           <CardHeader>
             <div>
-              <CardDescription>Next On Deck</CardDescription>
-              <CardTitle className="mt-3">What needs your attention first</CardTitle>
+              <CardDescription>Client Review</CardDescription>
+              <CardTitle className="mt-3">What needs a decision</CardTitle>
             </div>
+            <Link className="hidden items-center gap-1 text-sm font-medium text-primary sm:flex" href="/approvals">
+              Open inbox <ChevronRight className="h-4 w-4" />
+            </Link>
           </CardHeader>
           <div className="space-y-3">
-            <ListCard>
-              <p className="text-sm text-muted-foreground">Next Scheduled Publish</p>
-              <p className="mt-2 font-display text-2xl text-foreground">
-                {nextScheduledItem ? nextScheduledItem.platform : "Nothing scheduled yet"}
-              </p>
-              <p className="mt-2 text-sm text-muted-foreground">
-                {nextScheduledItem ? `${nextScheduledItem.date} · ${nextScheduledItem.content}` : "Populate the planner to surface the next live publish here."}
-              </p>
-            </ListCard>
-            <ListCard>
-              <p className="text-sm text-muted-foreground">Next Task Due</p>
-              <p className="mt-2 font-display text-2xl text-foreground">{nextTask ? nextTask.title : "Queue is clear"}</p>
-              <p className="mt-2 text-sm text-muted-foreground">
-                {nextTask
-                  ? `${nextTask.status} · ${nextTask.assigneeName ?? "Unassigned"}${nextTask.dueDate ? ` · due ${nextTask.dueDate}` : ""}`
-                  : "No outstanding operational blockers are scheduled right now."}
-              </p>
-            </ListCard>
-          </div>
-        </Card>
-      </div>
-
-      {settings.overviewShowTrafficTrend || settings.overviewShowChannelContribution ? (
-        <div className={`grid gap-6 ${settings.overviewShowTrafficTrend && settings.overviewShowChannelContribution ? "xl:grid-cols-[1.1fr_0.9fr]" : ""}`}>
-          {settings.overviewShowTrafficTrend ? (
-            <Card>
-              <CardHeader>
-                <div>
-                  <CardDescription>Traffic Trend</CardDescription>
-                  <CardTitle className="mt-3">Weekly cover trend</CardTitle>
-                </div>
-              </CardHeader>
-              <ChartShell>
-                <AreaChart data={weeklyData}>
-                  <defs>
-                    <linearGradient id="coversFill" x1="0" x2="0" y1="0" y2="1">
-                      <stop offset="5%" stopColor="#b89a5a" stopOpacity={0.45} />
-                      <stop offset="95%" stopColor="#b89a5a" stopOpacity={0.05} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid stroke="rgba(139,120,83,0.14)" vertical={false} />
-                  <XAxis dataKey="weekLabel" stroke="#8f8268" tickLine={false} axisLine={false} />
-                  <YAxis stroke="#8f8268" tickLine={false} axisLine={false} />
-                  <Area dataKey="covers" stroke="#d4b26a" fill="url(#coversFill)" strokeWidth={3} />
-                </AreaChart>
-              </ChartShell>
-            </Card>
-          ) : null}
-
-          {settings.overviewShowChannelContribution ? (
-            <Card>
-              <CardHeader>
-                <div>
-                  <CardDescription>What&apos;s Pulling Weight</CardDescription>
-                  <CardTitle className="mt-3">Revenue contribution by channel</CardTitle>
-                </div>
-              </CardHeader>
-              <ChartShell>
-                <BarChart data={channelContribution}>
-                  <CartesianGrid stroke="rgba(139,120,83,0.14)" vertical={false} />
-                  <XAxis dataKey="channel" stroke="#8f8268" tickLine={false} axisLine={false} />
-                  <YAxis stroke="#8f8268" tickLine={false} axisLine={false} tickFormatter={(value) => `$${Math.round(value / 1000)}k`} />
-                  <Bar dataKey="revenue" fill="#7f8a57" radius={[10, 10, 0, 0]} />
-                </BarChart>
-              </ChartShell>
-            </Card>
-          ) : null}
-        </div>
-      ) : null}
-
-      {settings.overviewShowQuickLinks || settings.overviewShowCampaignRecaps ? (
-        <div className={`grid gap-6 ${settings.overviewShowQuickLinks && settings.overviewShowCampaignRecaps ? "xl:grid-cols-[0.85fr_1.15fr]" : ""}`}>
-          {settings.overviewShowQuickLinks ? (
-            <Card>
-              <CardHeader>
-                <div>
-                  <CardDescription>Next Moves</CardDescription>
-                  <CardTitle className="mt-3">Go straight to the work</CardTitle>
-                </div>
-              </CardHeader>
-              <div className="grid gap-3">
-                {quickLinks.map(({ href, title, detail }) => (
-                  <Link className="rounded-2xl border border-border/70 bg-card/65 p-4 transition hover:border-primary/40 hover:bg-accent/25 sm:p-5" href={href} key={href}>
-                    <p className="font-medium text-foreground">{title}</p>
-                    <p className="mt-1 text-sm text-muted-foreground">{detail}</p>
-                  </Link>
-                ))}
-              </div>
-            </Card>
-          ) : null}
-
-          {settings.overviewShowCampaignRecaps ? (
-            <Card>
-              <CardHeader>
-                <div>
-                  <CardDescription>Campaign Recaps</CardDescription>
-                  <CardTitle className="mt-3">Campaign performance</CardTitle>
-                </div>
-              </CardHeader>
-              <div className="grid gap-3 md:grid-cols-2">
-                {campaignRecaps.length ? (
-                  campaignRecaps.map((campaign) => (
-                    <ListCard key={campaign.id}>
-                      <p className="font-medium text-foreground">{campaign.name}</p>
-                      <p className="mt-2 text-sm text-muted-foreground">{number(campaign.covers)} attributed covers</p>
-                      <p className="mt-1 text-sm text-muted-foreground">{number(campaign.tables, 1)} attributed tables</p>
-                      <p className="mt-3 text-sm text-foreground">{currency(campaign.revenue)} attributed revenue</p>
-                    </ListCard>
-                  ))
-                ) : (
-                  <EmptyState title="No campaigns yet" description="Create a campaign to start organizing performance around a business objective." />
-                )}
-              </div>
-            </Card>
-          ) : null}
-        </div>
-      ) : null}
-
-      <div className={`grid gap-6 ${settings.overviewShowRecentActivity && settings.overviewShowSchedule ? "xl:grid-cols-3" : ""}`}>
-        {settings.overviewShowRecentActivity ? (
-          <Card className={settings.overviewShowSchedule ? "xl:col-span-1" : ""}>
-            <CardHeader>
-              <div>
-                <CardDescription>Recent Activity</CardDescription>
-                <CardTitle className="mt-3">What changed since you last checked</CardTitle>
-              </div>
-            </CardHeader>
-            <div className="space-y-4">
-              {activity.length ? (
-                activity.map((item) => (
-                  <ListCard key={item.id}>
-                    <p className="font-medium text-foreground">{item.subjectName}</p>
-                    <p className="mt-1 text-sm text-muted-foreground">{item.detail}</p>
-                    <p className="mt-3 text-xs uppercase tracking-[0.16em] text-primary">
-                      {item.actorName} {item.actionLabel}
+            {pendingApprovals.length ? (
+              pendingApprovals.slice(0, 3).map((approval) => (
+                <div className="rounded-3xl border border-border/70 bg-card/60 p-4" key={approval.id}>
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="font-medium text-foreground">{approval.summary}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">{approval.note ?? `Requested by ${approval.requesterName}`}</p>
+                    </div>
+                    <p className="shrink-0 rounded-full bg-[var(--app-accent-soft)] px-3 py-1 text-xs font-medium text-[var(--app-accent-bg)]">
+                      Review
                     </p>
-                  </ListCard>
-                ))
-              ) : (
-                <EmptyState title="No activity yet" description="Recent client changes, strategy updates, and content actions will surface here." />
-              )}
-            </div>
-          </Card>
-        ) : null}
-
-        {settings.overviewShowSchedule ? (
-          <Card className={settings.overviewShowRecentActivity ? "xl:col-span-2" : ""}>
-          <CardHeader>
-            <div>
-              <CardDescription>Live Schedule</CardDescription>
-              <CardTitle className="mt-3">Upcoming content and the campaign driving the week</CardTitle>
-            </div>
-          </CardHeader>
-          <div className="grid gap-4 md:grid-cols-2">
-            {scheduledContent.length ? (
-              scheduledContent.slice(0, 2).map((item) => (
-                <ListCard key={item.id}>
-                  <div className="flex items-center justify-between gap-4">
-                    <p className="font-medium text-foreground">{item.platform}</p>
-                    <p className="text-xs uppercase tracking-[0.16em] text-primary">{item.status}</p>
                   </div>
-                  <p className="mt-3 text-sm text-muted-foreground">{item.content}</p>
-                  <p className="mt-3 text-sm text-foreground">{item.cta}</p>
-                  <p className="mt-4 text-xs uppercase tracking-[0.16em] text-muted-foreground">{item.date}</p>
-                </ListCard>
+                  <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                    <Button
+                      className="sm:w-auto"
+                      disabled={reviewingId === approval.id}
+                      onClick={() => void handleReview(approval.id, "Approved")}
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      className="sm:w-auto"
+                      disabled={reviewingId === approval.id}
+                      variant="outline"
+                      onClick={() => void handleReview(approval.id, "Changes Requested")}
+                    >
+                      Request changes
+                    </Button>
+                  </div>
+                </div>
               ))
             ) : (
-              <EmptyState title="No scheduled content" description="Scheduled posts and planner items will appear here as soon as the calendar is populated." />
+              <EmptyState
+                title={approvalsReady ? "Nothing waiting on you" : "Loading reviews"}
+                description={approvalsReady ? "Approvals and requested changes will show up here when content needs a decision." : "Checking the client review inbox."}
+              />
             )}
-            {leadCampaign ? (
-              <ListCard className="md:col-span-1">
-                <p className="text-sm uppercase tracking-[0.16em] text-primary">{leadCampaign.campaign.status}</p>
-                <p className="mt-2 font-display text-2xl text-foreground">{leadCampaign.campaign.name}</p>
-                <p className="mt-2 text-sm text-muted-foreground">{leadCampaign.campaign.notes}</p>
-                <div className="mt-4 grid gap-2 text-sm">
-                  <div className="flex items-center justify-between"><span className="text-muted-foreground">Posts</span><span>{leadCampaign.linkedPosts.length}</span></div>
-                  <div className="flex items-center justify-between"><span className="text-muted-foreground">Blogs</span><span>{leadCampaign.linkedBlogs.length}</span></div>
-                  <div className="flex items-center justify-between"><span className="text-muted-foreground">Assets</span><span>{leadCampaign.linkedAssets.length}</span></div>
-                  <div className="flex items-center justify-between"><span className="text-muted-foreground">Attributed Revenue</span><span>{currency(leadCampaign.attributedRevenue)}</span></div>
-                </div>
-              </ListCard>
-            ) : null}
           </div>
         </Card>
-        ) : null}
+
+        <Card id="active-campaign">
+          <CardHeader>
+            <div>
+              <CardDescription>Active Campaign</CardDescription>
+              <CardTitle className="mt-3">{pinnedCampaign ? pinnedCampaign.name : "No campaign pinned yet"}</CardTitle>
+            </div>
+          </CardHeader>
+          {leadCampaign && pinnedCampaign ? (
+            <div className="space-y-5">
+              <p className="text-sm leading-6 text-muted-foreground">
+                {pinnedCampaign.objective || settings.overviewHeadline || buildImpactSentence(activeClient.name, revenueModelDefaults)}
+              </p>
+              <div className="grid gap-3 text-sm">
+                <div className="flex items-center justify-between rounded-2xl bg-muted/50 px-4 py-3">
+                  <span className="text-muted-foreground">Status</span>
+                  <span className="font-medium text-foreground">{pinnedCampaign.status}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-2xl bg-muted/50 px-4 py-3">
+                  <span className="text-muted-foreground">Campaign content</span>
+                  <span className="font-medium text-foreground">{number(leadCampaign.linkedPosts.length)} posts</span>
+                </div>
+                <div className="flex items-center justify-between rounded-2xl bg-muted/50 px-4 py-3">
+                  <span className="text-muted-foreground">Attributed revenue</span>
+                  <span className="font-medium text-foreground">{currency(leadCampaign.attributedRevenue)}</span>
+                </div>
+              </div>
+              <Link
+                className="inline-flex h-10 w-full items-center justify-center rounded-full bg-primary px-5 py-2 text-sm font-medium text-primary-foreground shadow-[0_10px_24px_rgba(149,114,46,0.18)] transition-colors hover:bg-primary/92"
+                href={`/campaigns/${pinnedCampaign.id}` as Route}
+              >
+                Open campaign
+              </Link>
+            </div>
+          ) : (
+            <EmptyState title="No campaign yet" description="Create or pin a campaign to give clients a clean current-focus area." />
+          )}
+        </Card>
       </div>
+
+      <div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
+        <Card id="performance-pulse">
+          <CardHeader>
+            <div>
+              <CardDescription>Restaurant Pulse</CardDescription>
+              <CardTitle className="mt-3">Covers, revenue, and target</CardTitle>
+            </div>
+          </CardHeader>
+          <div className="space-y-4">
+            {performancePulse.map(({ label, value, href }) => (
+              <Link className="flex items-center justify-between rounded-3xl border border-border/70 bg-card/65 px-4 py-4 transition hover:border-primary/40" href={href} key={label}>
+                <span className="flex items-center gap-3 text-sm text-muted-foreground">
+                  <TrendingUp className="h-4 w-4 text-primary" />
+                  {label}
+                </span>
+                <span className="font-display text-2xl text-foreground">{value}</span>
+              </Link>
+            ))}
+          </div>
+        </Card>
+
+        <Card id="upcoming-content">
+          <CardHeader>
+            <div>
+              <CardDescription>This Week</CardDescription>
+              <CardTitle className="mt-3">Upcoming content</CardTitle>
+            </div>
+            <Link className="hidden items-center gap-1 text-sm font-medium text-primary sm:flex" href="/calendar">
+              Calendar <ChevronRight className="h-4 w-4" />
+            </Link>
+          </CardHeader>
+          <div className="space-y-3">
+            {scheduledContent.length ? (
+              scheduledContent.slice(0, 4).map((item) => (
+                <Link
+                  className="grid gap-3 rounded-3xl border border-border/70 bg-card/60 p-4 transition hover:border-primary/40 sm:grid-cols-[auto_1fr_auto] sm:items-center"
+                  href="/content"
+                  key={item.id}
+                >
+                  <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--app-accent-soft)] text-[var(--app-accent-bg)]">
+                    <CalendarDays className="h-5 w-5" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium text-foreground">{item.content}</span>
+                    <span className="mt-1 block text-sm text-muted-foreground">{item.platform} · {item.cta}</span>
+                  </span>
+                  <span className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Clock3 className="h-4 w-4" />
+                    <DatePill value={item.date} />
+                  </span>
+                </Link>
+              ))
+            ) : (
+              <EmptyState title="No content scheduled" description="Scheduled posts will show up here once the campaign calendar is populated." />
+            )}
+          </div>
+        </Card>
+      </div>
+
+      {recentActivity.length ? (
+        <Card className="hidden sm:block">
+          <CardHeader>
+            <div>
+              <CardDescription>Recent Updates</CardDescription>
+              <CardTitle className="mt-3">Small changes since the last check-in</CardTitle>
+            </div>
+          </CardHeader>
+          <div className="grid gap-3 md:grid-cols-3">
+            {recentActivity.map((item) => (
+              <div className="rounded-3xl border border-border/70 bg-card/60 p-4" key={item.id}>
+                <p className="font-medium text-foreground">{item.subjectName}</p>
+                <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{item.detail}</p>
+                <p className="mt-4 text-xs uppercase tracking-[0.16em] text-primary">
+                  {item.actorName} {item.actionLabel}
+                </p>
+              </div>
+            ))}
+          </div>
+        </Card>
+      ) : null}
     </div>
   );
 }

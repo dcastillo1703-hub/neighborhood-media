@@ -19,6 +19,8 @@ import {
   mapClientSettingsRow,
   mapIntegrationConnectionInsert,
   mapIntegrationConnectionRow,
+  mapManualMetaPerformanceInsert,
+  mapManualMetaPerformanceRow,
   mapOperationalTaskInsert,
   mapOperationalTaskRow,
   mapPlannerItemInsert,
@@ -43,6 +45,7 @@ import type {
   Client,
   ClientSettings,
   IntegrationConnection,
+  ManualMetaPerformance,
   OperationalTask,
   PlannerItem,
   Post,
@@ -288,6 +291,34 @@ export const clientSettingsAdapter: EntityAdapter<ClientSettings> = {
     const { error } = await supabase
       .from("client_settings")
       .upsert(mapClientSettingsInsert(settings), { onConflict: "id" });
+
+    if (error) {
+      throw error;
+    }
+  }
+};
+
+export const manualMetaPerformanceAdapter: EntityAdapter<ManualMetaPerformance> = {
+  isConfigured: hasSupabaseCredentials,
+  async load(clientId) {
+    const supabase = getSupabaseOrThrow();
+    const { data, error } = await supabase
+      .from("manual_meta_performance")
+      .select("*")
+      .eq("client_id", clientId)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    return data ? mapManualMetaPerformanceRow(data) : null;
+  },
+  async save(_, performance) {
+    const supabase = getSupabaseOrThrow();
+    const { error } = await supabase
+      .from("manual_meta_performance")
+      .upsert(mapManualMetaPerformanceInsert(performance), { onConflict: "id" });
 
     if (error) {
       throw error;

@@ -2,24 +2,30 @@ import { motion } from "framer-motion";
 import { ReactNode } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 export function PageHeader({
   eyebrow,
   title,
   description,
-  actions
+  actions,
+  className
 }: {
   eyebrow?: string;
   title: string;
   description: string;
   actions?: ReactNode;
+  className?: string;
 }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, ease: "easeOut" }}
-      className="mb-8 flex flex-col gap-5 lg:mb-10 lg:flex-row lg:items-end lg:justify-between"
+      className={cn(
+        "mb-8 flex flex-col gap-5 lg:mb-10 lg:flex-row lg:items-end lg:justify-between",
+        className
+      )}
     >
       <div className="max-w-3xl">
         {eyebrow ? <Badge>{eyebrow}</Badge> : null}

@@ -9,6 +9,7 @@ import { StatGrid } from "@/components/dashboard/stat-grid";
 import { MetricCard } from "@/components/metric-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { DatePill } from "@/components/ui/date-pill";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -226,7 +227,7 @@ export default function OperationsPage() {
                           <p className="mt-2 text-sm text-muted-foreground">{task.detail}</p>
                           <div className="mt-3 flex items-center justify-between text-xs uppercase tracking-[0.16em] text-muted-foreground">
                             <span>{task.assigneeName ?? "Unassigned"}</span>
-                            <span>{task.dueDate ?? "No due date"}</span>
+                            <DatePill className="tracking-[0.12em]" value={task.dueDate} fallback="No date" />
                           </div>
                           <select
                             className="mt-3 w-full rounded-xl border border-border bg-card/70 px-3 py-2 text-sm text-foreground"
@@ -334,9 +335,9 @@ export default function OperationsPage() {
                 </p>
                 <p className="mt-2 font-medium text-foreground">{event.subjectName}</p>
                 <p className="mt-2 text-sm text-muted-foreground">{event.detail}</p>
-                <p className="mt-3 text-xs uppercase tracking-[0.16em] text-muted-foreground">
-                  {new Date(event.createdAt).toLocaleString()}
-                </p>
+                <div className="mt-3">
+                  <DatePill value={event.createdAt} />
+                </div>
               </ListCard>
             ))
           ) : (

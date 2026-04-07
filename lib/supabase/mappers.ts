@@ -9,6 +9,8 @@ import type {
   ClientMembership,
   ClientSettings,
   IntegrationConnection,
+  ManualMetaChannelPerformance,
+  ManualMetaPerformance,
   OperationalTask,
   PlannerItem,
   Post,
@@ -164,6 +166,55 @@ export function mapClientSettingsInsert(settings: ClientSettings): TableInsert<"
     overview_show_quick_links: settings.overviewShowQuickLinks,
     overview_show_campaign_recaps: settings.overviewShowCampaignRecaps,
     overview_show_recent_activity: settings.overviewShowRecentActivity
+  };
+}
+
+const manualMetaProviders = new Set(["facebook", "instagram"]);
+
+function normalizeManualMetaChannels(value: unknown): ManualMetaChannelPerformance[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object"))
+    .filter((entry) => typeof entry.provider === "string" && manualMetaProviders.has(entry.provider))
+    .map((entry) => ({
+      provider: entry.provider as ManualMetaChannelPerformance["provider"],
+      enabled: Boolean(entry.enabled),
+      accountLabel: typeof entry.accountLabel === "string" ? entry.accountLabel : "",
+      handle: typeof entry.handle === "string" ? entry.handle : "",
+      periodLabel: typeof entry.periodLabel === "string" ? entry.periodLabel : "This week",
+      impressions: typeof entry.impressions === "number" ? entry.impressions : 0,
+      reach: typeof entry.reach === "number" ? entry.reach : 0,
+      clicks: typeof entry.clicks === "number" ? entry.clicks : 0,
+      engagement: typeof entry.engagement === "number" ? entry.engagement : 0,
+      attributedCovers: typeof entry.attributedCovers === "number" ? entry.attributedCovers : 0,
+      attributedRevenue: typeof entry.attributedRevenue === "number" ? entry.attributedRevenue : 0,
+      topPost: typeof entry.topPost === "string" ? entry.topPost : "",
+      nextAction: typeof entry.nextAction === "string" ? entry.nextAction : ""
+    }));
+}
+
+export function mapManualMetaPerformanceRow(
+  row: TableRow<"manual_meta_performance">
+): ManualMetaPerformance {
+  return {
+    id: row.id,
+    clientId: row.client_id,
+    channels: normalizeManualMetaChannels(row.channels),
+    updatedAt: row.updated_at ?? undefined
+  };
+}
+
+export function mapManualMetaPerformanceInsert(
+  performance: ManualMetaPerformance
+): TableInsert<"manual_meta_performance"> {
+  return {
+    id: performance.id,
+    client_id: performance.clientId,
+    channels: performance.channels,
+    updated_at: performance.updatedAt ?? new Date().toISOString()
   };
 }
 

@@ -9,6 +9,7 @@ import { StatGrid } from "@/components/dashboard/stat-grid";
 import { MetricCard } from "@/components/metric-card";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { DatePill } from "@/components/ui/date-pill";
 import { useActiveClient } from "@/lib/client-context";
 import { getScheduledPosts } from "@/lib/domain/content";
 import { useAssets } from "@/lib/repositories/use-assets";
@@ -79,9 +80,10 @@ export default function ContentPage() {
                   <ListCard key={post.id}>
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="font-medium text-foreground">
-                          {post.platform} · {post.publishDate}
-                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-medium text-foreground">{post.platform}</p>
+                          <DatePill value={post.publishDate} />
+                        </div>
                         <p className="mt-2 text-sm text-muted-foreground">{post.goal}</p>
                         <p className="mt-2 text-sm text-muted-foreground line-clamp-2">
                           {post.content}

@@ -18,6 +18,10 @@
   --muted-foreground: 102 10% 39%;
   --accent: 92 18% 84%;
   --accent-foreground: 112 16% 18%;
+  --app-accent-bg: #b8c4a0;
+  --app-accent-text: #21301f;
+  --app-accent-soft: rgba(184, 196, 160, 0.18);
+  --app-accent-panel: rgba(184, 196, 160, 0.28);
 }
 
 * {

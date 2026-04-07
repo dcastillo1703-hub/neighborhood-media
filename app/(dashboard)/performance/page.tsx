@@ -21,6 +21,7 @@ import { useAnalyticsSnapshots } from "@/lib/repositories/use-analytics-snapshot
 import { useCampaigns } from "@/lib/repositories/use-campaigns";
 import { useClientSettings } from "@/lib/repositories/use-client-settings";
 import { useWeeklyMetrics } from "@/lib/repositories/use-weekly-metrics";
+import { useManualMetaPerformance } from "@/lib/use-manual-meta-performance";
 import { useMetaBusinessSuite } from "@/lib/use-meta-business-suite";
 import { currency, number, percent } from "@/lib/utils";
 
@@ -31,6 +32,11 @@ export default function PerformancePage() {
   const { campaigns } = useCampaigns(activeClient.id);
   const { analyticsSnapshots } = useAnalyticsSnapshots(activeClient.id);
   const { summary: metaSummary } = useMetaBusinessSuite(activeClient.id);
+  const {
+    enabledChannels: manualMetaChannels,
+    hasManualMeta,
+    totals: manualMetaTotals
+  } = useManualMetaPerformance(activeClient.id);
 
   const revenueModel = calculateRevenueModel(revenueModelDefaults);
   const latestWeek = getLatestWeekSummary(metrics, settings.averageCheck);
@@ -59,7 +65,12 @@ export default function PerformancePage() {
         <MetricCard href="/revenue-modeling#model-outputs" label="Monthly Revenue Run Rate" value={currency(revenueModel.monthlyRevenue)} detail="Current run rate based on covers and average check." />
         <MetricCard href="/revenue-modeling#growth-target" label="Growth Target" value={percent(revenueModelDefaults.growthTarget)} detail="Lift target currently being modeled against the business." />
         <MetricCard href="/performance#campaign-impact" label="Attributed Revenue" value={currency(roiSummary.revenue)} detail="Revenue tied back to campaign and content activity." />
-        <MetricCard href="/performance#meta-business-suite" label="Meta Revenue" value={currency(metaSummary?.totalAttributedRevenue ?? 0)} detail="Facebook and Instagram revenue tied back to Meta reporting." />
+        <MetricCard
+          href="/performance#meta-business-suite"
+          label="Meta Revenue"
+          value={currency(hasManualMeta ? manualMetaTotals.attributedRevenue : metaSummary?.totalAttributedRevenue ?? 0)}
+          detail={hasManualMeta ? "Manual Facebook and Instagram revenue configured in Settings." : "Facebook and Instagram revenue tied back to Meta reporting."}
+        />
         <MetricCard href="/performance#business-snapshot" label="Latest Weekly Change" value={`${latestWeek.latestWowChange > 0 ? "+" : ""}${number(latestWeek.latestWowChange)} covers`} detail="Most recent week-over-week movement." tone="olive" />
       </StatGrid>
 
@@ -151,7 +162,70 @@ export default function PerformancePage() {
               <CardTitle className="mt-3">Digestible Meta performance</CardTitle>
             </div>
           </CardHeader>
-          {metaSummary ? (
+          {hasManualMeta ? (
+            <div className="space-y-3">
+              <ListCard>
+                <p className="text-sm text-muted-foreground">Manual Meta Performance</p>
+                <div className="mt-3 grid gap-2 md:grid-cols-4">
+                  <p className="text-sm text-muted-foreground">
+                    Impressions: <span className="text-foreground">{number(manualMetaTotals.impressions)}</span>
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Reach: <span className="text-foreground">{number(manualMetaTotals.reach)}</span>
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Clicks: <span className="text-foreground">{number(manualMetaTotals.clicks)}</span>
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Revenue: <span className="text-foreground">{currency(manualMetaTotals.attributedRevenue)}</span>
+                  </p>
+                </div>
+              </ListCard>
+              {manualMetaChannels.map((channel) => (
+                <ListCard key={channel.provider}>
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="font-medium capitalize text-foreground">{channel.provider}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {channel.accountLabel}{channel.handle ? ` · ${channel.handle}` : ""}
+                      </p>
+                    </div>
+                    <p className="text-xs uppercase tracking-[0.16em] text-primary">
+                      {channel.periodLabel}
+                    </p>
+                  </div>
+                  <div className="mt-3 grid gap-2 md:grid-cols-4">
+                    <p className="text-sm text-muted-foreground">
+                      Impressions: <span className="text-foreground">{number(channel.impressions)}</span>
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Reach: <span className="text-foreground">{number(channel.reach)}</span>
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Clicks: <span className="text-foreground">{number(channel.clicks)}</span>
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Covers: <span className="text-foreground">{number(channel.attributedCovers)}</span>
+                    </p>
+                  </div>
+                  {channel.topPost || channel.nextAction ? (
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      {channel.topPost ? (
+                        <p className="text-sm text-muted-foreground">
+                          Top post: <span className="text-foreground">{channel.topPost}</span>
+                        </p>
+                      ) : null}
+                      {channel.nextAction ? (
+                        <p className="text-sm text-muted-foreground">
+                          Next action: <span className="text-foreground">{channel.nextAction}</span>
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </ListCard>
+              ))}
+            </div>
+          ) : metaSummary ? (
             <div className="space-y-3">
               <ListCard>
                 <p className="text-sm text-muted-foreground">Combined Meta Performance</p>

@@ -319,6 +319,22 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["integration_connections"]["Insert"]>;
         Relationships: [];
       };
+      manual_meta_performance: {
+        Row: {
+          id: string;
+          client_id: string;
+          channels: Json;
+          updated_at: string | null;
+        };
+        Insert: {
+          id: string;
+          client_id: string;
+          channels?: Json;
+          updated_at?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["manual_meta_performance"]["Insert"]>;
+        Relationships: [];
+      };
       activity_events: {
         Row: {
           id: string;

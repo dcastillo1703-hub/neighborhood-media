@@ -180,6 +180,13 @@ create table integration_connections (
   created_at timestamptz default now()
 );
 
+create table manual_meta_performance (
+  id text primary key,
+  client_id text not null references clients(id) on delete cascade,
+  channels jsonb not null default '[]'::jsonb,
+  updated_at timestamptz default now()
+);
+
 create table sync_jobs (
   id text primary key,
   client_id text not null references clients(id) on delete cascade,
@@ -334,6 +341,7 @@ alter table planner_items enable row level security;
 alter table posts enable row level security;
 alter table analytics_snapshots enable row level security;
 alter table integration_connections enable row level security;
+alter table manual_meta_performance enable row level security;
 alter table sync_jobs enable row level security;
 alter table publish_jobs enable row level security;
 alter table approval_requests enable row level security;
@@ -477,6 +485,15 @@ create policy "integration_connections readable by membership"
 
 create policy "admins manage integration_connections"
   on integration_connections for all
+  using (public.is_platform_admin())
+  with check (public.is_platform_admin());
+
+create policy "manual_meta_performance readable by membership"
+  on manual_meta_performance for select
+  using (public.has_client_access(client_id));
+
+create policy "admins manage manual_meta_performance"
+  on manual_meta_performance for all
   using (public.is_platform_admin())
   with check (public.is_platform_admin());
 

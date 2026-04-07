@@ -57,6 +57,31 @@ export type ClientSettings = {
   overviewShowRecentActivity: boolean;
 };
 
+export type ManualMetaProvider = "facebook" | "instagram";
+
+export type ManualMetaChannelPerformance = {
+  provider: ManualMetaProvider;
+  enabled: boolean;
+  accountLabel: string;
+  handle: string;
+  periodLabel: string;
+  impressions: number;
+  reach: number;
+  clicks: number;
+  engagement: number;
+  attributedCovers: number;
+  attributedRevenue: number;
+  topPost: string;
+  nextAction: string;
+};
+
+export type ManualMetaPerformance = {
+  id: string;
+  clientId: string;
+  channels: ManualMetaChannelPerformance[];
+  updatedAt?: string;
+};
+
 export type RevenueModelInput = {
   mode: "monthly" | "weekly";
   averageCheck: number;

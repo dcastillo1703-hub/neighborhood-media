@@ -7,6 +7,7 @@ import { ListCard } from "@/components/dashboard/list-card";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { DatePill } from "@/components/ui/date-pill";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -274,7 +275,9 @@ export default function PostCreatorPage() {
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div>
                       <p className="font-medium text-foreground">{post.platform}</p>
-                      <p className="mt-1 text-xs uppercase tracking-[0.16em] text-primary">{post.publishDate}</p>
+                      <div className="mt-2">
+                        <DatePill value={post.publishDate} />
+                      </div>
                       <p className="mt-3 text-sm text-muted-foreground">{post.content}</p>
                       <p className="mt-3 text-sm text-foreground">CTA: {post.cta}</p>
                       <p className="mt-2 text-sm text-muted-foreground">Goal: {post.goal}</p>
@@ -333,7 +336,9 @@ export default function PostCreatorPage() {
                       <p className="font-medium text-foreground">
                         {job.provider} · {job.status}
                       </p>
-                      <p className="mt-1 text-xs uppercase tracking-[0.16em] text-primary">{job.scheduledFor}</p>
+                      <div className="mt-2">
+                        <DatePill value={job.scheduledFor} />
+                      </div>
                       <p className="mt-3 text-sm text-muted-foreground">{job.detail}</p>
                       {approval ? (
                         <p className="mt-2 text-sm text-muted-foreground">
@@ -393,9 +398,10 @@ export default function PostCreatorPage() {
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div>
                     <p className="font-medium text-foreground">{approval.summary}</p>
-                    <p className="mt-1 text-xs uppercase tracking-[0.16em] text-primary">
-                      {approval.status} · requested {approval.requestedAt}
-                    </p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <span className="text-xs uppercase tracking-[0.16em] text-primary">{approval.status}</span>
+                      <DatePill value={approval.requestedAt} />
+                    </div>
                     {approval.note ? (
                       <p className="mt-3 text-sm text-muted-foreground">{approval.note}</p>
                     ) : null}

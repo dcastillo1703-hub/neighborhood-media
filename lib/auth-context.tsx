@@ -93,6 +93,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     let active = true;
+    const finishUnauthenticated = () => {
+      if (!active) {
+        return;
+      }
+
+      setMode("supabase");
+      setSession(null);
+      setProfile(null);
+      setReady(true);
+    };
 
     const syncSession = async (nextSession: Session | null) => {
       if (!active) {
@@ -119,18 +129,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setReady(true);
     };
 
+    const bootstrapTimeout = window.setTimeout(() => {
+      finishUnauthenticated();
+    }, 4000);
+
     void supabase.auth
       .getSession()
       .then(({ data }) => syncSession(data.session))
-      .catch(() => {
-        if (!active) {
-          return;
-        }
-
-        setMode("supabase");
-        setSession(null);
-        setProfile(null);
-        setReady(true);
+      .catch(finishUnauthenticated)
+      .finally(() => {
+        window.clearTimeout(bootstrapTimeout);
       });
 
     const {
@@ -142,6 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => {
       active = false;
+      window.clearTimeout(bootstrapTimeout);
       subscription.unsubscribe();
     };
   }, []);

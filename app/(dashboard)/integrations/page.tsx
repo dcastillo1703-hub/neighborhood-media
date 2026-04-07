@@ -8,6 +8,7 @@ import { StatGrid } from "@/components/dashboard/stat-grid";
 import { MetricCard } from "@/components/metric-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { DatePill } from "@/components/ui/date-pill";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useActiveClient } from "@/lib/client-context";
@@ -313,9 +314,10 @@ export default function IntegrationsPage() {
                       <div className="flex items-center justify-between">
                         <span className="text-muted-foreground">Last checked</span>
                         <span className="text-foreground">
-                          {connectionDrafts[connection.id]?.setup?.lastCheckedAt ??
-                            connection.setup?.lastCheckedAt ??
-                            "Not checked"}
+                          <DatePill
+                            value={connectionDrafts[connection.id]?.setup?.lastCheckedAt ?? connection.setup?.lastCheckedAt}
+                            fallback="Not checked"
+                          />
                         </span>
                       </div>
                     </div>
@@ -549,7 +551,10 @@ export default function IntegrationsPage() {
                         </Button>
                       </div>
                       <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
-                        {saveState[`run-${job.id}`] ?? `Next run: ${job.nextRunAt ?? "TBD"}`}
+                        {saveState[`run-${job.id}`] ?? "Next run"}
+                        {!saveState[`run-${job.id}`] ? (
+                          <DatePill className="ml-2" value={job.nextRunAt} fallback="TBD" />
+                        ) : null}
                       </p>
                     </div>
                   </div>
@@ -580,9 +585,9 @@ export default function IntegrationsPage() {
                     {job.status}
                   </span>
                 </div>
-                <p className="mt-3 text-xs uppercase tracking-[0.16em] text-primary">
-                  Scheduled: {job.scheduledFor}
-                </p>
+                <div className="mt-3">
+                  <DatePill value={job.scheduledFor} />
+                </div>
               </ListCard>
             ))
           ) : (

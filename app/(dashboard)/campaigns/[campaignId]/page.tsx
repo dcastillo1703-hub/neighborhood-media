@@ -3,14 +3,15 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import { CalendarDays, CheckCircle2, ChevronLeft, ChevronUp, LayoutList, MoreHorizontal, Plus } from "lucide-react";
 
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { ListCard } from "@/components/dashboard/list-card";
 import { PageHeader } from "@/components/dashboard/page-header";
-import { StatGrid } from "@/components/dashboard/stat-grid";
-import { MetricCard } from "@/components/metric-card";
+import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { DatePill } from "@/components/ui/date-pill";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -24,6 +25,7 @@ import { useBlogPosts } from "@/lib/repositories/use-blog-posts";
 import { useCampaigns } from "@/lib/repositories/use-campaigns";
 import { usePosts } from "@/lib/repositories/use-posts";
 import { useWeeklyMetrics } from "@/lib/repositories/use-weekly-metrics";
+import { useTheme } from "@/lib/theme-context";
 import { useApprovalsApi } from "@/lib/use-approvals-api";
 import { usePublishingApi } from "@/lib/use-publishing-api";
 import { currency, number } from "@/lib/utils";
@@ -31,6 +33,7 @@ import { validatePost } from "@/lib/validation";
 import { Post, PostStatus } from "@/types";
 
 type CampaignWorkspaceView = "overview" | "list" | "board" | "calendar" | "performance";
+type CampaignBoardLane = "Draft" | "Review" | "Scheduled" | "Published";
 
 const campaignViews: Array<{
   id: CampaignWorkspaceView;
@@ -43,6 +46,8 @@ const campaignViews: Array<{
   { id: "calendar", label: "Calendar", description: "Scheduled dates" },
   { id: "performance", label: "Performance", description: "Covers and revenue" }
 ];
+
+const boardLanes: CampaignBoardLane[] = ["Draft", "Review", "Scheduled", "Published"];
 
 function createCampaignPost(clientId: string, campaignId: string): Post {
   return {
@@ -64,6 +69,7 @@ export default function CampaignDetailPage() {
   const campaignId = params.campaignId;
   const { activeClient } = useActiveClient();
   const { profile } = useAuth();
+  const { accent } = useTheme();
   const { campaigns, ready: campaignsReady, error: campaignsError } = useCampaigns(activeClient.id);
   const { posts, addPost, ready: postsReady, error: postsError } = usePosts(activeClient.id);
   const { blogPosts } = useBlogPosts(activeClient.id);
@@ -109,6 +115,25 @@ export default function CampaignDetailPage() {
     [overview]
   );
   const linkedPosts = overview?.linkedPosts ?? [];
+  const pendingReviews = campaignApprovals.filter((approval) => approval.status === "Pending").length;
+  const queuedPublishJobs = campaignPublishJobs.filter((job) =>
+    ["Queued", "Processing", "Blocked"].includes(job.status)
+  ).length;
+
+  const getPostApproval = (postId: string) =>
+    campaignApprovals.find((item) => item.entityId === postId);
+  const getPostPublishJob = (postId: string) =>
+    campaignPublishJobs.find((item) => item.postId === postId);
+  const getBoardLanePosts = (lane: CampaignBoardLane) =>
+    linkedPosts.filter((post) => {
+      const approval = getPostApproval(post.id);
+
+      if (lane === "Review") {
+        return approval?.status === "Pending" || approval?.status === "Changes Requested";
+      }
+
+      return post.status === lane;
+    });
 
   const savePost = async (status: PostStatus) => {
     const result = validatePost({ ...draft, status });
@@ -199,9 +224,37 @@ export default function CampaignDetailPage() {
     );
   }
 
+  const activeViewLabel = campaignViews.find((view) => view.id === activeView)?.label ?? "Overview";
+
   return (
-    <div className="space-y-10">
+    <div className="space-y-10 pb-28 sm:pb-0">
+      <div
+        className="-mx-3 -mt-4 px-5 pb-8 pt-8 sm:hidden"
+        style={{ backgroundColor: accent.bg, color: accent.text }}
+      >
+        <div className="flex items-center justify-between gap-4">
+          <Link className="inline-flex items-center gap-2 text-lg" href="/campaigns">
+            <ChevronLeft className="h-5 w-5" />
+            Projects
+          </Link>
+          <div className="flex items-center gap-3">
+            <button className="inline-flex h-9 items-center rounded-full px-2.5" style={{ backgroundColor: accent.panel }} type="button">
+              <span className="flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold" style={{ backgroundColor: accent.soft }}>
+                DC
+              </span>
+              <Plus className="ml-1 h-4 w-4" />
+            </button>
+            <MoreHorizontal className="h-6 w-6" />
+          </div>
+        </div>
+        <div className="mt-8 flex items-center gap-4">
+          <LayoutList className="h-8 w-8" />
+          <h1 className="text-5xl font-semibold tracking-[-0.06em]">{campaign.name}</h1>
+        </div>
+      </div>
+
       <PageHeader
+        className="hidden sm:flex"
         eyebrow="Campaign workspace"
         title={campaign.name}
         description={`${campaign.objective} · ${campaign.startDate} to ${campaign.endDate}`}
@@ -217,16 +270,43 @@ export default function CampaignDetailPage() {
         }
       />
 
-      <StatGrid>
-        <MetricCard href="/campaigns" label="Status" value={campaign.status} detail={`${campaign.startDate} to ${campaign.endDate}`} />
-        <MetricCard href="#campaign-workspace" label="Campaign Posts" value={number(overview.linkedPosts.length)} detail="Posts currently linked to this campaign." />
-        <MetricCard href="#campaign-workspace" label="Pending Reviews" value={number(campaignApprovals.filter((approval) => approval.status === "Pending").length)} detail="Linked posts still waiting on approval." />
-        <MetricCard href="#campaign-workspace" label="Queued Publish Jobs" value={number(campaignPublishJobs.filter((job) => ["Queued", "Processing", "Blocked"].includes(job.status)).length)} detail="Publishing jobs currently tied to this campaign." />
-        <MetricCard href="#performance-snapshot" label="Attributed Revenue" value={currency(overview.attributedRevenue)} detail="Revenue currently tied to this campaign in reporting." tone="olive" />
-      </StatGrid>
+      <Card id="campaign-workspace" className="hidden overflow-hidden p-0 sm:block">
+        <div className="border-b border-border/70 px-5 py-4 sm:px-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className="normal-case tracking-[0.14em]">{campaign.status}</Badge>
+                <span className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                  {campaign.startDate} to {campaign.endDate}
+                </span>
+              </div>
+              <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">{campaign.objective}</p>
+            </div>
+            <Button className="w-full sm:w-auto" onClick={() => setActiveView("overview")}>
+              Add Content
+            </Button>
+          </div>
+          <div className="mt-5 grid gap-2 text-sm sm:grid-cols-4">
+            <div className="rounded-2xl border border-border/70 bg-card/65 px-4 py-3">
+              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Posts</p>
+              <p className="mt-2 text-lg text-foreground">{number(linkedPosts.length)}</p>
+            </div>
+            <div className="rounded-2xl border border-border/70 bg-card/65 px-4 py-3">
+              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Reviews</p>
+              <p className="mt-2 text-lg text-foreground">{number(pendingReviews)}</p>
+            </div>
+            <div className="rounded-2xl border border-border/70 bg-card/65 px-4 py-3">
+              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Publishing</p>
+              <p className="mt-2 text-lg text-foreground">{number(queuedPublishJobs)}</p>
+            </div>
+            <div className="rounded-2xl border border-border/70 bg-card/65 px-4 py-3">
+              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Revenue</p>
+              <p className="mt-2 text-lg text-foreground">{currency(overview.attributedRevenue)}</p>
+            </div>
+          </div>
+        </div>
 
-      <Card id="campaign-workspace" className="p-3 sm:p-4">
-        <div className="grid gap-2 sm:grid-cols-5">
+        <div className="flex gap-2 overflow-x-auto px-3 py-3 sm:px-4">
           {campaignViews.map((view) => {
             const selected = activeView === view.id;
 
@@ -234,16 +314,16 @@ export default function CampaignDetailPage() {
               <button
                 key={view.id}
                 className={[
-                  "rounded-3xl border px-4 py-3 text-left transition",
+                  "min-w-[9rem] rounded-full border px-4 py-2.5 text-left transition",
                   selected
-                    ? "border-primary/45 bg-primary/10 shadow-[0_12px_30px_rgba(149,114,46,0.12)]"
-                    : "border-border bg-card/60 hover:border-primary/25 hover:bg-primary/5"
+                    ? "border-primary/45 bg-primary/10 text-foreground shadow-[0_12px_30px_rgba(149,114,46,0.12)]"
+                    : "border-border bg-card/60 text-muted-foreground hover:border-primary/25 hover:bg-primary/5 hover:text-foreground"
                 ].join(" ")}
                 type="button"
                 onClick={() => setActiveView(view.id)}
               >
-                <span className="block text-sm font-medium text-foreground">{view.label}</span>
-                <span className="mt-1 block text-[0.7rem] leading-4 text-muted-foreground">{view.description}</span>
+                <span className="block text-sm font-medium">{view.label}</span>
+                <span className="mt-1 block text-[0.68rem] leading-4 opacity-80">{view.description}</span>
               </button>
             );
           })}
@@ -252,6 +332,76 @@ export default function CampaignDetailPage() {
 
       {activeView === "overview" ? (
       <div className="grid gap-6 xl:grid-cols-[0.82fr_1.18fr]">
+        <Card className="border-[#3a3a40]/70 bg-[#202024] text-white shadow-none sm:hidden">
+          <div className="rounded-[1.5rem] border border-white/15 p-5">
+            <div className="flex items-center justify-between">
+              <div className="inline-flex items-center gap-3 rounded-2xl bg-white/5 px-3 py-2">
+                <span className="h-2.5 w-2.5 rounded-full bg-white/35" />
+                <span className="text-xl font-semibold">No status</span>
+              </div>
+              <MoreHorizontal className="h-5 w-5 text-white/60" />
+            </div>
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <div className="rounded-2xl bg-white/5 px-5 py-4 text-center">
+                <p className="text-sm text-white/50">Reviews</p>
+                <p className="mt-3 text-4xl text-white/45">{number(pendingReviews)}</p>
+              </div>
+              <div className="rounded-2xl bg-white/5 px-5 py-4 text-center">
+                <p className="text-sm text-white/50">Due</p>
+                <p className="mt-3 text-4xl text-white/45">{number(queuedPublishJobs)}</p>
+              </div>
+            </div>
+            <div className="mt-5 h-2 rounded-full bg-white/5">
+              <div
+                className="h-2 rounded-full"
+                style={{ backgroundColor: accent.bg, width: linkedPosts.length ? `${Math.round((linkedPosts.filter((post) => post.status === "Published").length / linkedPosts.length) * 100)}%` : "0%" }}
+              />
+            </div>
+            <div className="mt-4 flex items-center justify-between text-sm text-white/55">
+              <span>{linkedPosts.length ? Math.round((linkedPosts.filter((post) => post.status === "Published").length / linkedPosts.length) * 100) : 0}% complete</span>
+              <span>{number(linkedPosts.length)} total tasks</span>
+            </div>
+          </div>
+
+          <div className="mt-8 grid grid-cols-2 gap-6">
+            <div className="flex items-center gap-3">
+              <span className="flex h-12 w-12 items-center justify-center rounded-full text-sm font-semibold" style={{ backgroundColor: accent.bg, color: accent.text }}>
+                DC
+              </span>
+              <div>
+                <p className="text-sm text-white/45">Project Owner</p>
+                <p className="text-lg text-white">Diego Castillo</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="flex h-12 w-12 items-center justify-center rounded-full border border-dashed border-white/35 text-white/65">
+                <CalendarDays className="h-5 w-5" />
+              </span>
+              <div>
+                <p className="text-sm text-white/45">Due date</p>
+                <p className="text-lg text-white">{campaign.endDate}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-10 space-y-7 text-xl text-white">
+            {[
+              ["Connected content", linkedPosts.length],
+              ["Approvals", campaignApprovals.length],
+              ["Publishing jobs", campaignPublishJobs.length],
+              ["Weekly metrics", overview.linkedMetrics.length]
+            ].map(([label, value]) => (
+              <div className="flex items-center justify-between" key={String(label)}>
+                <div className="flex items-center gap-4">
+                  <ChevronUp className="h-4 w-4 rotate-90 text-white/50" />
+                  <span>{label}</span>
+                </div>
+                <span className="text-white/55">{value}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+
         <Card id="campaign-brief">
           <CardHeader>
             <div>
@@ -382,22 +532,53 @@ export default function CampaignDetailPage() {
         <div className="space-y-3">
           {linkedPosts.length ? (
             linkedPosts.map((post) => {
-              const approval = campaignApprovals.find((item) => item.entityId === post.id);
-              const publishJob = campaignPublishJobs.find((item) => item.postId === post.id);
+              const approval = getPostApproval(post.id);
+              const publishJob = getPostPublishJob(post.id);
 
               return (
-                <ListCard key={post.id}>
-                  <div className="grid gap-4 lg:grid-cols-[1fr_10rem_10rem_10rem] lg:items-center">
-                    <div>
-                      <p className="font-medium text-foreground">{post.goal}</p>
-                      <p className="mt-2 text-sm text-muted-foreground">{post.platform} · {post.publishDate || "No date yet"}</p>
-                      <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{post.content}</p>
+                <div key={post.id}>
+                  <ListCard className="sm:hidden">
+                    <div className="grid grid-cols-[2rem_1fr_auto] items-center gap-3">
+                      <CheckCircle2 className="h-6 w-6 text-muted-foreground" />
+                      <div className="min-w-0">
+                        <p className="truncate text-lg font-medium text-foreground">{post.goal}</p>
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                          <span>{post.platform}</span>
+                          <DatePill value={post.publishDate} fallback="No date" />
+                        </div>
+                      </div>
+                      <MoreHorizontal className="h-5 w-5 text-muted-foreground" />
                     </div>
-                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{post.status}</p>
-                    <p className="text-xs uppercase tracking-[0.16em] text-primary">{approval?.status ?? "No approval"}</p>
-                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{publishJob?.status ?? "No publish job"}</p>
-                  </div>
-                </ListCard>
+                  </ListCard>
+                  <ListCard className="hidden sm:block">
+                    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_8rem_9rem_9rem_9rem] lg:items-center">
+                      <div>
+                        <p className="font-medium text-foreground">{post.goal}</p>
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                          <span>{post.platform}</span>
+                          <DatePill value={post.publishDate} fallback="No date" />
+                        </div>
+                        <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{post.content}</p>
+                      </div>
+                      <div>
+                        <p className="text-[0.65rem] uppercase tracking-[0.16em] text-muted-foreground lg:hidden">Status</p>
+                        <p className="mt-1 text-xs uppercase tracking-[0.16em] text-muted-foreground lg:mt-0">{post.status}</p>
+                      </div>
+                      <div>
+                        <p className="text-[0.65rem] uppercase tracking-[0.16em] text-muted-foreground lg:hidden">Approval</p>
+                        <p className="mt-1 text-xs uppercase tracking-[0.16em] text-primary lg:mt-0">{approval?.status ?? "No approval"}</p>
+                      </div>
+                      <div>
+                        <p className="text-[0.65rem] uppercase tracking-[0.16em] text-muted-foreground lg:hidden">Publish</p>
+                        <p className="mt-1 text-xs uppercase tracking-[0.16em] text-muted-foreground lg:mt-0">{publishJob?.status ?? "No publish job"}</p>
+                      </div>
+                      <div>
+                        <p className="text-[0.65rem] uppercase tracking-[0.16em] text-muted-foreground lg:hidden">CTA</p>
+                        <p className="mt-1 text-sm text-muted-foreground lg:mt-0">{post.cta || "No CTA"}</p>
+                      </div>
+                    </div>
+                  </ListCard>
+                </div>
               );
             })
           ) : (
@@ -415,28 +596,44 @@ export default function CampaignDetailPage() {
             <CardTitle className="mt-3">Move work through the publishing rhythm</CardTitle>
           </div>
         </CardHeader>
-        <div className="grid gap-4 lg:grid-cols-3">
-          {(["Draft", "Scheduled", "Published"] as PostStatus[]).map((status) => {
-            const lanePosts = linkedPosts.filter((post) => post.status === status);
+        <div className="grid gap-4 lg:grid-cols-4">
+          {boardLanes.map((lane) => {
+            const lanePosts = getBoardLanePosts(lane);
 
             return (
-              <div className="rounded-3xl border border-border bg-card/55 p-4" key={status}>
+              <div className="rounded-3xl border border-border bg-card/55 p-4" key={lane}>
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-medium text-foreground">{status}</p>
+                  <p className="text-sm font-medium text-foreground">{lane}</p>
                   <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary">{lanePosts.length}</span>
                 </div>
                 <div className="mt-4 space-y-3">
                   {lanePosts.length ? (
-                    lanePosts.map((post) => (
-                      <ListCard key={post.id}>
-                        <p className="font-medium text-foreground">{post.goal}</p>
-                        <p className="mt-2 text-sm text-muted-foreground">{post.platform} · {post.publishDate || "No date yet"}</p>
-                        <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">{post.content}</p>
-                      </ListCard>
-                    ))
+                    lanePosts.map((post) => {
+                      const approval = getPostApproval(post.id);
+                      const publishJob = getPostPublishJob(post.id);
+
+                      return (
+                        <ListCard key={post.id}>
+                          <div className="flex items-start justify-between gap-3">
+                            <p className="font-medium text-foreground">{post.goal}</p>
+                            <span className="rounded-full bg-primary/10 px-2 py-1 text-[0.65rem] uppercase tracking-[0.12em] text-primary">
+                              {post.platform}
+                            </span>
+                          </div>
+                          <div className="mt-2">
+                            <DatePill value={post.publishDate} fallback="No date" />
+                          </div>
+                          <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">{post.content}</p>
+                          <div className="mt-3 flex flex-wrap gap-2 text-[0.65rem] uppercase tracking-[0.14em] text-muted-foreground">
+                            <span>{approval?.status ?? "No approval"}</span>
+                            <span>{publishJob?.status ?? "No publish job"}</span>
+                          </div>
+                        </ListCard>
+                      );
+                    })
                   ) : (
                     <p className="rounded-2xl border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
-                      No {status.toLowerCase()} posts.
+                      No {lane.toLowerCase()} posts.
                     </p>
                   )}
                 </div>
@@ -459,16 +656,17 @@ export default function CampaignDetailPage() {
           <div className="space-y-3">
             {scheduledPosts.length ? (
               scheduledPosts.map((post) => {
-                const approval = campaignApprovals.find((item) => item.entityId === post.id);
-                const publishJob = campaignPublishJobs.find((item) => item.postId === post.id);
+                const approval = getPostApproval(post.id);
+                const publishJob = getPostPublishJob(post.id);
 
                 return (
                   <ListCard key={post.id}>
                     <div className="flex items-start justify-between gap-4">
                       <div>
-                        <p className="font-medium text-foreground">
-                          {post.platform} · {post.publishDate}
-                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-medium text-foreground">{post.platform}</p>
+                          <DatePill value={post.publishDate} fallback="No date" />
+                        </div>
                         <p className="mt-2 text-sm text-muted-foreground">{post.goal}</p>
                         <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{post.content}</p>
                       </div>
@@ -543,7 +741,10 @@ export default function CampaignDetailPage() {
                       <div>
                         <p className="font-medium capitalize text-foreground">{job.provider}</p>
                         <p className="mt-2 text-sm text-muted-foreground">
-                          {linkedPost ? `${linkedPost.goal} · ${job.scheduledFor.slice(0, 10)}` : job.scheduledFor.slice(0, 10)}
+                          {linkedPost ? linkedPost.goal : "Scheduled publish"}
+                          <span className="mt-2 block">
+                            <DatePill value={job.scheduledFor} />
+                          </span>
                         </p>
                         <p className="mt-2 text-sm text-muted-foreground">{job.detail}</p>
                       </div>
@@ -590,9 +791,10 @@ export default function CampaignDetailPage() {
               campaignApprovals.map((approval) => (
                 <ListCard key={approval.id}>
                   <p className="font-medium text-foreground">{approval.summary}</p>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    Requested by {approval.requesterName} on {approval.requestedAt.slice(0, 10)}
-                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                    <span>Requested by {approval.requesterName}</span>
+                    <DatePill value={approval.requestedAt} />
+                  </div>
                   {approval.note ? <p className="mt-2 text-sm text-muted-foreground">{approval.note}</p> : null}
                   {approval.status === "Pending" ? (
                     <div className="mt-4 flex flex-col gap-3 sm:flex-row">
@@ -629,6 +831,36 @@ export default function CampaignDetailPage() {
         </Card>
       </div>
       ) : null}
+
+      <div className="fixed inset-x-0 bottom-[4.6rem] z-40 flex justify-center sm:hidden">
+        <div className="flex items-center gap-2 rounded-[1.5rem] border border-white/15 bg-[#202024]/95 p-1.5 text-white shadow-[0_18px_60px_rgba(0,0,0,0.35)] backdrop-blur">
+          <button
+            aria-label="Board view"
+            className="rounded-[1.1rem] border p-3"
+            style={{ backgroundColor: accent.soft, borderColor: accent.bg, color: accent.bg }}
+            type="button"
+            onClick={() => setActiveView("board")}
+          >
+            <LayoutList className="h-5 w-5" />
+          </button>
+          <button
+            className="flex min-w-[8.5rem] items-center justify-center gap-2 rounded-[1.1rem] border border-white/15 px-5 py-3 text-lg font-medium"
+            type="button"
+          >
+            {activeViewLabel}
+            <ChevronUp className="h-4 w-4" />
+          </button>
+          <button
+            aria-label="Add content"
+            className="rounded-[1.1rem] p-4"
+            style={{ backgroundColor: accent.bg, color: accent.text }}
+            type="button"
+            onClick={() => setActiveView("overview")}
+          >
+            <Plus className="h-6 w-6" />
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
