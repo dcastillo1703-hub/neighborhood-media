@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { ChevronLeft, LayoutList, Plus, Trash2, X } from "lucide-react";
+import { LayoutList, Plus, Trash2, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/dashboard/empty-state";
@@ -203,26 +203,22 @@ export default function CampaignsPage() {
       />
 
       <div className="-mx-3 -mt-3 min-h-[calc(100vh-4rem)] bg-[#202024] px-4 pb-28 pt-7 text-white sm:hidden">
-        <div className="flex items-center justify-between">
-          <Link className="inline-flex items-center gap-2 text-lg text-white/85" href="/">
-            <ChevronLeft className="h-5 w-5" />
-            Home
-          </Link>
-          <p className="text-lg font-medium">Projects</p>
-          <button className="rounded-full bg-white/5 p-2 text-white/70" type="button" onClick={() => setCreateOpen(true)}>
+        <div className="relative flex items-center justify-center">
+          <p className="text-center text-xl font-semibold tracking-[-0.03em]">Projects</p>
+          <button className="absolute right-0 rounded-full bg-white/5 p-2 text-white/70" type="button" onClick={() => setCreateOpen(true)}>
             <Plus className="h-5 w-5" />
           </button>
         </div>
-        <div className="mt-7 flex gap-6 overflow-x-auto border-b border-white/12 text-base font-semibold text-white/45">
+        <div className="mt-7 grid grid-cols-3 border-b border-white/12 text-center text-base font-semibold text-white/45">
           <span className="pb-3">Recents</span>
           <span className="pb-3">Starred</span>
           <span className="border-b-2 border-white pb-3 text-white">Member of</span>
         </div>
-        <div className="mt-6 space-y-5">
+        <div className="mx-auto mt-6 max-w-sm space-y-4">
           {campaignOverviews.length ? (
             campaignOverviews.map((overview, index) => (
               <Link
-                className="flex items-center gap-3 rounded-2xl px-1 py-2 transition hover:bg-white/5"
+                className="flex items-center justify-center gap-3 rounded-2xl px-3 py-3 text-center transition hover:bg-white/5"
                 href={`/campaigns/${overview.campaign.id}` as never}
                 key={`${overview.campaign.id}-mobile`}
               >
@@ -232,7 +228,7 @@ export default function CampaignsPage() {
                 >
                   <LayoutList className="h-6 w-6" />
                 </span>
-                <div className="min-w-0">
+                <div className="min-w-0 text-left">
                   <p className="truncate text-xl font-medium text-white">{overview.campaign.name}</p>
                   <p className="mt-1 truncate text-sm text-white/45">{overview.campaign.objective}</p>
                 </div>
@@ -255,9 +251,9 @@ export default function CampaignsPage() {
       </div>
 
       {createOpen ? (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-foreground/20 px-4 py-6 backdrop-blur-sm sm:py-10">
-          <Card id="new-campaign" className="w-full max-w-3xl">
-            <CardHeader>
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-foreground/20 px-3 py-4 backdrop-blur-sm sm:px-4 sm:py-10">
+          <Card id="new-campaign" className="max-h-[calc(100vh-2rem)] w-full max-w-3xl overflow-y-auto rounded-[1.25rem] p-4 sm:max-h-none sm:rounded-[1.5rem] sm:p-6">
+            <CardHeader className="px-0 pt-0 sm:px-0">
               <div>
                 <CardDescription>New Campaign</CardDescription>
                 <CardTitle className="mt-3">Create a campaign shell</CardTitle>
@@ -295,10 +291,11 @@ export default function CampaignsPage() {
                 />
                 {errors.objective ? <p className="mt-2 text-xs text-primary">{errors.objective}</p> : null}
               </div>
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <Label>Start Date</Label>
                   <Input
+                    className="h-10 px-3 text-[0.84rem] [color-scheme:light] [&::-webkit-date-and-time-value]:min-w-0 [&::-webkit-date-and-time-value]:text-left"
                     type="date"
                     value={draft.startDate}
                     onChange={(event) => setDraft((current) => ({ ...current, startDate: event.target.value }))}
@@ -308,6 +305,7 @@ export default function CampaignsPage() {
                 <div>
                   <Label>End Date</Label>
                   <Input
+                    className="h-10 px-3 text-[0.84rem] [color-scheme:light] [&::-webkit-date-and-time-value]:min-w-0 [&::-webkit-date-and-time-value]:text-left"
                     type="date"
                     value={draft.endDate}
                     onChange={(event) => setDraft((current) => ({ ...current, endDate: event.target.value }))}
