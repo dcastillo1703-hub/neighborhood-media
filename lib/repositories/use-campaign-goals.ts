@@ -2,7 +2,10 @@
 
 import { useEffect, useState } from "react";
 
-import { campaignGoalsAdapter } from "@/lib/repositories/supabase-store";
+import {
+  campaignGoalsAdapter,
+  clientCampaignGoalsAdapter
+} from "@/lib/repositories/supabase-store";
 import type { CampaignGoal } from "@/types";
 
 const storageKey = "nmos-campaign-goals";
@@ -34,7 +37,9 @@ function normalizeGoals(goals: CampaignGoal[], clientId: string, campaignId: str
       ...goal,
       clientId,
       campaignId,
-      done: Boolean(goal.done)
+      done: Boolean(goal.done),
+      dueDate: goal.dueDate || undefined,
+      assigneeName: goal.assigneeName || undefined
     }));
 }
 
@@ -108,5 +113,72 @@ export function useCampaignGoals(clientId: string, campaignId: string) {
     goals,
     ready,
     saveGoals
+  };
+}
+
+export function useClientCampaignGoals(clientId: string) {
+  const [goals, setGoals] = useState<CampaignGoal[]>(() =>
+    Object.values(readStore()).flat().filter((goal) => goal.clientId === clientId)
+  );
+  const [ready, setReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const localGoals = Object.values(readStore()).flat().filter((goal) => goal.clientId === clientId);
+
+    const load = async () => {
+      setReady(false);
+      setError(null);
+
+      if (!clientCampaignGoalsAdapter.isConfigured) {
+        if (active) {
+          setGoals(localGoals);
+          setReady(true);
+        }
+
+        return;
+      }
+
+      try {
+        const cloudGoals = await clientCampaignGoalsAdapter.load(clientId);
+        const resolvedGoals = cloudGoals.length ? cloudGoals : localGoals;
+        const groupedGoals = resolvedGoals.reduce<Record<string, CampaignGoal[]>>((store, goal) => {
+          if (!store[goal.campaignId]) {
+            store[goal.campaignId] = [];
+          }
+
+          store[goal.campaignId].push(goal);
+          return store;
+        }, {});
+
+        writeStore({ ...readStore(), ...groupedGoals });
+
+        if (active) {
+          setGoals(resolvedGoals);
+        }
+      } catch (loadError) {
+        if (active) {
+          setError(loadError instanceof Error ? loadError.message : "Failed to load campaign goals.");
+          setGoals(localGoals);
+        }
+      } finally {
+        if (active) {
+          setReady(true);
+        }
+      }
+    };
+
+    void load();
+
+    return () => {
+      active = false;
+    };
+  }, [clientId]);
+
+  return {
+    error,
+    goals,
+    ready
   };
 }

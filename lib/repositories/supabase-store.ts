@@ -456,6 +456,40 @@ export const campaignGoalsAdapter: CollectionAdapter<CampaignGoal> = {
   }
 };
 
+export const clientCampaignGoalsAdapter: CollectionAdapter<CampaignGoal> = {
+  isConfigured: hasSupabaseCredentials,
+  async load(clientId) {
+    const supabase = getSupabaseOrThrow();
+    const { data, error } = await supabase
+      .from("campaign_goals")
+      .select("*")
+      .eq("client_id", clientId)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      throw error;
+    }
+
+    return (data ?? []).map(mapCampaignGoalRow);
+  },
+  async save(clientId, goals) {
+    const supabase = getSupabaseOrThrow();
+    await deleteMissingRows("campaign_goals", "client_id", clientId, goals.map((goal) => goal.id));
+
+    if (!goals.length) {
+      return;
+    }
+
+    const { error } = await supabase
+      .from("campaign_goals")
+      .upsert(goals.map(mapCampaignGoalInsert), { onConflict: "id" });
+
+    if (error) {
+      throw error;
+    }
+  }
+};
+
 export const weeklyMetricsAdapter: CollectionAdapter<WeeklyMetric> = {
   isConfigured: hasSupabaseCredentials,
   async load(clientId) {

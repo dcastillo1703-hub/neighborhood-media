@@ -114,6 +114,8 @@ create table campaign_goals (
   campaign_id text not null references campaigns(id) on delete cascade,
   label text not null,
   done boolean not null default false,
+  due_date date,
+  assignee_name text,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );

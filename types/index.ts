@@ -101,6 +101,8 @@ export type CampaignGoal = {
   campaignId: string;
   label: string;
   done: boolean;
+  dueDate?: string;
+  assigneeName?: string;
   createdAt?: string;
   updatedAt?: string;
 };

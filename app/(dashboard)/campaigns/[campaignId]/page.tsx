@@ -237,6 +237,8 @@ export default function CampaignDetailPage() {
   const [selectedNote, setSelectedNote] = useState("");
   const [selectedSaveError, setSelectedSaveError] = useState<string | null>(null);
   const [goalDraft, setGoalDraft] = useState("");
+  const [goalDueDateDraft, setGoalDueDateDraft] = useState("");
+  const [goalAssigneeDraft, setGoalAssigneeDraft] = useState("");
 
   useEffect(() => {
     setRoiDraft(roiSnapshot);
@@ -338,11 +340,15 @@ export default function CampaignDetailPage() {
         campaignId,
         label: trimmedGoal,
         done: false,
+        dueDate: goalDueDateDraft || undefined,
+        assigneeName: goalAssigneeDraft.trim() || undefined,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       }
     ]);
     setGoalDraft("");
+    setGoalDueDateDraft("");
+    setGoalAssigneeDraft("");
   };
 
   const toggleCampaignGoal = (goalId: string) => {
@@ -1127,8 +1133,9 @@ export default function CampaignDetailPage() {
             </div>
           </CardHeader>
           <div className="space-y-4">
-            <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="grid gap-2 sm:grid-cols-[1fr_10rem_12rem_auto]">
               <Input
+                className="min-w-0"
                 value={goalDraft}
                 placeholder="Ex. Get owner approval on brunch creative"
                 onChange={(event) => setGoalDraft(event.target.value)}
@@ -1138,6 +1145,18 @@ export default function CampaignDetailPage() {
                     addCampaignGoal();
                   }
                 }}
+              />
+              <Input
+                aria-label="Goal due date"
+                className="h-10 min-w-0 px-3 text-[0.84rem] [color-scheme:light] [&::-webkit-date-and-time-value]:min-w-0 [&::-webkit-date-and-time-value]:text-left"
+                type="date"
+                value={goalDueDateDraft}
+                onChange={(event) => setGoalDueDateDraft(event.target.value)}
+              />
+              <Input
+                value={goalAssigneeDraft}
+                placeholder={profile?.fullName ?? "Assignee"}
+                onChange={(event) => setGoalAssigneeDraft(event.target.value)}
               />
               <Button className="shrink-0" type="button" variant="outline" onClick={addCampaignGoal}>
                 Add goal
@@ -1167,6 +1186,10 @@ export default function CampaignDetailPage() {
                       ].join(" ")}
                     >
                       {goal.label}
+                      <span className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground no-underline">
+                        <DatePill value={goal.dueDate} fallback="No due date" />
+                        {goal.assigneeName ? <span>{goal.assigneeName}</span> : null}
+                      </span>
                     </p>
                     <button
                       aria-label="Delete goal"

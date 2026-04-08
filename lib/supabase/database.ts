@@ -260,6 +260,8 @@ export type Database = {
           campaign_id: string;
           label: string;
           done: boolean;
+          due_date: string | null;
+          assignee_name: string | null;
           created_at: string | null;
           updated_at: string | null;
         };
@@ -269,6 +271,8 @@ export type Database = {
           campaign_id: string;
           label: string;
           done?: boolean;
+          due_date?: string | null;
+          assignee_name?: string | null;
           created_at?: string | null;
           updated_at?: string | null;
         };

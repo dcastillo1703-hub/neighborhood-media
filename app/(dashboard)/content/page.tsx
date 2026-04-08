@@ -15,6 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useActiveClient } from "@/lib/client-context";
 import { getScheduledPosts } from "@/lib/domain/content";
 import { useAssets } from "@/lib/repositories/use-assets";
+import { useClientCampaignGoals } from "@/lib/repositories/use-campaign-goals";
 import { useCampaigns } from "@/lib/repositories/use-campaigns";
 import { usePosts } from "@/lib/repositories/use-posts";
 import { useApprovalsApi } from "@/lib/use-approvals-api";
@@ -87,6 +88,7 @@ export default function ContentPage() {
   const { activeClient } = useActiveClient();
   const { workspace } = useWorkspaceContext();
   const { campaigns } = useCampaigns(activeClient.id);
+  const { goals: campaignGoals } = useClientCampaignGoals(activeClient.id);
   const { assets } = useAssets(activeClient.id);
   const { posts, ready, error, addPost, deletePost } = usePosts(activeClient.id);
   const { tasks } = useOperationsApi(workspace.id, activeClient.id);
@@ -129,6 +131,7 @@ export default function ContentPage() {
   });
   const selectedDayJobs = queuedPublishJobs.filter((job) => job.scheduledFor?.startsWith(selectedDate));
   const selectedDayCampaignTasks = campaignTasks.filter((task) => task.dueDate === selectedDate);
+  const selectedDayGoals = campaignGoals.filter((goal) => !goal.done && goal.dueDate === selectedDate);
   const selectedDayTasks = [
     ...selectedDayPosts.map((post) => ({
       id: `post-${post.id}`,
@@ -161,6 +164,14 @@ export default function ContentPage() {
       detail: task.detail || "Campaign-linked task.",
       status: task.status,
       campaignId: task.linkedEntityId
+    })),
+    ...selectedDayGoals.map((goal) => ({
+      id: `goal-${goal.id}`,
+      title: goal.label,
+      eyebrow: "Campaign goal",
+      detail: goal.assigneeName ? `Assigned to ${goal.assigneeName}` : "Campaign checkpoint.",
+      status: "Open",
+      campaignId: goal.campaignId
     }))
   ];
   const mobileTasks = [
@@ -207,6 +218,15 @@ export default function ContentPage() {
       status: task.status,
       dateKey: task.dueDate,
       campaignId: task.linkedEntityId
+    })),
+    ...campaignGoals.filter((goal) => !goal.done).map((goal) => ({
+      id: `goal-${goal.id}`,
+      title: goal.label,
+      eyebrow: "Campaign goal",
+      detail: goal.assigneeName ? `Assigned to ${goal.assigneeName}` : "Campaign checkpoint.",
+      status: "Open",
+      dateKey: goal.dueDate,
+      campaignId: goal.campaignId
     }))
   ].sort((left, right) => (left.dateKey ?? "9999-12-31").localeCompare(right.dateKey ?? "9999-12-31"));
   const todayTasks = mobileTasks.filter((task) => task.dateKey === todayKey);

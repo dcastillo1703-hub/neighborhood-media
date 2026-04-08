@@ -441,6 +441,8 @@ export function mapCampaignGoalRow(row: TableRow<"campaign_goals">): CampaignGoa
     campaignId: row.campaign_id,
     label: row.label,
     done: row.done,
+    dueDate: row.due_date ?? undefined,
+    assigneeName: row.assignee_name ?? undefined,
     createdAt: row.created_at ?? undefined,
     updatedAt: row.updated_at ?? undefined
   };
@@ -453,6 +455,8 @@ export function mapCampaignGoalInsert(goal: CampaignGoal): TableInsert<"campaign
     campaign_id: goal.campaignId,
     label: goal.label,
     done: goal.done,
+    due_date: goal.dueDate ?? null,
+    assignee_name: goal.assigneeName ?? null,
     created_at: goal.createdAt ?? new Date().toISOString(),
     updated_at: goal.updatedAt ?? new Date().toISOString()
   };
