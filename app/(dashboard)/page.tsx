@@ -13,7 +13,6 @@ import {
   MessageSquare,
   Pencil,
   Trash2,
-  TrendingUp
 } from "lucide-react";
 
 import { EmptyState } from "@/components/dashboard/empty-state";
@@ -63,6 +62,12 @@ type OverviewCardDraft = {
   value: string;
   detail: string;
   href: Route;
+};
+
+type OverviewDisplayState = {
+  headline: string;
+  summary: string;
+  cards: OverviewCardDraft[];
 };
 
 type ClientAction = {
@@ -117,6 +122,10 @@ function encodeOverviewSummary(summary: string, cards: OverviewCardDraft[]) {
   return `${overviewStatePrefix}${JSON.stringify({ summary, cards })}`;
 }
 
+function getOverviewDisplayStorageKey(clientId: string) {
+  return `nmos-overview-display-${clientId}`;
+}
+
 function toOverviewDraft(settings: ClientSettings, fallbackCards: OverviewCardDraft[] = []): OverviewDraft {
   const decodedOverview = decodeOverviewSummary(settings.overviewSummary);
 
@@ -168,6 +177,7 @@ export default function DashboardPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [mobileAttentionExpanded, setMobileAttentionExpanded] = useState(false);
   const [overviewDraft, setOverviewDraft] = useState<OverviewDraft>(() => toOverviewDraft(settings));
+  const [overviewDisplayOverride, setOverviewDisplayOverride] = useState<OverviewDisplayState | null>(null);
 
   const model = calculateRevenueModel(revenueModelDefaults);
   const scheduledContent = useMemo(() => {
@@ -315,30 +325,62 @@ export default function DashboardPage() {
   ], [approvalsReady, featuredMetric, nextScheduledItem, pendingApprovals.length]);
 
   const clientHomeCards =
-    decodedOverview.cards?.length === 3 ? decodedOverview.cards : defaultHomeCards;
-  const mobileOverviewTitle = settings.overviewHeadline || getGreeting(clientFirstName);
+    overviewDisplayOverride?.cards ??
+    (decodedOverview.cards?.length === 3 ? decodedOverview.cards : defaultHomeCards);
+  const overviewHeadline = overviewDisplayOverride?.headline ?? settings.overviewHeadline;
+  const overviewSummary = overviewDisplayOverride?.summary ?? decodedOverview.summary;
+  const mobileOverviewTitle = overviewHeadline || getGreeting(clientFirstName);
   const mobileOverviewSummary =
-    decodedOverview.summary || "Use Customize to control the headline, note, and the three client-home rows.";
+    overviewSummary || "Use Customize to control the headline, note, and the three client-home rows.";
 
-  const performancePulse: Array<{ label: string; value: string; href: Route }> = clientHomeCards.map((card) => ({
-    label: card.label,
-    value: card.value,
-    href: card.href
-  }));
+  useEffect(() => {
+    const stored = window.localStorage.getItem(getOverviewDisplayStorageKey(activeClient.id));
+
+    if (!stored) {
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(stored) as Partial<OverviewDisplayState>;
+
+      if (
+        typeof parsed.headline === "string" &&
+        typeof parsed.summary === "string" &&
+        Array.isArray(parsed.cards) &&
+        parsed.cards.length === 3
+      ) {
+        setOverviewDisplayOverride(parsed as OverviewDisplayState);
+      }
+    } catch {
+      window.localStorage.removeItem(getOverviewDisplayStorageKey(activeClient.id));
+    }
+  }, [activeClient.id]);
 
   useEffect(() => {
     setOverviewDraft(toOverviewDraft(settings, defaultHomeCards));
   }, [defaultHomeCards, settings]);
 
   const saveOverview = () => {
+    const nextDisplayState: OverviewDisplayState = {
+      headline: overviewDraft.overviewHeadline.trim(),
+      summary: overviewDraft.overviewSummary.trim(),
+      cards: overviewDraft.overviewCards
+    };
+
+    setOverviewDisplayOverride(nextDisplayState);
+    window.localStorage.setItem(
+      getOverviewDisplayStorageKey(activeClient.id),
+      JSON.stringify(nextDisplayState)
+    );
+
     setSettings((current) => ({
       ...current,
       averageCheck: Number(overviewDraft.averageCheck) || 0,
       weeklyCovers: Math.round(Number(overviewDraft.weeklyCovers) || 0),
       monthlyCovers: Math.round(Number(overviewDraft.monthlyCovers) || 0),
       defaultGrowthTarget: Number(overviewDraft.growthTarget) || 0,
-      overviewHeadline: overviewDraft.overviewHeadline.trim(),
-      overviewSummary: encodeOverviewSummary(overviewDraft.overviewSummary.trim(), overviewDraft.overviewCards),
+      overviewHeadline: nextDisplayState.headline,
+      overviewSummary: encodeOverviewSummary(nextDisplayState.summary, nextDisplayState.cards),
       overviewPinnedCampaignId: overviewDraft.overviewPinnedCampaignId || undefined,
       overviewFeaturedMetric: overviewDraft.overviewFeaturedMetric
     }));
@@ -492,9 +534,9 @@ export default function DashboardPage() {
       <div className="hidden items-start justify-between gap-6 sm:flex">
         <PageHeader
           eyebrow="Client Home"
-          title={settings.overviewHeadline || `${activeClient.name} home`}
+          title={overviewHeadline || `${activeClient.name} home`}
           description={
-            decodedOverview.summary ||
+            overviewSummary ||
             "A calmer client-facing view of what needs review, what is going out next, and how the restaurant is tracking."
           }
         />
@@ -505,14 +547,20 @@ export default function DashboardPage() {
       </div>
 
       {isEditingOverview ? (
-        <Card>
-          <CardHeader>
-            <div>
-              <CardDescription>Client Home Settings</CardDescription>
-              <CardTitle className="mt-3">Tune the story the client sees first</CardTitle>
-            </div>
-          </CardHeader>
-          <div className="grid gap-6">
+        <div className="fixed inset-0 z-50 flex items-end bg-black/45 p-0 backdrop-blur-sm sm:items-center sm:justify-center sm:p-6">
+          <Card className="max-h-[88vh] w-full overflow-y-auto rounded-b-none p-5 shadow-2xl sm:max-w-5xl sm:rounded-[1.5rem]">
+            <CardHeader className="px-0 pt-0">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <CardDescription>Client Home Settings</CardDescription>
+                  <CardTitle className="mt-3">Tune what appears first</CardTitle>
+                </div>
+                <Button type="button" variant="ghost" onClick={() => setIsEditingOverview(false)}>
+                  Close
+                </Button>
+              </div>
+            </CardHeader>
+            <div className="grid gap-6">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div>
                 <Label>Average Check</Label>
@@ -656,8 +704,9 @@ export default function DashboardPage() {
               </Button>
               <Button onClick={saveOverview}>Save Client Home</Button>
             </div>
-          </div>
-        </Card>
+            </div>
+          </Card>
+        </div>
       ) : null}
 
       <motion.div animate={{ opacity: 1, y: 0 }} className="grid gap-4 md:grid-cols-3" initial={{ opacity: 0, y: 12 }}>
@@ -742,7 +791,7 @@ export default function DashboardPage() {
           {leadCampaign && pinnedCampaign ? (
             <div className="space-y-5">
               <p className="text-sm leading-6 text-muted-foreground">
-                {pinnedCampaign.objective || settings.overviewHeadline || decodedOverview.summary || buildImpactSentence(activeClient.name, revenueModelDefaults)}
+                {pinnedCampaign.objective || overviewHeadline || overviewSummary || buildImpactSentence(activeClient.name, revenueModelDefaults)}
               </p>
               <div className="grid gap-3 text-sm">
                 <div className="flex items-center justify-between rounded-2xl bg-muted/50 px-4 py-3">
@@ -771,27 +820,7 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
-        <Card id="performance-pulse">
-          <CardHeader>
-            <div>
-              <CardDescription>Restaurant Pulse</CardDescription>
-              <CardTitle className="mt-3">Covers, revenue, and target</CardTitle>
-            </div>
-          </CardHeader>
-          <div className="space-y-4">
-            {performancePulse.map(({ label, value, href }) => (
-              <Link className="flex items-center justify-between rounded-3xl border border-border/70 bg-card/65 px-4 py-4 transition hover:border-primary/40" href={href} key={label}>
-                <span className="flex items-center gap-3 text-sm text-muted-foreground">
-                  <TrendingUp className="h-4 w-4 text-primary" />
-                  {label}
-                </span>
-                <span className="font-display text-2xl text-foreground">{value}</span>
-              </Link>
-            ))}
-          </div>
-        </Card>
-
+      <div>
         <Card id="upcoming-content">
           <CardHeader>
             <div>
