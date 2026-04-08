@@ -15,6 +15,7 @@ import {
   Megaphone,
   MoreHorizontal,
   Plus,
+  Target,
   Trash2,
   X
 } from "lucide-react";
@@ -69,6 +70,11 @@ type CampaignOverviewSection =
 type SelectedCampaignItem =
   | { type: "post"; item: Post }
   | { type: "task"; item: OperationalTask };
+type CampaignGoal = {
+  id: string;
+  label: string;
+  done: boolean;
+};
 type CampaignRoiNumberField =
   | "adSpend"
   | "productionCost"
@@ -111,6 +117,20 @@ const taskPriorities: TaskPriority[] = ["Low", "Medium", "High"];
 const postStatuses: PostStatus[] = ["Draft", "Scheduled", "Published"];
 const taskStatuses: TaskStatus[] = ["Backlog", "In Progress", "Waiting", "Done"];
 const platformOptions: Platform[] = ["Instagram", "Facebook", "Stories", "TikTok", "Email"];
+const campaignGoalsStorageKey = "nmos-campaign-goals";
+const contentComposerId = "content-composer";
+
+function normalizeCampaignView(value: string | null | undefined): CampaignWorkspaceView {
+  const normalizedValue = value?.toLowerCase();
+  return campaignViews.some((view) => view.id === normalizedValue)
+    ? (normalizedValue as CampaignWorkspaceView)
+    : "overview";
+}
+
+function getDefaultViewFromCampaignNotes(notes: string | null | undefined): CampaignWorkspaceView {
+  const match = notes?.match(/Default workspace view:\s*(overview|list|board|calendar|performance)/i);
+  return normalizeCampaignView(match?.[1]);
+}
 
 function createCampaignPost(clientId: string, campaignId: string): Post {
   return {
@@ -202,14 +222,21 @@ export default function CampaignDetailPage() {
   const [taskError, setTaskError] = useState<string | null>(null);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [processingJobId, setProcessingJobId] = useState<string | null>(null);
-  const [activeView, setActiveView] = useState<CampaignWorkspaceView>("overview");
+  const [activeView, setActiveView] = useState<CampaignWorkspaceView>(() =>
+    typeof window === "undefined"
+      ? "overview"
+      : normalizeCampaignView(new URLSearchParams(window.location.search).get("view"))
+  );
   const [selectedItem, setSelectedItem] = useState<SelectedCampaignItem | null>(null);
   const [mobileViewMenuOpen, setMobileViewMenuOpen] = useState(false);
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [openOverviewSections, setOpenOverviewSections] = useState<CampaignOverviewSection[]>([]);
   const [selectedPostDraft, setSelectedPostDraft] = useState<Post | null>(null);
   const [selectedTaskDraft, setSelectedTaskDraft] = useState<OperationalTask | null>(null);
   const [selectedNote, setSelectedNote] = useState("");
   const [selectedSaveError, setSelectedSaveError] = useState<string | null>(null);
+  const [campaignGoals, setCampaignGoals] = useState<CampaignGoal[]>([]);
+  const [goalDraft, setGoalDraft] = useState("");
 
   useEffect(() => {
     setRoiDraft(roiSnapshot);
@@ -224,6 +251,13 @@ export default function CampaignDetailPage() {
   }, [selectedItem]);
 
   const campaign = campaigns.find((item) => item.id === campaignId) ?? null;
+  const routeView =
+    typeof window === "undefined"
+      ? null
+      : new URLSearchParams(window.location.search).get("view");
+  const campaignDefaultView = campaign
+    ? getDefaultViewFromCampaignNotes(campaign.notes)
+    : null;
   const overview = useMemo(
     () =>
       campaign
@@ -231,6 +265,33 @@ export default function CampaignDetailPage() {
         : null,
     [analyticsSnapshots, assets, blogPosts, campaign, metrics, posts]
   );
+
+  useEffect(() => {
+    if (routeView) {
+      setActiveView(normalizeCampaignView(routeView));
+      return;
+    }
+
+    if (campaignDefaultView) {
+      setActiveView(campaignDefaultView);
+    }
+  }, [campaignDefaultView, routeView]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      const storedValue = window.localStorage.getItem(campaignGoalsStorageKey);
+      const storedGoals = storedValue
+        ? (JSON.parse(storedValue) as Record<string, CampaignGoal[]>)
+        : {};
+      setCampaignGoals(storedGoals[campaignId] ?? []);
+    } catch {
+      setCampaignGoals([]);
+    }
+  }, [campaignId]);
 
   const linkedPostIds = useMemo(
     () => new Set(overview?.linkedPosts.map((post) => post.id) ?? []),
@@ -268,6 +329,71 @@ export default function CampaignDetailPage() {
     ["Queued", "Processing", "Blocked"].includes(job.status)
   ).length;
   const openCampaignTasks = campaignTasks.filter((task) => task.status !== "Done").length;
+
+  const scrollToComposer = () => {
+    window.setTimeout(() => {
+      document.getElementById(contentComposerId)?.scrollIntoView({
+        behavior: "smooth",
+        block: "start"
+      });
+    }, 80);
+  };
+
+  const persistCampaignGoals = (nextGoals: CampaignGoal[]) => {
+    setCampaignGoals(nextGoals);
+
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      const storedValue = window.localStorage.getItem(campaignGoalsStorageKey);
+      const storedGoals = storedValue
+        ? (JSON.parse(storedValue) as Record<string, CampaignGoal[]>)
+        : {};
+      window.localStorage.setItem(
+        campaignGoalsStorageKey,
+        JSON.stringify({ ...storedGoals, [campaignId]: nextGoals })
+      );
+    } catch {
+      // Local persistence is a convenience layer; the UI should still update if storage is blocked.
+    }
+  };
+
+  const addCampaignGoal = () => {
+    const trimmedGoal = goalDraft.trim();
+
+    if (!trimmedGoal) {
+      return;
+    }
+
+    persistCampaignGoals([
+      ...campaignGoals,
+      { id: `goal-${Date.now()}`, label: trimmedGoal, done: false }
+    ]);
+    setGoalDraft("");
+  };
+
+  const toggleCampaignGoal = (goalId: string) => {
+    persistCampaignGoals(
+      campaignGoals.map((goal) =>
+        goal.id === goalId ? { ...goal, done: !goal.done } : goal
+      )
+    );
+  };
+
+  const deleteCampaignGoal = (goalId: string) => {
+    persistCampaignGoals(campaignGoals.filter((goal) => goal.id !== goalId));
+  };
+
+  const shareCampaign = () => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    void navigator.clipboard?.writeText(window.location.href);
+    setMobileMoreOpen(false);
+  };
 
   const getPostApproval = (postId: string) =>
     campaignApprovals.find((item) => item.entityId === postId);
@@ -377,8 +503,8 @@ export default function CampaignDetailPage() {
         prependApproval(payload.approval);
       }
 
-      setSelectedItem({ type: "post", item: payload.post });
-      setSelectedPostDraft(payload.post);
+      setSelectedItem(null);
+      setSelectedPostDraft(null);
     } catch (error) {
       setSelectedSaveError(error instanceof Error ? error.message : "Unable to update post.");
     } finally {
@@ -435,7 +561,7 @@ export default function CampaignDetailPage() {
       const detailWithNote = selectedNote.trim()
         ? `${selectedTaskDraft.detail.trim()}\n\nNote: ${selectedNote.trim()}`.trim()
         : selectedTaskDraft.detail;
-      const payload = await updateTask(selectedTaskDraft.id, {
+      await updateTask(selectedTaskDraft.id, {
         clientId: activeClient.id,
         title: selectedTaskDraft.title,
         detail: detailWithNote,
@@ -448,8 +574,8 @@ export default function CampaignDetailPage() {
         linkedEntityId: campaignId
       });
 
-      setSelectedItem({ type: "task", item: payload.task });
-      setSelectedTaskDraft(payload.task);
+      setSelectedItem(null);
+      setSelectedTaskDraft(null);
       setSelectedNote("");
     } catch (error) {
       setSelectedSaveError(error instanceof Error ? error.message : "Unable to update task.");
@@ -512,6 +638,8 @@ export default function CampaignDetailPage() {
     setTaskKind(kind);
     setAddTaskOpen(false);
     setActiveView("overview");
+    setMobileViewMenuOpen(false);
+    setMobileMoreOpen(false);
     setErrors({});
     setTaskError(null);
 
@@ -522,6 +650,8 @@ export default function CampaignDetailPage() {
         detail: current.detail || "Meeting for this campaign."
       }));
     }
+
+    scrollToComposer();
   };
 
   const saveOperationalTask = async () => {
@@ -635,7 +765,68 @@ export default function CampaignDetailPage() {
               </span>
               <Plus className="ml-1 h-4 w-4" />
             </button>
-            <MoreHorizontal className="h-6 w-6" />
+            <div className="relative">
+              <button
+                aria-expanded={mobileMoreOpen}
+                aria-label="Open project actions"
+                className="rounded-full p-1.5"
+                type="button"
+                onClick={() => setMobileMoreOpen((current) => !current)}
+              >
+                <MoreHorizontal className="h-6 w-6" />
+              </button>
+              {mobileMoreOpen ? (
+                <div className="absolute right-0 top-[calc(100%+0.75rem)] z-[70] w-[16rem] rounded-[1.15rem] border border-black/10 bg-white p-2 text-[#202024] shadow-[0_24px_70px_rgba(0,0,0,0.24)]">
+                  <p className="px-3 pb-2 pt-1 text-xs uppercase tracking-[0.18em] text-black/45">
+                    Project actions
+                  </p>
+                  <button
+                    className="flex w-full items-center gap-3 rounded-[0.9rem] px-3 py-2.5 text-left text-sm font-medium transition hover:bg-black/[0.04]"
+                    type="button"
+                    onClick={() => chooseTaskKind("content")}
+                  >
+                    <Megaphone className="h-4 w-4" />
+                    Add content
+                  </button>
+                  <button
+                    className="flex w-full items-center gap-3 rounded-[0.9rem] px-3 py-2.5 text-left text-sm font-medium transition hover:bg-black/[0.04]"
+                    type="button"
+                    onClick={() => {
+                      setActiveView("overview");
+                      setMobileMoreOpen(false);
+                      window.setTimeout(() => {
+                        document.getElementById("campaign-goals")?.scrollIntoView({
+                          behavior: "smooth",
+                          block: "start"
+                        });
+                      }, 80);
+                    }}
+                  >
+                    <Target className="h-4 w-4" />
+                    Edit goals
+                  </button>
+                  <button
+                    className="flex w-full items-center gap-3 rounded-[0.9rem] px-3 py-2.5 text-left text-sm font-medium transition hover:bg-black/[0.04]"
+                    type="button"
+                    onClick={() => {
+                      setActiveView("calendar");
+                      setMobileMoreOpen(false);
+                    }}
+                  >
+                    <CalendarDays className="h-4 w-4" />
+                    View calendar
+                  </button>
+                  <button
+                    className="flex w-full items-center gap-3 rounded-[0.9rem] px-3 py-2.5 text-left text-sm font-medium transition hover:bg-black/[0.04]"
+                    type="button"
+                    onClick={shareCampaign}
+                  >
+                    <ArrowRight className="h-4 w-4" />
+                    Copy project link
+                  </button>
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
         <div className="mt-7 flex items-center gap-3">
@@ -750,7 +941,14 @@ export default function CampaignDetailPage() {
                 <span className="h-2.5 w-2.5 rounded-full bg-white/35" />
                 <span className="text-xl font-semibold">No status</span>
               </div>
-              <MoreHorizontal className="h-5 w-5 text-white/60" />
+              <button
+                aria-label="Open project actions"
+                className="rounded-full p-2 text-white/60"
+                type="button"
+                onClick={() => setMobileMoreOpen((current) => !current)}
+              >
+                <MoreHorizontal className="h-5 w-5" />
+              </button>
             </div>
             <div className="mt-5 grid grid-cols-2 gap-3">
               <div className="rounded-2xl bg-white/5 px-5 py-4 text-center">
@@ -950,7 +1148,75 @@ export default function CampaignDetailPage() {
           </div>
         </Card>
 
-        <Card id="content-composer">
+        <Card id="campaign-goals">
+          <CardHeader>
+            <div>
+              <CardDescription>Goals</CardDescription>
+              <CardTitle className="mt-3">What needs to be true when this campaign is done</CardTitle>
+            </div>
+          </CardHeader>
+          <div className="space-y-4">
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Input
+                value={goalDraft}
+                placeholder="Ex. Get owner approval on brunch creative"
+                onChange={(event) => setGoalDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    addCampaignGoal();
+                  }
+                }}
+              />
+              <Button className="shrink-0" type="button" variant="outline" onClick={addCampaignGoal}>
+                Add goal
+              </Button>
+            </div>
+            <div className="divide-y divide-border/70 overflow-hidden rounded-[1rem] border border-border/70">
+              {campaignGoals.length ? (
+                campaignGoals.map((goal) => (
+                  <div className="flex items-center gap-3 bg-card px-3 py-3" key={goal.id}>
+                    <button
+                      aria-label={goal.done ? "Mark goal incomplete" : "Mark goal complete"}
+                      className={[
+                        "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border transition",
+                        goal.done
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border text-muted-foreground hover:border-primary/45 hover:text-primary"
+                      ].join(" ")}
+                      type="button"
+                      onClick={() => toggleCampaignGoal(goal.id)}
+                    >
+                      <CheckCircle2 className="h-4 w-4" />
+                    </button>
+                    <p
+                      className={[
+                        "min-w-0 flex-1 text-sm",
+                        goal.done ? "text-muted-foreground line-through" : "text-foreground"
+                      ].join(" ")}
+                    >
+                      {goal.label}
+                    </p>
+                    <button
+                      aria-label="Delete goal"
+                      className="rounded-full p-2 text-muted-foreground transition hover:bg-primary/5 hover:text-primary"
+                      type="button"
+                      onClick={() => deleteCampaignGoal(goal.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <p className="bg-card px-4 py-5 text-sm text-muted-foreground">
+                  Add the checkpoints that keep this campaign moving: approvals, creative, shoot prep, publish readiness, or ROI follow-up.
+                </p>
+              )}
+            </div>
+          </div>
+        </Card>
+
+        <Card id={contentComposerId}>
           <CardHeader>
             <div>
               <CardDescription>Add Task</CardDescription>
@@ -986,7 +1252,7 @@ export default function CampaignDetailPage() {
             </div>
 
             {taskKind === "content" ? (
-              <div className="grid gap-4 rounded-[1rem] border border-border/70 bg-muted/25 p-4">
+              <div className="grid gap-4 rounded-[1rem] border border-border/70 bg-muted/25 p-3 sm:p-4">
                 <div className="grid gap-4 md:grid-cols-2">
                   <div>
                     <Label>Platform</Label>
@@ -1004,6 +1270,7 @@ export default function CampaignDetailPage() {
                   <div>
                     <Label>Publish Date</Label>
                     <Input
+                      className="h-10 min-w-0 px-3 text-[0.84rem] [color-scheme:light] [&::-webkit-date-and-time-value]:min-w-0 [&::-webkit-date-and-time-value]:text-left"
                       type="date"
                       value={draft.publishDate}
                       onChange={(event) =>
@@ -1055,7 +1322,7 @@ export default function CampaignDetailPage() {
             ) : null}
 
             {taskKind === "meeting" || taskKind === "task" ? (
-              <div className="grid gap-4 rounded-[1rem] border border-border/70 bg-muted/25 p-4">
+              <div className="grid gap-4 rounded-[1rem] border border-border/70 bg-muted/25 p-3 sm:p-4">
                 <div>
                   <Label>{taskKind === "meeting" ? "Meeting Name" : "Task Name"}</Label>
                   <Input
@@ -1064,13 +1331,22 @@ export default function CampaignDetailPage() {
                     placeholder={taskKind === "meeting" ? "Ex. Campaign check-in with owner" : "Ex. Confirm brunch photo shot list"}
                   />
                 </div>
-                <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid gap-4 md:grid-cols-3">
                   <div>
                     <Label>Due Date</Label>
                     <Input
+                      className="h-10 min-w-0 px-3 text-[0.84rem] [color-scheme:light] [&::-webkit-date-and-time-value]:min-w-0 [&::-webkit-date-and-time-value]:text-left"
                       type="date"
                       value={taskDraft.dueDate ?? ""}
                       onChange={(event) => setTaskDraft((current) => ({ ...current, dueDate: event.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <Label>Assignee</Label>
+                    <Input
+                      value={taskDraft.assigneeName ?? ""}
+                      onChange={(event) => setTaskDraft((current) => ({ ...current, assigneeName: event.target.value }))}
+                      placeholder={profile?.fullName ?? "Name"}
                     />
                   </div>
                   <div>
@@ -1638,7 +1914,7 @@ export default function CampaignDetailPage() {
       {addTaskOpen ? (
         <div className="fixed inset-0 z-50 bg-black/30 backdrop-blur-[2px] sm:hidden" onClick={() => setAddTaskOpen(false)}>
           <div
-            className="absolute inset-x-3 bottom-[5.25rem] rounded-[1.5rem] border border-white/12 bg-[#202024] p-3 text-white shadow-[0_24px_80px_rgba(0,0,0,0.36)]"
+            className="absolute inset-x-3 bottom-[5.25rem] max-h-[70vh] overflow-y-auto overscroll-contain rounded-[1.5rem] border border-white/12 bg-[#202024] p-3 text-white shadow-[0_24px_80px_rgba(0,0,0,0.36)] [-webkit-overflow-scrolling:touch]"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between px-2 pb-2">
@@ -1684,7 +1960,7 @@ export default function CampaignDetailPage() {
       {selectedItem ? (
         <div className="fixed inset-0 z-50 bg-black/25 backdrop-blur-[2px]" onClick={() => setSelectedItem(null)}>
           <aside
-            className="absolute inset-x-0 bottom-0 max-h-[88vh] overflow-y-auto rounded-t-[1.5rem] border border-border bg-card p-4 shadow-[0_-24px_80px_rgba(0,0,0,0.24)] sm:inset-y-4 sm:left-auto sm:right-4 sm:w-[28rem] sm:max-h-none sm:rounded-[1.25rem] sm:p-5"
+            className="absolute inset-x-0 bottom-0 max-h-[88vh] overflow-y-auto overscroll-contain rounded-t-[1.5rem] border border-border bg-card p-4 shadow-[0_-24px_80px_rgba(0,0,0,0.24)] [-webkit-overflow-scrolling:touch] sm:inset-y-4 sm:left-auto sm:right-4 sm:w-[28rem] sm:max-h-none sm:rounded-[1.25rem] sm:p-5"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-4 border-b border-border/70 pb-4">
@@ -1736,6 +2012,7 @@ export default function CampaignDetailPage() {
                   <div>
                     <Label>Publish date</Label>
                     <Input
+                      className="h-10 min-w-0 px-3 text-[0.84rem] [color-scheme:light] [&::-webkit-date-and-time-value]:min-w-0 [&::-webkit-date-and-time-value]:text-left"
                       value={selectedPostDraft.publishDate}
                       onChange={(event) =>
                         setSelectedPostDraft((current) =>
@@ -1864,6 +2141,7 @@ export default function CampaignDetailPage() {
                   <div>
                     <Label>Due date</Label>
                     <Input
+                      className="h-10 min-w-0 px-3 text-[0.84rem] [color-scheme:light] [&::-webkit-date-and-time-value]:min-w-0 [&::-webkit-date-and-time-value]:text-left"
                       value={selectedTaskDraft.dueDate ?? ""}
                       onChange={(event) =>
                         setSelectedTaskDraft((current) =>

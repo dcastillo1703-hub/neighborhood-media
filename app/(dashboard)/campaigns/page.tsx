@@ -179,7 +179,7 @@ export default function CampaignsPage() {
 
       resetCreateState();
       setCreateOpen(false);
-      router.push(`/campaigns/${payload.campaign.id}` as never);
+      router.push(`/campaigns/${payload.campaign.id}?view=${defaultView.toLowerCase()}` as never);
     } catch (saveError) {
       setErrors({
         form: saveError instanceof Error ? saveError.message : "Campaign could not be saved."

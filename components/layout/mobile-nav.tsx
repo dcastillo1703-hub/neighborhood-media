@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, CheckCircle2, Home, Search, UserRound } from "lucide-react";
+import { Bell, Briefcase, CheckCircle2, Home, UserRound } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -10,7 +10,7 @@ const mobileNavigation = [
   { href: "/", label: "Home", icon: Home },
   { href: "/content", label: "My tasks", icon: CheckCircle2 },
   { href: "/approvals", label: "Inbox", icon: Bell },
-  { href: "/campaigns", label: "Projects", icon: Search },
+  { href: "/campaigns", label: "Projects", icon: Briefcase },
   { href: "/settings", label: "Account", icon: UserRound }
 ] as const;
 
