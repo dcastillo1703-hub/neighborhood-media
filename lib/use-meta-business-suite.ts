@@ -4,6 +4,16 @@ import { useEffect, useState } from "react";
 
 import type { IntegrationConnection, MetaBusinessSuiteSummary } from "@/types";
 
+async function readApiError(response: Response, fallback: string) {
+  try {
+    const payload = (await response.json()) as { error?: string };
+
+    return payload.error ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export function useMetaBusinessSuite(clientId: string) {
   const [summary, setSummary] = useState<MetaBusinessSuiteSummary | null>(null);
   const [ready, setReady] = useState(false);
@@ -68,7 +78,7 @@ export function useMetaBusinessSuite(clientId: string) {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to prepare Meta connection.");
+        throw new Error(await readApiError(response, "Failed to prepare Meta connection."));
       }
 
       const payload = (await response.json()) as {
@@ -125,7 +135,7 @@ export function useMetaBusinessSuite(clientId: string) {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to select Meta account.");
+        throw new Error(await readApiError(response, "Failed to select Meta account."));
       }
 
       const payload = (await response.json()) as {

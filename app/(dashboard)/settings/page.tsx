@@ -31,6 +31,12 @@ import { useClientPreferences } from "@/lib/repositories/use-client-preferences"
 import { useWorkspaceContext } from "@/lib/workspace-context";
 import { currency, number } from "@/lib/utils";
 
+type MetaConnectionNotice = {
+  tone: "success" | "error";
+  title: string;
+  detail: string;
+};
+
 export default function SettingsPage() {
   const { activeClient } = useActiveClient();
   const { mode, profile } = useAuth();
@@ -71,12 +77,42 @@ export default function SettingsPage() {
   );
   const [selectingAsset, setSelectingAsset] = useState<string | null>(null);
   const [mobileNavKeys, setMobileNavKeys] = useState<MobileNavItemKey[]>(defaultMobileNavItemKeys);
+  const [metaActionError, setMetaActionError] = useState<string | null>(null);
+  const [metaNotice, setMetaNotice] = useState<MetaConnectionNotice | null>(null);
 
   const readyConnections = connections.filter((connection) => connection.status === "Ready");
 
   useEffect(() => {
     setMobileNavKeys(preferences.mobileNavKeys as MobileNavItemKey[]);
   }, [preferences.mobileNavKeys]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const metaStatus = params.get("meta");
+    const provider = params.get("provider");
+    const reason = params.get("reason");
+
+    if (metaStatus === "connected") {
+      setMetaNotice({
+        tone: "success",
+        title: "Meta login completed",
+        detail: provider
+          ? `${provider} returned successfully. Choose the correct connected account if multiple options appear.`
+          : "Meta returned successfully. Choose the correct connected account if multiple options appear."
+      });
+      return;
+    }
+
+    if (metaStatus === "error") {
+      setMetaNotice({
+        tone: "error",
+        title: "Meta login needs attention",
+        detail: reason
+          ? reason
+          : "Meta returned an error. Check the configured app domains, redirect URI, and account permissions."
+      });
+    }
+  }, []);
 
   const updateMobileNavKeys = (nextKeys: MobileNavItemKey[]) => {
     setMobileNavKeys(nextKeys);
@@ -123,9 +159,14 @@ export default function SettingsPage() {
 
   const prepareMetaConnection = async (provider: "facebook" | "instagram") => {
     setConnectingProvider(provider);
+    setMetaActionError(null);
 
     try {
       await beginConnection(provider);
+    } catch (error) {
+      setMetaActionError(
+        error instanceof Error ? error.message : "Failed to prepare Meta connection."
+      );
     } finally {
       setConnectingProvider(null);
     }
@@ -136,9 +177,14 @@ export default function SettingsPage() {
     assetId: string
   ) => {
     setSelectingAsset(`${provider}-${assetId}`);
+    setMetaActionError(null);
 
     try {
       await selectAsset(provider, assetId);
+    } catch (error) {
+      setMetaActionError(
+        error instanceof Error ? error.message : "Failed to select Meta account."
+      );
     } finally {
       setSelectingAsset(null);
     }
@@ -344,6 +390,10 @@ export default function SettingsPage() {
             <div>
               <CardDescription>Meta Business Suite</CardDescription>
               <CardTitle className="mt-3">Facebook and Instagram connection</CardTitle>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
+                Connect the real Facebook Page and Instagram professional account for this restaurant.
+                This phase handles login and account selection first; insights and publishing come after the account is selected.
+              </p>
             </div>
           </CardHeader>
           {!metaReady ? (
@@ -352,18 +402,61 @@ export default function SettingsPage() {
             <p className="text-sm text-primary">{metaError ?? "Unable to load Meta setup."}</p>
           ) : (
             <div className="space-y-4">
+              {metaNotice ? (
+                <div
+                  className={[
+                    "rounded-[1.25rem] border p-4 text-sm",
+                    metaNotice.tone === "success"
+                      ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-900 dark:text-emerald-100"
+                      : "border-primary/30 bg-primary/10 text-primary"
+                  ].join(" ")}
+                >
+                  <p className="font-medium">{metaNotice.title}</p>
+                  <p className="mt-1 leading-6 opacity-85">{metaNotice.detail}</p>
+                </div>
+              ) : null}
+              {metaActionError ? (
+                <div className="rounded-[1.25rem] border border-primary/30 bg-primary/10 p-4 text-sm text-primary">
+                  <p className="font-medium">Meta setup error</p>
+                  <p className="mt-1 leading-6">{metaActionError}</p>
+                </div>
+              ) : null}
               <ListCard>
-                <p className="font-medium text-foreground">
-                  {metaSummary.readyToConnect
-                    ? "Meta app is configured"
-                    : "Meta app still needs configuration"}
-                </p>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  {metaSummary.highlights[0]}
-                </p>
-                <p className="mt-3 text-xs uppercase tracking-[0.16em] text-primary">
-                  {metaSummary.connectedChannels} of {metaSummary.channels.length} channels connected
-                </p>
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <p className="font-medium text-foreground">
+                      {metaSummary.readyToConnect
+                        ? "Meta app is ready for login"
+                        : "Meta app still needs configuration"}
+                    </p>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      {metaSummary.configStatus.nextAction}
+                    </p>
+                    {metaSummary.configStatus.redirectUri ? (
+                      <p className="mt-3 break-all text-xs text-muted-foreground">
+                        Redirect URI: <span className="text-foreground">{metaSummary.configStatus.redirectUri}</span>
+                      </p>
+                    ) : null}
+                    <p className="mt-3 text-xs uppercase tracking-[0.16em] text-primary">
+                      {metaSummary.connectedChannels} of {metaSummary.channels.length} channels connected
+                    </p>
+                  </div>
+                  <div className="grid min-w-48 gap-2">
+                    {metaSummary.configStatus.checks.map((check) => (
+                      <div
+                        className="flex items-center justify-between gap-3 rounded-full border border-border bg-card/70 px-3 py-2 text-xs"
+                        key={check.key}
+                      >
+                        <span className="font-medium text-foreground">{check.label}</span>
+                        <span
+                          className={check.ready ? "text-emerald-600 dark:text-emerald-300" : "text-primary"}
+                        >
+                          {check.ready ? "Ready" : "Missing"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </ListCard>
               {metaSummary.channels.map((channel) => (
                 <ListCard key={channel.provider}>
@@ -425,7 +518,7 @@ export default function SettingsPage() {
                   ) : null}
                   <div className="mt-4 flex flex-wrap gap-3">
                     <Button
-                      disabled={connectingProvider === channel.provider}
+                      disabled={!metaSummary.readyToConnect || connectingProvider === channel.provider}
                       onClick={() => void prepareMetaConnection(channel.provider)}
                       size="sm"
                       variant="outline"

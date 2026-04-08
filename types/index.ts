@@ -344,6 +344,21 @@ export type IntegrationSetup = {
   connectionMode?: "meta-business-suite" | "direct";
 };
 
+export type MetaBusinessSuiteConfigCheck = {
+  key: "app-id" | "app-secret" | "redirect-uri";
+  label: string;
+  ready: boolean;
+  detail: string;
+};
+
+export type MetaBusinessSuiteConfigStatus = {
+  ready: boolean;
+  checks: MetaBusinessSuiteConfigCheck[];
+  missingLabels: string[];
+  redirectUri?: string;
+  nextAction: string;
+};
+
 export type MetaBusinessChannelSummary = {
   provider: "facebook" | "instagram";
   accountLabel: string;
@@ -372,6 +387,7 @@ export type MetaBusinessChannelSummary = {
 export type MetaBusinessSuiteSummary = {
   clientId: string;
   readyToConnect: boolean;
+  configStatus: MetaBusinessSuiteConfigStatus;
   connectedChannels: number;
   channels: MetaBusinessChannelSummary[];
   totalImpressions: number;

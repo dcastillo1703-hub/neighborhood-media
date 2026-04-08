@@ -1,5 +1,8 @@
 import { seededAnalyticsSnapshots, seededPosts } from "@/data/seed";
-import { buildMetaSetupState, hasMetaBusinessSuiteConfig } from "@/lib/integrations/meta";
+import {
+  buildMetaSetupState,
+  getMetaBusinessSuiteConfigStatus
+} from "@/lib/integrations/meta";
 import { updateIntegrationConnection, listIntegrations } from "@/lib/services/integrations-service";
 import { listPublishJobs } from "@/lib/services/publishing-service";
 import { mapAnalyticsSnapshotRow, mapPostRow } from "@/lib/supabase/mappers";
@@ -151,10 +154,12 @@ export async function getMetaBusinessSuiteSummary(
       publishJobs
     )
   ];
+  const configStatus = getMetaBusinessSuiteConfigStatus();
 
   return {
     clientId,
-    readyToConnect: hasMetaBusinessSuiteConfig(),
+    readyToConnect: configStatus.ready,
+    configStatus,
     connectedChannels: channels.filter((channel) => channel.authStatus === "connected").length,
     channels,
     totalImpressions: channels.reduce((sum, channel) => sum + channel.impressions, 0),
@@ -173,9 +178,9 @@ export async function getMetaBusinessSuiteSummary(
     ),
     totalPublishedJobs: channels.reduce((sum, channel) => sum + channel.publishedJobs, 0),
     highlights: [
-      hasMetaBusinessSuiteConfig()
+      configStatus.ready
         ? "Meta app credentials are configured, so Facebook and Instagram can move into real OAuth connection."
-        : "Meta app credentials are still missing, so Business Suite login cannot start yet.",
+        : configStatus.nextAction,
       channels.some((channel) => channel.scheduledPosts > 0)
         ? "Scheduled Meta content is already flowing through the publish queue."
         : "There are no Facebook or Instagram posts scheduled yet.",
