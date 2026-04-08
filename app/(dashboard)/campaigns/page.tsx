@@ -241,22 +241,34 @@ export default function CampaignsPage() {
         <div className="mx-auto mt-6 max-w-sm space-y-1">
           {campaignOverviews.length ? (
             campaignOverviews.map((overview, index) => (
-              <Link
-                className="flex items-center gap-3 rounded-2xl px-3 py-3 transition hover:bg-white/5"
-                href={`/campaigns/${overview.campaign.id}` as never}
+              <div
+                className="grid grid-cols-[1fr_auto] items-center gap-2 rounded-2xl px-3 py-2 transition hover:bg-white/5"
                 key={`${overview.campaign.id}-mobile`}
               >
-                <span
-                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-[#202024]"
-                  style={{ backgroundColor: ["#b8c4a0", "#c7a25b", "#92a7d9", "#f06b4f"][index % 4] }}
+                <Link
+                  className="flex min-w-0 items-center gap-3 py-1"
+                  href={`/campaigns/${overview.campaign.id}` as never}
                 >
-                  <LayoutList className="h-6 w-6" />
-                </span>
-                <div className="min-w-0 flex-1 text-left">
-                  <p className="truncate text-xl font-medium text-white">{overview.campaign.name}</p>
-                  <p className="mt-1 truncate text-sm text-white/45">{overview.campaign.objective}</p>
-                </div>
-              </Link>
+                  <span
+                    className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-[#202024]"
+                    style={{ backgroundColor: ["#b8c4a0", "#c7a25b", "#92a7d9", "#f06b4f"][index % 4] }}
+                  >
+                    <LayoutList className="h-6 w-6" />
+                  </span>
+                  <div className="min-w-0 flex-1 text-left">
+                    <p className="truncate text-xl font-medium text-white">{overview.campaign.name}</p>
+                    <p className="mt-1 truncate text-sm text-white/45">{overview.campaign.objective}</p>
+                  </div>
+                </Link>
+                <button
+                  aria-label={`Delete ${overview.campaign.name}`}
+                  className="rounded-full border border-white/10 p-2 text-white/45 transition hover:border-white/25 hover:text-white"
+                  type="button"
+                  onClick={() => removeCampaign(overview.campaign.id, overview.campaign.name)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
             ))
           ) : (
             <div className="rounded-[2rem] border border-white/12 p-6 text-white/65">

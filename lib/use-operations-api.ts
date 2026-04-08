@@ -145,6 +145,28 @@ export function useOperationsApi(workspaceId: string, clientId?: string) {
       setEvents((current) => [payload.event, ...current]);
 
       return payload;
+    },
+    async deleteTask(taskId: string) {
+      const response = await fetch(
+        `/api/operations/tasks/${taskId}?workspaceId=${encodeURIComponent(workspaceId)}`,
+        {
+          method: "DELETE"
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to delete task.");
+      }
+
+      const payload = (await response.json()) as {
+        taskId: string;
+        event: ActivityEvent;
+      };
+
+      setTasks((current) => current.filter((task) => task.id !== payload.taskId));
+      setEvents((current) => [payload.event, ...current]);
+
+      return payload;
     }
   };
 }

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireWorkspaceRole } from "@/lib/auth/permissions";
-import { updateOperationalTask } from "@/lib/services/operations-service";
+import { deleteOperationalTask, updateOperationalTask } from "@/lib/services/operations-service";
 import { updateOperationalTaskSchema } from "@/lib/validation/operations";
 
 export async function PATCH(
@@ -33,6 +33,36 @@ export async function PATCH(
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unable to update task." },
+      { status: 404 }
+    );
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ taskId: string }> }
+) {
+  const { searchParams } = new URL(request.url);
+  const workspaceId = searchParams.get("workspaceId");
+
+  if (!workspaceId) {
+    return NextResponse.json({ error: "workspaceId is required." }, { status: 400 });
+  }
+
+  const permissionResponse = await requireWorkspaceRole(workspaceId, "operator");
+
+  if (permissionResponse) {
+    return permissionResponse;
+  }
+
+  try {
+    const { taskId } = await params;
+    const payload = await deleteOperationalTask(workspaceId, taskId);
+
+    return NextResponse.json(payload);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Unable to delete task." },
       { status: 404 }
     );
   }

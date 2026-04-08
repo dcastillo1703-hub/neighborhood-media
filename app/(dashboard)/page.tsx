@@ -583,6 +583,9 @@ export default function DashboardPage() {
                 <div>
                   <CardDescription>Client Home Settings</CardDescription>
                   <CardTitle className="mt-3">Tune what appears first</CardTitle>
+                  <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+                    This controls the first thing a client sees on Home: the headline, note, three compact rows, and which sections stay visible.
+                  </p>
                   {clientHomeConfigError ? (
                     <p className="mt-2 text-sm text-muted-foreground">
                       Saving locally right now. Run the client home SQL to sync this across devices.
@@ -735,7 +738,7 @@ export default function DashboardPage() {
             <div className="rounded-[1.25rem] border border-border/70 bg-card/55 p-4">
               <p className="text-sm font-medium text-foreground">Sections</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Hide anything repetitive, then move the important pieces higher.
+                Hide a section to remove it from Home. Move the sections that matter most to the top.
               </p>
               <div className="mt-4 space-y-2">
                 {overviewDraft.overviewSections.map((section, index) => (
@@ -806,7 +809,7 @@ export default function DashboardPage() {
               <Button variant="outline" onClick={() => setOverviewDraft(toOverviewDraft(settings, defaultHomeCards, clientHomeConfig))}>
                 Reset
               </Button>
-              <Button onClick={saveOverview}>Save Client Home</Button>
+              <Button onClick={saveOverview}>Save and update Home</Button>
             </div>
             </div>
           </Card>

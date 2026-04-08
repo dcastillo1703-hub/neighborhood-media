@@ -274,3 +274,95 @@ export async function updateOperationalTask(
     event
   };
 }
+
+export async function deleteOperationalTask(workspaceId: string, taskId: string) {
+  const serverModule = await import("@/lib/supabase/server");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const supabase = (await serverModule.getSupabaseServerClient()) as any;
+
+  if (supabase) {
+    const { data: existingRow, error: existingError } = await supabase
+      .from("operational_tasks")
+      .select("*")
+      .eq("id", taskId)
+      .eq("workspace_id", workspaceId)
+      .maybeSingle();
+
+    if (existingError) {
+      throw existingError;
+    }
+
+    if (!existingRow) {
+      throw new Error("Task not found.");
+    }
+
+    const existingTask = mapOperationalTaskRow(
+      existingRow as Parameters<typeof mapOperationalTaskRow>[0]
+    );
+
+    const { error: deleteError } = await supabase
+      .from("operational_tasks")
+      .delete()
+      .eq("id", taskId)
+      .eq("workspace_id", workspaceId);
+
+    if (deleteError) {
+      throw deleteError;
+    }
+
+    const event: ActivityEvent = {
+      id: `evt-${Date.now()}`,
+      workspaceId,
+      clientId: existingTask.clientId,
+      actorName: existingTask.assigneeName ?? "Workspace operator",
+      actionLabel: "deleted",
+      subjectType: "task",
+      subjectName: existingTask.title,
+      detail: "Task removed from the campaign workspace.",
+      createdAt: new Date().toISOString()
+    };
+
+    const { data: eventRow, error: eventError } = await supabase
+      .from("activity_events")
+      .insert(mapActivityEventInsert(event))
+      .select("*")
+      .single();
+
+    if (eventError) {
+      throw eventError;
+    }
+
+    return {
+      taskId,
+      event: mapActivityEventRow(eventRow as Parameters<typeof mapActivityEventRow>[0])
+    };
+  }
+
+  const snapshot = getWorkspaceSnapshot(workspaceId);
+  const existingTask = snapshot.tasks.find((entry) => entry.id === taskId);
+
+  if (!existingTask) {
+    throw new Error("Task not found.");
+  }
+
+  snapshot.tasks = snapshot.tasks.filter((task) => task.id !== taskId);
+
+  const event: ActivityEvent = {
+    id: `evt-${Date.now()}`,
+    workspaceId,
+    clientId: existingTask.clientId,
+    actorName: existingTask.assigneeName ?? "Workspace operator",
+    actionLabel: "deleted",
+    subjectType: "task",
+    subjectName: existingTask.title,
+    detail: "Task removed from the campaign workspace.",
+    createdAt: new Date().toISOString()
+  };
+
+  snapshot.events = [event, ...snapshot.events];
+
+  return {
+    taskId,
+    event
+  };
+}

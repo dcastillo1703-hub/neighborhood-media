@@ -15,6 +15,7 @@ import {
   Megaphone,
   MoreHorizontal,
   Plus,
+  Trash2,
   X
 } from "lucide-react";
 
@@ -165,7 +166,7 @@ export default function CampaignDetailPage() {
   const { workspace } = useWorkspaceContext();
   const { accent } = useTheme();
   const { campaigns, ready: campaignsReady, error: campaignsError } = useCampaigns(activeClient.id);
-  const { posts, addPost, updatePost, ready: postsReady, error: postsError } = usePosts(activeClient.id);
+  const { posts, addPost, updatePost, deletePost, ready: postsReady, error: postsError } = usePosts(activeClient.id);
   const { blogPosts } = useBlogPosts(activeClient.id);
   const { assets } = useAssets(activeClient.id);
   const { metrics } = useWeeklyMetrics(activeClient.id);
@@ -179,7 +180,7 @@ export default function CampaignDetailPage() {
     error: roiError,
     saveSnapshot: saveRoiSnapshot
   } = useCampaignRoi(activeClient.id, campaignId);
-  const { tasks, ready: tasksReady, error: tasksError, createTask, updateTask } = useOperationsApi(
+  const { tasks, ready: tasksReady, error: tasksError, createTask, updateTask, deleteTask } = useOperationsApi(
     workspace.id,
     activeClient.id
   );
@@ -197,6 +198,7 @@ export default function CampaignDetailPage() {
   const [saving, setSaving] = useState(false);
   const [savingTask, setSavingTask] = useState(false);
   const [savingSelectedTask, setSavingSelectedTask] = useState(false);
+  const [deletingSelectedItem, setDeletingSelectedItem] = useState(false);
   const [taskError, setTaskError] = useState<string | null>(null);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [processingJobId, setProcessingJobId] = useState<string | null>(null);
@@ -453,6 +455,56 @@ export default function CampaignDetailPage() {
       setSelectedSaveError(error instanceof Error ? error.message : "Unable to update task.");
     } finally {
       setSavingSelectedTask(false);
+    }
+  };
+
+  const deleteSelectedPost = async () => {
+    if (!selectedPostDraft) {
+      return;
+    }
+
+    const confirmed = window.confirm(`Delete "${selectedPostDraft.goal || "this content task"}"?`);
+
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingSelectedItem(true);
+    setSelectedSaveError(null);
+
+    try {
+      await deletePost(selectedPostDraft.id);
+      setSelectedItem(null);
+      setSelectedPostDraft(null);
+    } catch (error) {
+      setSelectedSaveError(error instanceof Error ? error.message : "Unable to delete content task.");
+    } finally {
+      setDeletingSelectedItem(false);
+    }
+  };
+
+  const deleteSelectedTask = async () => {
+    if (!selectedTaskDraft) {
+      return;
+    }
+
+    const confirmed = window.confirm(`Delete "${selectedTaskDraft.title || "this task"}"?`);
+
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingSelectedItem(true);
+    setSelectedSaveError(null);
+
+    try {
+      await deleteTask(selectedTaskDraft.id);
+      setSelectedItem(null);
+      setSelectedTaskDraft(null);
+    } catch (error) {
+      setSelectedSaveError(error instanceof Error ? error.message : "Unable to delete task.");
+    } finally {
+      setDeletingSelectedItem(false);
     }
   };
 
@@ -1779,8 +1831,17 @@ export default function CampaignDetailPage() {
                   </div>
                 </div>
                 {selectedSaveError ? <p className="text-sm text-primary">{selectedSaveError}</p> : null}
-                <div className="sticky bottom-0 -mx-4 border-t border-border bg-card/95 px-4 py-3 backdrop-blur sm:-mx-5 sm:px-5">
-                  <Button className="w-full" disabled={savingSelectedTask} onClick={() => void saveSelectedPostDetails()}>
+                <div className="sticky bottom-0 -mx-4 grid grid-cols-[auto_1fr] gap-2 border-t border-border bg-card/95 px-4 py-3 backdrop-blur sm:-mx-5 sm:px-5">
+                  <Button
+                    aria-label="Delete content task"
+                    disabled={savingSelectedTask || deletingSelectedItem}
+                    type="button"
+                    variant="outline"
+                    onClick={() => void deleteSelectedPost()}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                  <Button className="w-full" disabled={savingSelectedTask || deletingSelectedItem} onClick={() => void saveSelectedPostDetails()}>
                     {savingSelectedTask ? "Saving..." : "Save content task"}
                   </Button>
                 </div>
@@ -1896,8 +1957,17 @@ export default function CampaignDetailPage() {
                   />
                 </div>
                 {selectedSaveError ? <p className="text-sm text-primary">{selectedSaveError}</p> : null}
-                <div className="sticky bottom-0 -mx-4 border-t border-border bg-card/95 px-4 py-3 backdrop-blur sm:-mx-5 sm:px-5">
-                  <Button className="w-full" disabled={savingSelectedTask} onClick={() => void saveSelectedTaskDetails()}>
+                <div className="sticky bottom-0 -mx-4 grid grid-cols-[auto_1fr] gap-2 border-t border-border bg-card/95 px-4 py-3 backdrop-blur sm:-mx-5 sm:px-5">
+                  <Button
+                    aria-label="Delete task"
+                    disabled={savingSelectedTask || deletingSelectedItem}
+                    type="button"
+                    variant="outline"
+                    onClick={() => void deleteSelectedTask()}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                  <Button className="w-full" disabled={savingSelectedTask || deletingSelectedItem} onClick={() => void saveSelectedTaskDetails()}>
                     {savingSelectedTask ? "Saving..." : "Save task"}
                   </Button>
                 </div>
