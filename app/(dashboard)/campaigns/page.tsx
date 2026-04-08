@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { LayoutList, Plus, Trash2, X } from "lucide-react";
+import { motion } from "framer-motion";
+import { LayoutList, Plus, Star, Trash2, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/dashboard/empty-state";
@@ -41,6 +42,7 @@ const defaultViewOptions: Array<{
 ];
 
 const statusOptions: CampaignStatus[] = ["Planning", "Active", "Completed"];
+const starredCampaignsStorageKey = "nmos-starred-campaigns";
 
 function formatDateKey(date: Date) {
   const month = `${date.getMonth() + 1}`.padStart(2, "0");
@@ -84,6 +86,19 @@ export default function CampaignsPage() {
   const [channelDraft, setChannelDraft] = useState("");
   const [defaultView, setDefaultView] = useState<CampaignDefaultView>("Overview");
   const [mobileProjectTab, setMobileProjectTab] = useState<"Recents" | "Starred" | "Member of">("Member of");
+  const [revealedCampaignId, setRevealedCampaignId] = useState<string | null>(null);
+  const [starredCampaignIds, setStarredCampaignIds] = useState<string[]>(() => {
+    if (typeof window === "undefined") {
+      return [];
+    }
+
+    try {
+      const storedValue = window.localStorage.getItem(starredCampaignsStorageKey);
+      return storedValue ? (JSON.parse(storedValue) as string[]) : [];
+    } catch {
+      return [];
+    }
+  });
   const [createOpen, setCreateOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -92,6 +107,36 @@ export default function CampaignsPage() {
     () => summarizeCampaigns(campaigns, posts, blogPosts, assets, metrics, analyticsSnapshots),
     [campaigns, posts, blogPosts, assets, metrics, analyticsSnapshots]
   );
+  const visibleMobileCampaignOverviews = useMemo(() => {
+    if (mobileProjectTab === "Starred") {
+      return campaignOverviews.filter((overview) => starredCampaignIds.includes(overview.campaign.id));
+    }
+
+    if (mobileProjectTab === "Recents") {
+      return [...campaignOverviews].sort((left, right) =>
+        right.campaign.startDate.localeCompare(left.campaign.startDate)
+      );
+    }
+
+    return campaignOverviews;
+  }, [campaignOverviews, mobileProjectTab, starredCampaignIds]);
+
+  const toggleStarCampaign = (campaignId: string) => {
+    setStarredCampaignIds((current) => {
+      const nextStarredCampaignIds = current.includes(campaignId)
+        ? current.filter((id) => id !== campaignId)
+        : [...current, campaignId];
+
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(
+          starredCampaignsStorageKey,
+          JSON.stringify(nextStarredCampaignIds)
+        );
+      }
+
+      return nextStarredCampaignIds;
+    });
+  };
 
   const resetCreateState = () => {
     setDraft(createEmptyCampaign(activeClient.id));
@@ -239,41 +284,76 @@ export default function CampaignsPage() {
           ))}
         </div>
         <div className="mx-auto mt-6 max-w-sm space-y-1">
-          {campaignOverviews.length ? (
-            campaignOverviews.map((overview, index) => (
-              <div
-                className="grid grid-cols-[1fr_auto] items-center gap-2 rounded-2xl px-3 py-2 transition hover:bg-white/5"
-                key={`${overview.campaign.id}-mobile`}
-              >
-                <Link
-                  className="flex min-w-0 items-center gap-3 py-1"
-                  href={`/campaigns/${overview.campaign.id}` as never}
-                >
-                  <span
-                    className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-[#202024]"
-                    style={{ backgroundColor: ["#b8c4a0", "#c7a25b", "#92a7d9", "#f06b4f"][index % 4] }}
+          {visibleMobileCampaignOverviews.length ? (
+            visibleMobileCampaignOverviews.map((overview, index) => (
+              <div className="relative overflow-hidden rounded-2xl" key={`${overview.campaign.id}-mobile`}>
+                <div className="absolute inset-y-0 right-0 flex items-center gap-2 pr-2">
+                  <button
+                    aria-label={`${starredCampaignIds.includes(overview.campaign.id) ? "Unstar" : "Star"} ${overview.campaign.name}`}
+                    className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white"
+                    type="button"
+                    onClick={() => toggleStarCampaign(overview.campaign.id)}
                   >
-                    <LayoutList className="h-6 w-6" />
-                  </span>
-                  <div className="min-w-0 flex-1 text-left">
-                    <p className="truncate text-xl font-medium text-white">{overview.campaign.name}</p>
-                    <p className="mt-1 truncate text-sm text-white/45">{overview.campaign.objective}</p>
-                  </div>
-                </Link>
-                <button
-                  aria-label={`Delete ${overview.campaign.name}`}
-                  className="rounded-full border border-white/10 p-2 text-white/45 transition hover:border-white/25 hover:text-white"
-                  type="button"
-                  onClick={() => removeCampaign(overview.campaign.id, overview.campaign.name)}
+                    <Star
+                      className="h-4 w-4"
+                      fill={starredCampaignIds.includes(overview.campaign.id) ? "currentColor" : "none"}
+                    />
+                  </button>
+                  <button
+                    aria-label={`Delete ${overview.campaign.name}`}
+                    className="flex h-10 w-10 items-center justify-center rounded-full bg-[#f06b4f] text-white"
+                    type="button"
+                    onClick={() => removeCampaign(overview.campaign.id, overview.campaign.name)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+                <motion.div
+                  animate={{ x: revealedCampaignId === overview.campaign.id ? -104 : 0 }}
+                  className="relative z-10 rounded-2xl bg-[#202024] px-3 py-2"
+                  drag="x"
+                  dragConstraints={{ left: -104, right: 0 }}
+                  dragElastic={0.04}
+                  onDragEnd={(_, info) => {
+                    setRevealedCampaignId(info.offset.x < -36 ? overview.campaign.id : null);
+                  }}
+                  onTap={() => {
+                    if (revealedCampaignId === overview.campaign.id) {
+                      setRevealedCampaignId(null);
+                    }
+                  }}
                 >
-                  <Trash2 className="h-4 w-4" />
-                </button>
+                  <Link
+                    className="flex min-w-0 items-center gap-3 py-1"
+                    href={`/campaigns/${overview.campaign.id}` as never}
+                  >
+                    <span
+                      className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-[#202024]"
+                      style={{ backgroundColor: ["#b8c4a0", "#c7a25b", "#92a7d9", "#f06b4f"][index % 4] }}
+                    >
+                      <LayoutList className="h-6 w-6" />
+                    </span>
+                    <div className="min-w-0 flex-1 text-left">
+                      <p className="truncate text-xl font-medium text-white">{overview.campaign.name}</p>
+                      <p className="mt-1 truncate text-sm text-white/45">{overview.campaign.objective}</p>
+                    </div>
+                    {starredCampaignIds.includes(overview.campaign.id) ? (
+                      <Star className="h-4 w-4 shrink-0 text-white/55" fill="currentColor" />
+                    ) : null}
+                  </Link>
+                </motion.div>
               </div>
             ))
           ) : (
             <div className="rounded-[2rem] border border-white/12 p-6 text-white/65">
-              <p className="text-xl text-white">No campaigns yet</p>
-              <p className="mt-2 text-sm">Start with one campaign shell, then add posts and approvals inside it.</p>
+              <p className="text-xl text-white">
+                {mobileProjectTab === "Starred" ? "No starred campaigns" : "No campaigns yet"}
+              </p>
+              <p className="mt-2 text-sm">
+                {mobileProjectTab === "Starred"
+                  ? "Swipe a campaign and tap the star to keep it here."
+                  : "Start with one campaign shell, then add posts and approvals inside it."}
+              </p>
             </div>
           )}
         </div>

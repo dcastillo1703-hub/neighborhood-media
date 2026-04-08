@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Circle,
   Clock3,
+  LayoutList,
   MessageSquare,
   Pencil,
   Sparkles,
@@ -258,6 +259,19 @@ export default function DashboardPage() {
   const leadCampaign = pinnedCampaign
     ? getCampaignOverview(pinnedCampaign, posts, blogPosts, assets, metrics, analyticsSnapshots)
     : null;
+  const relevantCampaigns = useMemo(
+    () =>
+      [...campaigns]
+        .sort((left, right) => {
+          if (left.id === pinnedCampaign?.id) return -1;
+          if (right.id === pinnedCampaign?.id) return 1;
+          if (left.status === "Active" && right.status !== "Active") return -1;
+          if (right.status === "Active" && left.status !== "Active") return 1;
+          return right.startDate.localeCompare(left.startDate);
+        })
+        .slice(0, 4),
+    [campaigns, pinnedCampaign?.id]
+  );
 
   const clientActions = useMemo<ClientAction[]>(() => {
     const actions: ClientAction[] = [];
@@ -579,6 +593,37 @@ export default function DashboardPage() {
             </Link>
           ))}
         </div>
+
+        {relevantCampaigns.length ? (
+          <div className="mt-3 overflow-hidden rounded-[1.35rem] border border-white/10 bg-[#1b1c1f] p-4">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-base font-semibold text-white">Campaigns</p>
+              <Link className="text-xs font-semibold text-white/45" href="/campaigns">
+                See all
+              </Link>
+            </div>
+            <div className="mt-4 grid gap-2">
+              {relevantCampaigns.map((campaign, index) => (
+                <Link
+                  className="flex items-center gap-3 rounded-[1rem] px-1 py-2 transition hover:bg-white/[0.04]"
+                  href={`/campaigns/${campaign.id}` as Route}
+                  key={`mobile-home-${campaign.id}`}
+                >
+                  <span
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-[#202124]"
+                    style={{ backgroundColor: ["#b8c4a0", "#c7a25b", "#92a7d9", "#f06b4f"][index % 4] }}
+                  >
+                    <LayoutList className="h-5 w-5" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-base font-semibold text-white">{campaign.name}</span>
+                    <span className="mt-0.5 block truncate text-xs text-white/45">{campaign.objective || campaign.status}</span>
+                  </span>
+                </Link>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {visibleSectionIds.has("attention") ? (
           <div className="mt-3 rounded-[1.35rem] border border-white/10 bg-[#1b1c1f] p-4">
