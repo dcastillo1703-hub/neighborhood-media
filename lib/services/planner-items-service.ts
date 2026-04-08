@@ -228,3 +228,28 @@ export async function updatePlannerItemStatus(
 
   return { item: existing, event };
 }
+
+export async function deletePlannerItem(clientId: string, itemId: string) {
+  const serverModule = await import("@/lib/supabase/server");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const supabase = (await serverModule.getSupabaseServerClient()) as any;
+
+  if (supabase) {
+    const { error } = await supabase
+      .from("planner_items")
+      .delete()
+      .eq("id", itemId)
+      .eq("client_id", clientId);
+
+    if (error) {
+      throw error;
+    }
+
+    return { itemId };
+  }
+
+  const snapshot = getClientSnapshot(clientId);
+  snapshot.items = snapshot.items.filter((item) => item.id !== itemId);
+
+  return { itemId };
+}

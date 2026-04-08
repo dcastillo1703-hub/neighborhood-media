@@ -103,6 +103,20 @@ export function usePlannerItems(clientId: string) {
       );
 
       return payload;
+    },
+    async deleteItem(id: string) {
+      const response = await fetch(
+        `/api/planner-items/${id}?clientId=${encodeURIComponent(clientId)}`,
+        {
+          method: "DELETE"
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to delete planner item.");
+      }
+
+      setItems((current) => current.filter((item) => item.id !== id));
     }
   };
 }

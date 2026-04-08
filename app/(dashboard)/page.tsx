@@ -13,6 +13,7 @@ import {
   MessageSquare,
   MoreHorizontal,
   Pencil,
+  Trash2,
   TrendingUp
 } from "lucide-react";
 
@@ -29,7 +30,6 @@ import { useAuth } from "@/lib/auth-context";
 import { useActiveClient } from "@/lib/client-context";
 import { calculateRevenueModel } from "@/lib/calculations";
 import { getCampaignOverview } from "@/lib/domain/campaigns";
-import { buildScheduledContent } from "@/lib/domain/content";
 import { buildImpactSentence } from "@/lib/domain/revenue";
 import { useAnalyticsSnapshots } from "@/lib/repositories/use-analytics-snapshots";
 import { useAssets } from "@/lib/repositories/use-assets";
@@ -155,21 +155,48 @@ export default function DashboardPage() {
   const { workspace } = useWorkspaceContext();
   const { settings, setSettings, revenueModelDefaults } = useClientSettings(activeClient.id);
   const { metrics } = useWeeklyMetrics(activeClient.id);
-  const { items } = usePlannerItems(activeClient.id);
-  const { posts } = usePosts(activeClient.id);
+  const { items, deleteItem } = usePlannerItems(activeClient.id);
+  const { posts, deletePost } = usePosts(activeClient.id);
   const { campaigns } = useCampaigns(activeClient.id);
   const { blogPosts } = useBlogPosts(activeClient.id);
   const { assets } = useAssets(activeClient.id);
   const { analyticsSnapshots } = useAnalyticsSnapshots(activeClient.id);
   const { tasks } = useOperationalTasks(workspace.id);
   const { events } = useActivityEvents(workspace.id);
-  const { approvals, ready: approvalsReady, reviewApproval } = useApprovalsApi(activeClient.id);
+  const { approvals, ready: approvalsReady, reviewApproval, deleteApproval } = useApprovalsApi(activeClient.id);
   const [isEditingOverview, setIsEditingOverview] = useState(false);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [mobileAttentionExpanded, setMobileAttentionExpanded] = useState(false);
   const [overviewDraft, setOverviewDraft] = useState<OverviewDraft>(() => toOverviewDraft(settings));
 
   const model = calculateRevenueModel(revenueModelDefaults);
-  const scheduledContent = buildScheduledContent(posts, items).slice(0, 5);
+  const scheduledContent = useMemo(() => {
+    const postItems = posts
+      .filter((post) => post.status === "Scheduled")
+      .map((post) => ({
+        id: post.id,
+        platform: post.platform,
+        content: post.content,
+        cta: post.cta,
+        date: post.publishDate,
+        status: post.status,
+        sourceType: "post" as const
+      }));
+    const plannerItems = items
+      .filter((item) => item.status === "Scheduled")
+      .map((item) => ({
+        id: item.id,
+        platform: item.platform,
+        content: item.caption,
+        cta: item.campaignGoal,
+        date: item.dayOfWeek,
+        status: item.status,
+        sourceType: "planner" as const
+      }));
+
+    return [...postItems, ...plannerItems].slice(0, 5);
+  }, [items, posts]);
   const workspaceTasks = tasks.filter((task) => !task.clientId || task.clientId === activeClient.id);
   const openTasks = workspaceTasks
     .filter((task) => task.status !== "Done")
@@ -330,6 +357,30 @@ export default function DashboardPage() {
     }
   };
 
+  const handleDeleteApproval = async (approvalId: string) => {
+    setDeletingId(approvalId);
+
+    try {
+      await deleteApproval(approvalId);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleDeleteScheduledContent = async (item: (typeof scheduledContent)[number]) => {
+    setDeletingId(`${item.sourceType}-${item.id}`);
+
+    try {
+      if (item.sourceType === "post") {
+        await deletePost(item.id);
+      } else {
+        await deleteItem(item.id);
+      }
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   return (
     <div className="space-y-6 sm:space-y-8">
       <section className="-mx-4 -mt-4 rounded-b-[2rem] bg-[#202124] px-4 pb-6 pt-7 text-white shadow-[0_18px_60px_rgba(0,0,0,0.22)] sm:hidden">
@@ -348,43 +399,70 @@ export default function DashboardPage() {
           </button>
         </div>
 
-        <div className="mt-8 rounded-[1.75rem] border border-white/10 bg-[#1b1c1f] p-5">
-          <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-semibold tracking-[-0.04em]">Needs attention</h2>
-            <Link className="text-sm font-medium text-white/60" href="/approvals">
-              View all
-            </Link>
-          </div>
-          <div className="mt-5 space-y-5">
-            {clientActions.length ? (
-              clientActions.map((action) => (
-                <Link className="flex items-start gap-4" href={action.href} key={action.id}>
-                  <span
-                    className={cn(
-                      "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border",
-                      action.tone === "review" ? "border-[var(--app-accent-bg)] text-[var(--app-accent-bg)]" : "border-white/25 text-white/60"
-                    )}
-                  >
-                    {action.tone === "review" ? <MessageSquare className="h-4 w-4" /> : <Circle className="h-4 w-4" />}
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block truncate text-lg font-semibold">{action.title}</span>
-                    <span className="mt-1 flex flex-wrap items-center gap-2 text-sm leading-5 text-white/55">
-                      <span>{action.detail}</span>
-                      {action.date ? (
-                        <DatePill className="border-white/15 bg-white/10 text-white/75" value={action.date} />
-                      ) : null}
-                    </span>
-                  </span>
-                </Link>
-              ))
-            ) : (
-              <div className="flex items-center gap-4 text-white/65">
-                <CheckCircle2 className="h-9 w-9 text-[var(--app-accent-bg)]" />
-                <p className="text-base">Nothing needs approval right now.</p>
-              </div>
-            )}
-          </div>
+        <div className="mt-8 rounded-[1.45rem] border border-white/10 bg-[#1b1c1f] p-4">
+          <button
+            className="flex w-full items-center justify-between text-left"
+            type="button"
+            onClick={() => setMobileAttentionExpanded((current) => !current)}
+          >
+            <span>
+              <span className="block text-sm text-white/45">Today</span>
+              <span className="mt-1 block text-xl font-semibold tracking-[-0.04em]">
+                {clientActions.length ? `${clientActions.length} item${clientActions.length === 1 ? "" : "s"} need attention` : "Nothing needs attention"}
+              </span>
+            </span>
+            <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-white/55">
+              {mobileAttentionExpanded ? "Close" : "Expand"}
+            </span>
+          </button>
+          {mobileAttentionExpanded ? (
+            <div className="mt-5 space-y-4 border-t border-white/10 pt-4">
+              {clientActions.length ? (
+                clientActions.map((action) => (
+                  <div className="flex items-start gap-4" key={action.id}>
+                    <Link
+                      className="flex min-w-0 flex-1 items-start gap-4"
+                      href={action.href}
+                    >
+                      <span
+                        className={cn(
+                          "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border",
+                          action.tone === "review" ? "border-[var(--app-accent-bg)] text-[var(--app-accent-bg)]" : "border-white/25 text-white/60"
+                        )}
+                      >
+                        {action.tone === "review" ? <MessageSquare className="h-4 w-4" /> : <Circle className="h-4 w-4" />}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-base font-semibold">{action.title}</span>
+                        <span className="mt-1 flex flex-wrap items-center gap-2 text-sm leading-5 text-white/55">
+                          <span>{action.detail}</span>
+                          {action.date ? (
+                            <DatePill className="border-white/15 bg-white/10 text-white/75" value={action.date} />
+                          ) : null}
+                        </span>
+                      </span>
+                    </Link>
+                    {action.tone === "review" ? (
+                      <button
+                        aria-label="Delete approval"
+                        className="rounded-full border border-white/10 p-2 text-white/45"
+                        disabled={deletingId === action.id}
+                        type="button"
+                        onClick={() => void handleDeleteApproval(action.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    ) : null}
+                  </div>
+                ))
+              ) : (
+                <div className="flex items-center gap-4 text-white/65">
+                  <CheckCircle2 className="h-9 w-9 text-[var(--app-accent-bg)]" />
+                  <p className="text-base">Nothing needs approval right now.</p>
+                </div>
+              )}
+            </div>
+          ) : null}
         </div>
 
         <div className="mt-5 grid gap-3">
@@ -621,6 +699,14 @@ export default function DashboardPage() {
                     >
                       Request changes
                     </Button>
+                    <Button
+                      className="sm:w-auto"
+                      disabled={deletingId === approval.id}
+                      variant="ghost"
+                      onClick={() => void handleDeleteApproval(approval.id)}
+                    >
+                      Delete
+                    </Button>
                   </div>
                 </div>
               ))
@@ -706,9 +792,8 @@ export default function DashboardPage() {
           <div className="space-y-3">
             {scheduledContent.length ? (
               scheduledContent.slice(0, 4).map((item) => (
-                <Link
+                <div
                   className="grid gap-3 rounded-3xl border border-border/70 bg-card/60 p-4 transition hover:border-primary/40 sm:grid-cols-[auto_1fr_auto] sm:items-center"
-                  href="/content"
                   key={item.id}
                 >
                   <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--app-accent-soft)] text-[var(--app-accent-bg)]">
@@ -722,7 +807,20 @@ export default function DashboardPage() {
                     <Clock3 className="h-4 w-4" />
                     <DatePill value={item.date} />
                   </span>
-                </Link>
+                  <div className="flex gap-2 sm:col-span-3 sm:justify-end">
+                    <Link className="text-sm font-medium text-primary" href="/content">
+                      Open content
+                    </Link>
+                    <button
+                      className="text-sm font-medium text-muted-foreground hover:text-destructive"
+                      disabled={deletingId === `${item.sourceType}-${item.id}`}
+                      type="button"
+                      onClick={() => void handleDeleteScheduledContent(item)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
               ))
             ) : (
               <EmptyState title="No content scheduled" description="Scheduled posts will show up here once the campaign calendar is populated." />
