@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { Route } from "next";
 import { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
@@ -94,6 +95,37 @@ export default function CampaignCalendarPage() {
     const nextMonthStartKey = formatDateKey(addMonths(monthCursor, 1));
     return post.publishDate >= monthStartKey && post.publishDate < nextMonthStartKey;
   });
+  const todayKey = formatDateKey(new Date());
+  const nextCalendarItems = [
+    ...campaigns.flatMap((campaign) => [
+      {
+        id: `${campaign.id}-start`,
+        date: campaign.startDate,
+        label: campaign.name,
+        detail: "Campaign starts",
+        href: `/campaigns/${campaign.id}`
+      },
+      {
+        id: `${campaign.id}-end`,
+        date: campaign.endDate,
+        label: campaign.name,
+        detail: "Campaign ends",
+        href: `/campaigns/${campaign.id}`
+      }
+    ]),
+    ...posts
+      .filter((post) => post.campaignId && post.publishDate)
+      .map((post) => ({
+        id: `${post.id}-post`,
+        date: post.publishDate,
+        label: post.goal || post.platform,
+        detail: `${post.platform} post · ${post.status}`,
+        href: `/campaigns/${post.campaignId}`
+      }))
+  ]
+    .filter((item) => item.date >= todayKey)
+    .sort((left, right) => left.date.localeCompare(right.date))
+    .slice(0, 4);
   const agendaDays = calendarDays.filter(
     (day) => day.inCurrentMonth && (day.activeCampaigns.length || day.scheduledPosts.length)
   );
@@ -125,6 +157,38 @@ export default function CampaignCalendarPage() {
         <span><strong className="font-medium text-foreground">{number(visibleCampaigns.filter((campaign) => campaign.status === "Active").length)}</strong> active</span>
         <span><strong className="font-medium text-foreground">{number(visibleCampaigns.filter((campaign) => campaign.status === "Planning").length)}</strong> planning</span>
       </div>
+
+      <Card className="p-0">
+        <CardHeader className="border-b border-border/70 px-4 py-4 sm:px-5">
+          <div>
+            <CardDescription>Next Up</CardDescription>
+            <CardTitle className="mt-2">What is happening next</CardTitle>
+          </div>
+        </CardHeader>
+        <div className="divide-y divide-border/70">
+          {nextCalendarItems.length ? (
+            nextCalendarItems.map((item) => (
+              <Link
+                className="grid gap-3 px-4 py-4 transition hover:bg-primary/5 sm:grid-cols-[8rem_1fr_auto] sm:items-center sm:px-5"
+                href={item.href as Route}
+                key={item.id}
+              >
+                <DatePill value={item.date} />
+                <span className="min-w-0">
+                  <span className="block truncate font-medium text-foreground">{item.label}</span>
+                  <span className="mt-1 block text-sm text-muted-foreground">{item.detail}</span>
+                </span>
+                <span className="text-sm font-medium text-primary">Open</span>
+              </Link>
+            ))
+          ) : (
+            <EmptyState
+              title="No upcoming calendar items"
+              description="Create a campaign or schedule content to build the next-up list."
+            />
+          )}
+        </div>
+      </Card>
 
       <Card id="monthly-calendar" className="overflow-hidden p-0">
         <CardHeader className="border-b border-border/70 px-4 py-4 sm:px-5">

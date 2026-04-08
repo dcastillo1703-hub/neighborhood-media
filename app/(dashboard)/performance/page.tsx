@@ -51,6 +51,11 @@ export default function PerformancePage() {
   const channelContribution = summarizeChannelContribution(analyticsSnapshots);
   const campaignRecaps = summarizeCampaignRecaps(campaigns, analyticsSnapshots);
   const currentMonth = monthlyPerformance[monthlyPerformance.length - 1] ?? null;
+  const topCampaign = [...campaignRecaps].sort((left, right) => right.revenue - left.revenue)[0] ?? null;
+  const performanceStory =
+    roiSummary.revenue > 0
+      ? `${activeClient.name} has ${currency(roiSummary.revenue)} in attributed campaign revenue across ${number(roiSummary.covers)} covers. ${topCampaign?.revenue ? `${topCampaign.name} is currently the strongest performer.` : "Keep tying posts and campaigns to weekly metrics to sharpen the picture."}`
+      : `No campaign revenue is attributed yet. Start by adding ROI snapshots inside campaigns, then use this page to see which growth efforts are actually moving covers and revenue.`;
 
   return (
     <div className="space-y-10">
@@ -59,6 +64,30 @@ export default function PerformancePage() {
         title="Track covers, tables, and revenue impact"
         description="Keep the restaurant growth story in one place: weekly movement, monthly volume, modeled upside, and which campaigns are actually pulling weight."
       />
+
+      <Card className="p-5">
+        <div className="grid gap-5 lg:grid-cols-[1fr_auto] lg:items-center">
+          <div>
+            <CardDescription>Growth Read</CardDescription>
+            <CardTitle className="mt-3">What the numbers are saying</CardTitle>
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">{performanceStory}</p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[28rem]">
+            <div className="rounded-2xl bg-muted/50 px-4 py-3">
+              <p className="text-xs text-muted-foreground">Attributed revenue</p>
+              <p className="mt-2 text-xl font-medium text-foreground">{currency(roiSummary.revenue)}</p>
+            </div>
+            <div className="rounded-2xl bg-muted/50 px-4 py-3">
+              <p className="text-xs text-muted-foreground">Attributed covers</p>
+              <p className="mt-2 text-xl font-medium text-foreground">{number(roiSummary.covers)}</p>
+            </div>
+            <div className="rounded-2xl bg-muted/50 px-4 py-3">
+              <p className="text-xs text-muted-foreground">Top campaign</p>
+              <p className="mt-2 truncate text-xl font-medium text-foreground">{topCampaign?.revenue ? topCampaign.name : "None yet"}</p>
+            </div>
+          </div>
+        </div>
+      </Card>
 
       <StatGrid>
         <MetricCard href="/performance#business-snapshot" label="Weekly Covers" value={number(revenueModel.weeklyCovers)} detail="Current weekly demand baseline for the account." />

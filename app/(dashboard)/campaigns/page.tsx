@@ -42,13 +42,26 @@ const defaultViewOptions: Array<{
 
 const statusOptions: CampaignStatus[] = ["Planning", "Active", "Completed"];
 
+function formatDateKey(date: Date) {
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function addDays(date: Date, amount: number) {
+  const nextDate = new Date(date);
+  nextDate.setDate(date.getDate() + amount);
+
+  return nextDate;
+}
+
 const createEmptyCampaign = (clientId: string): Campaign => ({
   id: "",
   clientId,
   name: "",
   objective: "",
-  startDate: "2026-03-10",
-  endDate: "2026-03-31",
+  startDate: formatDateKey(new Date()),
+  endDate: formatDateKey(addDays(new Date(), 21)),
   channels: [],
   linkedPostIds: [],
   linkedBlogPostIds: [],
@@ -282,6 +295,20 @@ export default function CampaignsPage() {
               </button>
             </CardHeader>
             <div className="grid gap-4">
+              <div className="grid gap-3 rounded-[1.15rem] border border-border/70 bg-muted/30 p-3 text-sm text-muted-foreground sm:grid-cols-3">
+                <div>
+                  <p className="font-medium text-foreground">1. Create shell</p>
+                  <p className="mt-1">Keep the setup light.</p>
+                </div>
+                <div>
+                  <p className="font-medium text-foreground">2. Add tasks</p>
+                  <p className="mt-1">Content, meetings, or ops work.</p>
+                </div>
+                <div>
+                  <p className="font-medium text-foreground">3. Track ROI</p>
+                  <p className="mt-1">Connect effort to covers and revenue.</p>
+                </div>
+              </div>
               <div>
                 <Label>Campaign Name</Label>
                 <Input
