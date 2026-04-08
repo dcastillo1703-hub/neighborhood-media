@@ -12,7 +12,6 @@ import {
   ChevronRight,
   Circle,
   Clock3,
-  LayoutList,
   MessageSquare,
   Pencil,
   Sparkles,
@@ -32,7 +31,6 @@ import { useAuth } from "@/lib/auth-context";
 import { useActiveClient } from "@/lib/client-context";
 import { calculateRevenueModel } from "@/lib/calculations";
 import { getCampaignOverview } from "@/lib/domain/campaigns";
-import { buildImpactSentence } from "@/lib/domain/revenue";
 import { useAnalyticsSnapshots } from "@/lib/repositories/use-analytics-snapshots";
 import { useAssets } from "@/lib/repositories/use-assets";
 import { useBlogPosts } from "@/lib/repositories/use-blog-posts";
@@ -271,6 +269,14 @@ export default function DashboardPage() {
         })
         .slice(0, 4),
     [campaigns, pinnedCampaign?.id]
+  );
+  const activeHomeCampaigns = useMemo(
+    () => {
+      const activeCampaigns = campaigns.filter((campaign) => campaign.status === "Active");
+
+      return (activeCampaigns.length ? activeCampaigns : relevantCampaigns).slice(0, 4);
+    },
+    [campaigns, relevantCampaigns]
   );
 
   const clientActions = useMemo<ClientAction[]>(() => {
@@ -593,37 +599,6 @@ export default function DashboardPage() {
             </Link>
           ))}
         </div>
-
-        {relevantCampaigns.length ? (
-          <div className="mt-3 overflow-hidden rounded-[1.35rem] border border-white/10 bg-[#1b1c1f] p-4">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-base font-semibold text-white">Campaigns</p>
-              <Link className="text-xs font-semibold text-white/45" href="/campaigns">
-                See all
-              </Link>
-            </div>
-            <div className="mt-4 grid gap-2">
-              {relevantCampaigns.map((campaign, index) => (
-                <Link
-                  className="flex items-center gap-3 rounded-[1rem] px-1 py-2 transition hover:bg-white/[0.04]"
-                  href={`/campaigns/${campaign.id}` as Route}
-                  key={`mobile-home-${campaign.id}`}
-                >
-                  <span
-                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-[#202124]"
-                    style={{ backgroundColor: ["#b8c4a0", "#c7a25b", "#92a7d9", "#f06b4f"][index % 4] }}
-                  >
-                    <LayoutList className="h-5 w-5" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block truncate text-base font-semibold text-white">{campaign.name}</span>
-                    <span className="mt-0.5 block truncate text-xs text-white/45">{campaign.objective || campaign.status}</span>
-                  </span>
-                </Link>
-              ))}
-            </div>
-          </div>
-        ) : null}
 
         {visibleSectionIds.has("attention") ? (
           <div className="mt-3 rounded-[1.35rem] border border-white/10 bg-[#1b1c1f] p-4">
@@ -1068,38 +1043,42 @@ export default function DashboardPage() {
             <Card id="active-campaign" style={{ order: getSectionOrder("active-campaign") }}>
               <CardHeader>
                 <div>
-                  <CardDescription>Active Campaign</CardDescription>
-                  <CardTitle className="mt-3">{pinnedCampaign ? pinnedCampaign.name : "No campaign pinned yet"}</CardTitle>
+                  <CardDescription>Campaigns</CardDescription>
+                  <CardTitle className="mt-3">Active campaigns</CardTitle>
                 </div>
               </CardHeader>
-              {leadCampaign && pinnedCampaign ? (
-                <div className="space-y-5">
-                  <p className="text-sm leading-6 text-muted-foreground">
-                    {pinnedCampaign.objective || overviewHeadline || overviewSummary || buildImpactSentence(activeClient.name, revenueModelDefaults)}
-                  </p>
-                  <div className="grid gap-3 text-sm">
-                    <div className="flex items-center justify-between rounded-2xl bg-muted/50 px-4 py-3">
-                      <span className="text-muted-foreground">Status</span>
-                      <span className="font-medium text-foreground">{pinnedCampaign.status}</span>
-                    </div>
-                    <div className="flex items-center justify-between rounded-2xl bg-muted/50 px-4 py-3">
-                      <span className="text-muted-foreground">Campaign content</span>
-                      <span className="font-medium text-foreground">{number(leadCampaign.linkedPosts.length)} posts</span>
-                    </div>
-                    <div className="flex items-center justify-between rounded-2xl bg-muted/50 px-4 py-3">
-                      <span className="text-muted-foreground">Attributed revenue</span>
-                      <span className="font-medium text-foreground">{currency(leadCampaign.attributedRevenue)}</span>
-                    </div>
-                  </div>
-                  <Link
-                    className="inline-flex h-10 w-full items-center justify-center rounded-full bg-primary px-5 py-2 text-sm font-medium text-primary-foreground shadow-[0_10px_24px_rgba(149,114,46,0.18)] transition-colors hover:bg-primary/92"
-                    href={`/campaigns/${pinnedCampaign.id}` as Route}
-                  >
-                    Open campaign
-                  </Link>
+              {activeHomeCampaigns.length ? (
+                <div className="space-y-3">
+                  {activeHomeCampaigns.map((campaign) => {
+                    const campaignOverview = getCampaignOverview(campaign, posts, blogPosts, assets, metrics, analyticsSnapshots);
+
+                    return (
+                      <Link
+                        className="block rounded-3xl border border-border/70 bg-card/60 p-4 transition hover:border-primary/35 hover:bg-primary/5"
+                        href={`/campaigns/${campaign.id}` as Route}
+                        key={`home-active-${campaign.id}`}
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="min-w-0">
+                            <p className="truncate font-medium text-foreground">{campaign.name}</p>
+                            <p className="mt-1 line-clamp-2 text-sm leading-6 text-muted-foreground">
+                              {campaign.objective || "No objective added yet."}
+                            </p>
+                          </div>
+                          <span className="shrink-0 rounded-full bg-[var(--app-accent-soft)] px-3 py-1 text-xs font-medium text-[var(--app-accent-bg)]">
+                            {campaign.status}
+                          </span>
+                        </div>
+                        <div className="mt-4 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                          <span className="rounded-full bg-muted/60 px-2.5 py-1">{number(campaignOverview.linkedPosts.length)} posts</span>
+                          <span className="rounded-full bg-muted/60 px-2.5 py-1">{currency(campaignOverview.attributedRevenue)} revenue</span>
+                        </div>
+                      </Link>
+                    );
+                  })}
                 </div>
               ) : (
-                <EmptyState title="No campaign yet" description="Create or pin a campaign to give clients a clean current-focus area." />
+                <EmptyState title="No active campaigns" description="Create or activate a campaign to show it here." />
               )}
             </Card>
           ) : null}

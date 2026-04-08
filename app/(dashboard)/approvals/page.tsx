@@ -10,6 +10,7 @@ import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/ca
 import { DatePill } from "@/components/ui/date-pill";
 import { useAuth } from "@/lib/auth-context";
 import { useActiveClient } from "@/lib/client-context";
+import { usePosts } from "@/lib/repositories/use-posts";
 import { useOperationsApi } from "@/lib/use-operations-api";
 import { useApprovalsApi } from "@/lib/use-approvals-api";
 import { number } from "@/lib/utils";
@@ -20,11 +21,16 @@ export default function ApprovalsPage() {
   const { workspace } = useWorkspaceContext();
   const { profile } = useAuth();
   const { approvals, ready, error, reviewApproval, deleteApproval } = useApprovalsApi(activeClient.id);
+  const { posts } = usePosts(activeClient.id);
   const { tasks } = useOperationsApi(workspace.id, activeClient.id);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
 
-  const pendingApprovals = approvals.filter((approval) => approval.status === "Pending");
-  const openTasks = tasks.filter((task) => task.status !== "Done");
+  const campaignPostIds = new Set(posts.filter((post) => post.campaignId).map((post) => post.id));
+  const campaignApprovals = approvals.filter((approval) => campaignPostIds.has(approval.entityId));
+  const pendingApprovals = campaignApprovals.filter((approval) => approval.status === "Pending");
+  const openTasks = tasks.filter(
+    (task) => task.status !== "Done" && task.linkedEntityType === "campaign" && task.linkedEntityId
+  );
   const approverName = profile?.fullName ?? profile?.email ?? "Workspace operator";
 
   const handleReview = async (
@@ -76,8 +82,8 @@ export default function ApprovalsPage() {
 
       <div className="flex flex-wrap gap-x-5 gap-y-2 rounded-[1rem] border border-border/70 bg-card/70 px-4 py-3 text-sm text-muted-foreground">
         <span><strong className="font-medium text-foreground">{number(pendingApprovals.length)}</strong> pending</span>
-        <span><strong className="font-medium text-foreground">{number(approvals.filter((approval) => approval.status === "Approved").length)}</strong> approved</span>
-        <span><strong className="font-medium text-foreground">{number(approvals.filter((approval) => approval.status === "Changes Requested").length)}</strong> needs changes</span>
+        <span><strong className="font-medium text-foreground">{number(campaignApprovals.filter((approval) => approval.status === "Approved").length)}</strong> approved</span>
+        <span><strong className="font-medium text-foreground">{number(campaignApprovals.filter((approval) => approval.status === "Changes Requested").length)}</strong> needs changes</span>
         <span><strong className="font-medium text-foreground">{number(openTasks.length)}</strong> open tasks</span>
       </div>
 

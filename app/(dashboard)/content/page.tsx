@@ -16,11 +16,12 @@ import { useActiveClient } from "@/lib/client-context";
 import { getScheduledPosts } from "@/lib/domain/content";
 import { useAssets } from "@/lib/repositories/use-assets";
 import { useCampaigns } from "@/lib/repositories/use-campaigns";
-import { usePlannerItems } from "@/lib/repositories/use-planner-items";
 import { usePosts } from "@/lib/repositories/use-posts";
 import { useApprovalsApi } from "@/lib/use-approvals-api";
+import { useOperationsApi } from "@/lib/use-operations-api";
 import { usePublishingApi } from "@/lib/use-publishing-api";
 import { number } from "@/lib/utils";
+import { useWorkspaceContext } from "@/lib/workspace-context";
 import type { Platform, PostStatus } from "@/types";
 
 type ContentDraft = {
@@ -51,23 +52,6 @@ function formatDateKey(date: Date) {
   const month = `${date.getMonth() + 1}`.padStart(2, "0");
   const day = `${date.getDate()}`.padStart(2, "0");
   return `${date.getFullYear()}-${month}-${day}`;
-}
-
-function getMobileAgendaDays() {
-  const today = new Date();
-
-  return Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(today);
-    date.setDate(today.getDate() + index);
-
-    return {
-      date,
-      dateKey: formatDateKey(date),
-      day: date.toLocaleDateString("en-US", { weekday: "short" }),
-      label: index === 0 ? "Today" : date.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-      number: date.getDate()
-    };
-  });
 }
 
 function createContentDraft(date = new Date()): ContentDraft {
@@ -101,14 +85,15 @@ function getMonthDays(anchorDate: Date) {
 
 export default function ContentPage() {
   const { activeClient } = useActiveClient();
+  const { workspace } = useWorkspaceContext();
   const { campaigns } = useCampaigns(activeClient.id);
   const { assets } = useAssets(activeClient.id);
-  const { items } = usePlannerItems(activeClient.id);
   const { posts, ready, error, addPost, deletePost } = usePosts(activeClient.id);
+  const { tasks } = useOperationsApi(workspace.id, activeClient.id);
   const { approvals, prependApproval } = useApprovalsApi(activeClient.id);
   const { jobs, prependJob } = usePublishingApi(activeClient.id);
-  const mobileAgendaDays = useMemo(() => getMobileAgendaDays(), []);
-  const [selectedDate, setSelectedDate] = useState(() => mobileAgendaDays[0]?.dateKey ?? formatDateKey(new Date()));
+  const todayKey = formatDateKey(new Date());
+  const [selectedDate, setSelectedDate] = useState(() => todayKey);
   const [mobileTaskView, setMobileTaskView] = useState<"list" | "calendar">("calendar");
   const [contentView, setContentView] = useState<"list" | "calendar">("list");
   const [draft, setDraft] = useState<ContentDraft>(() => createContentDraft());
@@ -120,23 +105,30 @@ export default function ContentPage() {
     year: "numeric"
   });
 
-  const scheduledPosts = getScheduledPosts(posts);
+  const campaignPosts = posts.filter((post) => Boolean(post.campaignId));
+  const scheduledPosts = getScheduledPosts(campaignPosts);
   const contentPosts = [...posts].sort((left, right) => left.publishDate.localeCompare(right.publishDate));
-  const pendingApprovals = approvals.filter((approval) => approval.status === "Pending");
-  const planningBacklog = items.filter((item) => item.status !== "Published");
-  const queuedPublishJobs = jobs.filter((job) =>
-    ["Queued", "Processing", "Blocked"].includes(job.status)
+  const campaignPostIds = new Set(campaignPosts.map((post) => post.id));
+  const campaignTasks = tasks.filter(
+    (task) => task.linkedEntityType === "campaign" && task.linkedEntityId && task.status !== "Done"
   );
-  const selectedDay = mobileAgendaDays.find((day) => day.dateKey === selectedDate) ?? mobileAgendaDays[0];
-  const selectedDayPosts = scheduledPosts.filter((post) => post.publishDate === selectedDate);
+  const pendingApprovals = approvals.filter(
+    (approval) => approval.status === "Pending" && campaignPostIds.has(approval.entityId)
+  );
+  const queuedPublishJobs = jobs.filter((job) =>
+    ["Queued", "Processing", "Blocked"].includes(job.status) && campaignPostIds.has(job.postId)
+  );
+  const selectedDayLabel = new Date(`${selectedDate}T00:00:00`).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric"
+  });
+  const selectedDayPosts = campaignPosts.filter((post) => post.publishDate === selectedDate);
   const selectedDayApprovals = pendingApprovals.filter((approval) => {
     const linkedPost = posts.find((post) => post.id === approval.entityId);
     return linkedPost?.publishDate === selectedDate;
   });
   const selectedDayJobs = queuedPublishJobs.filter((job) => job.scheduledFor?.startsWith(selectedDate));
-  const selectedDayPlannerItems = planningBacklog.filter((item) =>
-    item.dayOfWeek.toLowerCase().startsWith(selectedDay?.day.toLowerCase().slice(0, 3) ?? "")
-  );
+  const selectedDayCampaignTasks = campaignTasks.filter((task) => task.dueDate === selectedDate);
   const selectedDayTasks = [
     ...selectedDayPosts.map((post) => ({
       id: `post-${post.id}`,
@@ -162,17 +154,17 @@ export default function ContentPage() {
       status: job.status,
       campaignId: posts.find((post) => post.id === job.postId)?.campaignId
     })),
-    ...selectedDayPlannerItems.map((item) => ({
-      id: `planner-${item.id}`,
-      title: item.campaignGoal,
-      eyebrow: `${item.platform} planner`,
-      detail: item.caption,
-      status: item.status,
-      campaignId: item.campaignId
+    ...selectedDayCampaignTasks.map((task) => ({
+      id: `task-${task.id}`,
+      title: task.title,
+      eyebrow: "Campaign task",
+      detail: task.detail || "Campaign-linked task.",
+      status: task.status,
+      campaignId: task.linkedEntityId
     }))
   ];
   const mobileTasks = [
-    ...scheduledPosts.map((post) => ({
+    ...campaignPosts.map((post) => ({
       id: `post-${post.id}`,
       title: post.goal,
       eyebrow: `${post.platform} content`,
@@ -207,17 +199,16 @@ export default function ContentPage() {
         campaignId: linkedPost?.campaignId
       };
     }),
-    ...planningBacklog.map((item) => ({
-      id: `planner-${item.id}`,
-      title: item.campaignGoal,
-      eyebrow: `${item.platform} planner`,
-      detail: item.caption,
-      status: item.status,
-      dateKey: undefined,
-      campaignId: item.campaignId
+    ...campaignTasks.map((task) => ({
+      id: `task-${task.id}`,
+      title: task.title,
+      eyebrow: "Campaign task",
+      detail: task.detail || "Campaign-linked task.",
+      status: task.status,
+      dateKey: task.dueDate,
+      campaignId: task.linkedEntityId
     }))
   ].sort((left, right) => (left.dateKey ?? "9999-12-31").localeCompare(right.dateKey ?? "9999-12-31"));
-  const todayKey = mobileAgendaDays[0]?.dateKey ?? formatDateKey(new Date());
   const todayTasks = mobileTasks.filter((task) => task.dateKey === todayKey);
   const upcomingTasks = mobileTasks.filter((task) => task.dateKey && task.dateKey > todayKey).slice(0, 8);
   const unscheduledTasks = mobileTasks.filter((task) => !task.dateKey).slice(0, 8);
@@ -312,28 +303,31 @@ export default function ContentPage() {
           <>
             <div className="mt-6 rounded-[1.65rem] border border-white/12 bg-white/[0.035] p-4">
               <div className="flex items-center justify-between">
-                <p className="text-lg font-semibold">Calendar</p>
-                <p className="text-sm text-white/45">{number(scheduledPosts.length + planningBacklog.length)} total</p>
+                <p className="text-lg font-semibold">{monthLabel}</p>
+                <p className="text-sm text-white/45">{number(mobileTasks.length)} total</p>
+              </div>
+              <div className="mt-4 grid grid-cols-7 text-center text-[0.68rem] font-semibold uppercase text-white/35">
+                {["S", "M", "T", "W", "T", "F", "S"].map((day, index) => (
+                  <span key={`${day}-${index}`}>{day}</span>
+                ))}
               </div>
               <div className="mt-4 grid grid-cols-7 gap-2">
-                {mobileAgendaDays.map((day) => {
+                {monthDays.map((day) => {
                   const selected = day.dateKey === selectedDate;
-                  const hasWork =
-                    scheduledPosts.some((post) => post.publishDate === day.dateKey) ||
-                    queuedPublishJobs.some((job) => job.scheduledFor?.startsWith(day.dateKey));
+                  const hasWork = mobileTasks.some((task) => task.dateKey === day.dateKey);
 
                   return (
                     <button
                       className={[
-                        "rounded-2xl px-1 py-3 text-center transition",
-                        selected ? "bg-white text-[#202024]" : "bg-white/[0.04] text-white/62"
+                        "rounded-2xl px-1 py-2.5 text-center transition",
+                        selected ? "bg-white text-[#202024]" : "bg-white/[0.04]",
+                        day.isCurrentMonth ? "text-white/70" : "text-white/28"
                       ].join(" ")}
                       key={day.dateKey}
                       type="button"
                       onClick={() => setSelectedDate(day.dateKey)}
                     >
-                      <span className="block text-[0.66rem] font-semibold uppercase">{day.day}</span>
-                      <span className="mt-1 block text-lg font-semibold">{day.number}</span>
+                      <span className="block text-lg font-semibold">{day.date.getDate()}</span>
                       <span className={["mx-auto mt-1 block h-1.5 w-1.5 rounded-full", hasWork ? "bg-current" : "bg-transparent"].join(" ")} />
                     </button>
                   );
@@ -343,7 +337,7 @@ export default function ContentPage() {
 
             <div className="mt-7">
               <p className="text-sm font-semibold text-[var(--app-accent)]">
-                {selectedDay?.label ?? "Today"}
+                {selectedDate === todayKey ? "Today" : selectedDayLabel}
               </p>
               <h2 className="mt-2 text-3xl font-semibold tracking-[-0.04em]">
                 {selectedDayTasks.length ? "Scheduled for this day" : "Nothing due here"}
