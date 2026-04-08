@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { ListCard } from "@/components/dashboard/list-card";
@@ -21,6 +21,14 @@ import { useIntegrations } from "@/lib/repositories/use-integrations";
 import { appAccents, useTheme } from "@/lib/theme-context";
 import { useManualMetaPerformance } from "@/lib/use-manual-meta-performance";
 import { useMetaBusinessSuite } from "@/lib/use-meta-business-suite";
+import {
+  defaultMobileNavItemKeys,
+  maxMobileNavItems,
+  mobileNavOptions,
+  readMobileNavKeys,
+  saveMobileNavKeys,
+  type MobileNavItemKey
+} from "@/lib/mobile-navigation";
 import { useWorkspaceContext } from "@/lib/workspace-context";
 import { currency, number } from "@/lib/utils";
 
@@ -58,8 +66,53 @@ export default function SettingsPage() {
     null
   );
   const [selectingAsset, setSelectingAsset] = useState<string | null>(null);
+  const [mobileNavKeys, setMobileNavKeys] = useState<MobileNavItemKey[]>(defaultMobileNavItemKeys);
 
   const readyConnections = connections.filter((connection) => connection.status === "Ready");
+
+  useEffect(() => {
+    setMobileNavKeys(readMobileNavKeys());
+  }, []);
+
+  const updateMobileNavKeys = (nextKeys: MobileNavItemKey[]) => {
+    setMobileNavKeys(nextKeys);
+    saveMobileNavKeys(nextKeys);
+  };
+
+  const toggleMobileNavKey = (key: MobileNavItemKey) => {
+    if (mobileNavKeys.includes(key)) {
+      updateMobileNavKeys(mobileNavKeys.filter((item) => item !== key));
+      return;
+    }
+
+    if (mobileNavKeys.length >= maxMobileNavItems) {
+      return;
+    }
+
+    updateMobileNavKeys([...mobileNavKeys, key]);
+  };
+
+  const moveMobileNavKey = (key: MobileNavItemKey, direction: "up" | "down") => {
+    const currentIndex = mobileNavKeys.indexOf(key);
+
+    if (currentIndex === -1) {
+      return;
+    }
+
+    const nextIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+
+    if (nextIndex < 0 || nextIndex >= mobileNavKeys.length) {
+      return;
+    }
+
+    const nextKeys = [...mobileNavKeys];
+    [nextKeys[currentIndex], nextKeys[nextIndex]] = [nextKeys[nextIndex], nextKeys[currentIndex]];
+    updateMobileNavKeys(nextKeys);
+  };
+
+  const resetMobileNav = () => {
+    updateMobileNavKeys(defaultMobileNavItemKeys);
+  };
 
   const prepareMetaConnection = async (provider: "facebook" | "instagram") => {
     setConnectingProvider(provider);
@@ -161,6 +214,114 @@ export default function SettingsPage() {
                     </span>
                   </span>
                 </button>
+              );
+            })}
+          </div>
+        </div>
+      </Card>
+
+      <Card id="mobile-navigation">
+        <CardHeader>
+          <div>
+            <CardDescription>Mobile Navigation</CardDescription>
+            <CardTitle className="mt-3">Choose what appears at the bottom</CardTitle>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
+              Pick up to {maxMobileNavItems} destinations for the mobile bottom bar. The order here becomes the order on your phone.
+            </p>
+          </div>
+          <Button size="sm" type="button" variant="outline" onClick={resetMobileNav}>
+            Reset
+          </Button>
+        </CardHeader>
+        <div className="grid gap-5 lg:grid-cols-[0.8fr_1.2fr]">
+          <div className="rounded-[1.5rem] border border-border bg-muted/25 p-4">
+            <p className="text-sm font-medium text-foreground">Current mobile bar</p>
+            <div className="mt-4 rounded-[1.25rem] border border-white/10 bg-[#202024] p-3 text-white">
+              <div
+                className="grid gap-1"
+                style={{ gridTemplateColumns: `repeat(${mobileNavKeys.length || 1}, minmax(0, 1fr))` }}
+              >
+                {mobileNavKeys.map((key) => {
+                  const option = mobileNavOptions.find((item) => item.key === key);
+
+                  return option ? (
+                    <div
+                      className="rounded-xl bg-white/[0.04] px-1 py-2 text-center text-[0.66rem] text-white/80"
+                      key={key}
+                    >
+                      {option.label}
+                    </div>
+                  ) : null;
+                })}
+              </div>
+            </div>
+            <p className="mt-3 text-xs leading-5 text-muted-foreground">
+              If you remove `Account`, you can still reach Settings from desktop or by re-enabling it here later.
+            </p>
+          </div>
+          <div className="grid gap-3">
+            {mobileNavOptions.map((option) => {
+              const selected = mobileNavKeys.includes(option.key);
+              const selectedIndex = mobileNavKeys.indexOf(option.key);
+              const disabled = !selected && mobileNavKeys.length >= maxMobileNavItems;
+
+              return (
+                <div
+                  className={[
+                    "grid gap-3 rounded-[1.25rem] border p-4 transition sm:grid-cols-[1fr_auto] sm:items-center",
+                    selected
+                      ? "border-primary/35 bg-primary/10"
+                      : "border-border bg-card/70",
+                    disabled ? "opacity-55" : ""
+                  ].join(" ")}
+                  key={option.key}
+                >
+                  <div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        aria-pressed={selected}
+                        className={[
+                          "relative h-6 w-11 rounded-full transition",
+                          selected ? "bg-primary" : "bg-muted-foreground/25"
+                        ].join(" ")}
+                        disabled={disabled}
+                        type="button"
+                        onClick={() => toggleMobileNavKey(option.key)}
+                      >
+                        <span
+                          className={[
+                            "absolute top-1 h-4 w-4 rounded-full bg-white transition",
+                            selected ? "left-6" : "left-1"
+                          ].join(" ")}
+                        />
+                      </button>
+                      <div>
+                        <p className="text-sm font-medium text-foreground">{option.label}</p>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">{option.description}</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 sm:justify-end">
+                    <Button
+                      disabled={!selected || selectedIndex === 0}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                      onClick={() => moveMobileNavKey(option.key, "up")}
+                    >
+                      Up
+                    </Button>
+                    <Button
+                      disabled={!selected || selectedIndex === mobileNavKeys.length - 1}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                      onClick={() => moveMobileNavKey(option.key, "down")}
+                    >
+                      Down
+                    </Button>
+                  </div>
+                </div>
               );
             })}
           </div>

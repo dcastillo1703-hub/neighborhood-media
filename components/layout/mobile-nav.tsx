@@ -2,26 +2,69 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, Briefcase, CheckCircle2, Home, UserRound } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Bell,
+  Briefcase,
+  CalendarDays,
+  CheckCircle2,
+  Home,
+  LineChart,
+  ListChecks,
+  UserRound
+} from "lucide-react";
 
+import {
+  mobileNavOptions,
+  mobileNavUpdatedEvent,
+  readMobileNavKeys,
+  type MobileNavItemKey
+} from "@/lib/mobile-navigation";
 import { cn } from "@/lib/utils";
 
-const mobileNavigation = [
-  { href: "/", label: "Home", icon: Home },
-  { href: "/content", label: "My tasks", icon: CheckCircle2 },
-  { href: "/approvals", label: "Inbox", icon: Bell },
-  { href: "/campaigns", label: "Projects", icon: Briefcase },
-  { href: "/settings", label: "Account", icon: UserRound }
-] as const;
+const mobileNavIcons = {
+  home: Home,
+  content: CheckCircle2,
+  approvals: Bell,
+  campaigns: Briefcase,
+  calendar: CalendarDays,
+  performance: LineChart,
+  operations: ListChecks,
+  settings: UserRound
+} satisfies Record<MobileNavItemKey, typeof Home>;
 
 export function MobileNav() {
   const pathname = usePathname();
+  const [visibleNavKeys, setVisibleNavKeys] = useState<MobileNavItemKey[]>(() =>
+    readMobileNavKeys()
+  );
+  const mobileNavigation = useMemo(
+    () =>
+      visibleNavKeys
+        .map((key) => mobileNavOptions.find((option) => option.key === key))
+        .filter((option): option is NonNullable<typeof option> => Boolean(option)),
+    [visibleNavKeys]
+  );
+
+  useEffect(() => {
+    const syncMobileNav = () => setVisibleNavKeys(readMobileNavKeys());
+    window.addEventListener(mobileNavUpdatedEvent, syncMobileNav);
+    window.addEventListener("storage", syncMobileNav);
+
+    return () => {
+      window.removeEventListener(mobileNavUpdatedEvent, syncMobileNav);
+      window.removeEventListener("storage", syncMobileNav);
+    };
+  }, []);
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-white/10 bg-[#202024]/95 px-2 pb-[max(0.65rem,env(safe-area-inset-bottom))] pt-1.5 text-white shadow-[0_-18px_45px_rgba(0,0,0,0.25)] backdrop-blur lg:hidden">
-      <div className="grid grid-cols-5">
+      <div
+        className="grid"
+        style={{ gridTemplateColumns: `repeat(${mobileNavigation.length}, minmax(0, 1fr))` }}
+      >
         {mobileNavigation.map((item) => {
-          const Icon = item.icon;
+          const Icon = mobileNavIcons[item.key];
           const active = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
 
           return (
@@ -30,7 +73,7 @@ export function MobileNav() {
                 "flex min-w-0 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 py-1.5 text-[0.66rem] font-medium transition",
                 active ? "text-white" : "text-white/50"
               )}
-              href={item.href}
+              href={item.href as never}
               key={item.href}
             >
               <Icon className={cn("h-6 w-6", active ? "stroke-[2.4]" : "stroke-[2]")} />
