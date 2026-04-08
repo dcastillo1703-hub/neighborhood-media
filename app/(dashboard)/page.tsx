@@ -14,6 +14,7 @@ import {
   Clock3,
   MessageSquare,
   Pencil,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 
@@ -414,6 +415,95 @@ export default function DashboardPage() {
     setIsEditingOverview(false);
   };
 
+  const useBestOverviewSuggestions = () => {
+    const suggestedCards: OverviewCardDraft[] = [
+      pendingApprovals.length
+        ? {
+            id: "review",
+            label: "Needs review",
+            value: number(pendingApprovals.length),
+            detail: "Items waiting on a decision before the work can move forward.",
+            href: "/approvals"
+          }
+        : {
+            id: "review",
+            label: "Review queue",
+            value: "Clear",
+            detail: "No approvals are waiting right now.",
+            href: "/approvals"
+          },
+      nextScheduledItem
+        ? {
+            id: "publish",
+            label: "Next publish",
+            value: nextScheduledItem.platform,
+            detail: nextScheduledItem.content,
+            href: "/calendar"
+          }
+        : {
+            id: "publish",
+            label: "Next publish",
+            value: "None",
+            detail: "No scheduled content is on the calendar yet.",
+            href: "/calendar"
+          },
+      {
+        id: "primary",
+        label: leadCampaign ? "Current campaign" : featuredMetric.label,
+        value: leadCampaign ? leadCampaign.campaign.name : featuredMetric.value,
+        detail: leadCampaign
+          ? leadCampaign.campaign.objective || "Pinned campaign for this client home."
+          : "The best live metric to keep in view this week.",
+        href: leadCampaign ? `/campaigns/${leadCampaign.campaign.id}` : featuredMetric.href
+      }
+    ];
+    const suggestedSectionOrder: ClientHomeSection["id"][] = [
+      "attention",
+      pendingApprovals.length ? "review" : "active-campaign",
+      nextScheduledItem ? "upcoming-content" : "active-campaign",
+      "recent-activity",
+      pendingApprovals.length ? "active-campaign" : "review"
+    ];
+    const seenSectionIds = new Set<ClientHomeSection["id"]>();
+    const orderedSectionIds = [
+      ...suggestedSectionOrder,
+      ...defaultClientHomeSections.map((section) => section.id)
+    ].filter((sectionId) => {
+      if (seenSectionIds.has(sectionId)) {
+        return false;
+      }
+
+      seenSectionIds.add(sectionId);
+      return true;
+    });
+
+    setOverviewDraft((current) => ({
+      ...current,
+      overviewHeadline: current.overviewHeadline || getGreeting(clientFirstName),
+      overviewSummary:
+        current.overviewSummary ||
+        "Here is what needs attention, what is coming next, and what campaign is driving growth.",
+      overviewCards: suggestedCards,
+      overviewSections: orderedSectionIds.map((sectionId) => {
+        const existing = current.overviewSections.find((section) => section.id === sectionId);
+
+        return {
+          id: sectionId,
+          label:
+            existing?.label ??
+            defaultClientHomeSections.find((section) => section.id === sectionId)?.label ??
+            sectionId,
+          visible:
+            sectionId === "attention" ||
+            sectionId === "active-campaign" ||
+            (sectionId === "review" && pendingApprovals.length > 0) ||
+            (sectionId === "upcoming-content" && Boolean(nextScheduledItem)) ||
+            (sectionId === "recent-activity" && recentActivity.length > 0)
+        };
+      })
+    }));
+  };
+
   const handleReview = async (approvalId: string, status: "Approved" | "Changes Requested") => {
     setReviewingId(approvalId);
 
@@ -582,9 +672,9 @@ export default function DashboardPage() {
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <CardDescription>Client Home Settings</CardDescription>
-                  <CardTitle className="mt-3">Tune what appears first</CardTitle>
+                  <CardTitle className="mt-3">Edit Home</CardTitle>
                   <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-                    This controls the first thing a client sees on Home: the headline, note, three compact rows, and which sections stay visible.
+                    This changes the Overview/Home page on both mobile and desktop. Use it to choose the headline, top rows, section order, and what should be hidden.
                   </p>
                   {clientHomeConfigError ? (
                     <p className="mt-2 text-sm text-muted-foreground">
@@ -598,6 +688,23 @@ export default function DashboardPage() {
               </div>
             </CardHeader>
             <div className="grid gap-6">
+            <div className="rounded-[1.25rem] border border-primary/25 bg-[var(--app-accent-soft)] p-4">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="flex items-center gap-2 text-sm font-medium text-foreground">
+                    <Sparkles className="h-4 w-4 text-[var(--app-accent-bg)]" />
+                    Best suggestions
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                    Let the app pick the most useful Home setup from current approvals, scheduled content, active campaigns, and recent work.
+                  </p>
+                </div>
+                <Button className="shrink-0" type="button" variant="outline" onClick={useBestOverviewSuggestions}>
+                  Use suggestions
+                </Button>
+              </div>
+            </div>
+
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div>
                 <Label>Average Check</Label>
@@ -665,8 +772,8 @@ export default function DashboardPage() {
             <div className="rounded-[1.25rem] border border-border/70 bg-card/55 p-4">
               <div className="flex items-center justify-between gap-4">
                 <div>
-                  <p className="text-sm font-medium text-foreground">Top overview cards</p>
-                  <p className="mt-1 text-sm text-muted-foreground">Customize the three rounded cards shown first on desktop and mobile.</p>
+                  <p className="text-sm font-medium text-foreground">Top Home rows</p>
+                  <p className="mt-1 text-sm text-muted-foreground">These are the three compact rows shown first on mobile and the three summary cards shown first on desktop.</p>
                 </div>
                 <Button
                   onClick={() =>
@@ -736,9 +843,9 @@ export default function DashboardPage() {
             </div>
 
             <div className="rounded-[1.25rem] border border-border/70 bg-card/55 p-4">
-              <p className="text-sm font-medium text-foreground">Sections</p>
+              <p className="text-sm font-medium text-foreground">Home sections</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Hide a section to remove it from Home. Move the sections that matter most to the top.
+                Turn sections on or off, then move the most important ones higher. Hidden sections are removed from Home until you turn them back on.
               </p>
               <div className="mt-4 space-y-2">
                 {overviewDraft.overviewSections.map((section, index) => (
@@ -751,8 +858,21 @@ export default function DashboardPage() {
                     )}
                     key={section.id}
                   >
-                    <button
-                      className="flex flex-1 items-center justify-between text-left"
+                    <div className="flex flex-1 items-center justify-between gap-4">
+                      <div className="min-w-0">
+                        <p className="font-medium">{section.label}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {section.visible ? "Visible on Home" : "Hidden from Home"}
+                        </p>
+                      </div>
+                      <button
+                      aria-pressed={section.visible}
+                      className={cn(
+                        "relative h-7 w-12 shrink-0 rounded-full border transition",
+                        section.visible
+                          ? "border-primary/50 bg-primary/80"
+                          : "border-border bg-muted"
+                      )}
                       type="button"
                       onClick={() =>
                         setOverviewDraft((current) => ({
@@ -763,9 +883,14 @@ export default function DashboardPage() {
                         }))
                       }
                     >
-                      <span className="font-medium">{section.label}</span>
-                      <span className="text-xs font-medium">{section.visible ? "Shown" : "Hidden"}</span>
+                        <span
+                          className={cn(
+                            "absolute top-1 h-5 w-5 rounded-full bg-background shadow-sm transition",
+                            section.visible ? "left-6" : "left-1"
+                          )}
+                        />
                     </button>
+                    </div>
                     <div className="flex gap-2">
                       <Button
                         aria-label={`Move ${section.label} up`}
