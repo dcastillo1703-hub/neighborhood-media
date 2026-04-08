@@ -2,7 +2,7 @@ import type { IntegrationConnection, MetaBusinessSuiteConfigStatus } from "@/typ
 import { integrationEnv, isIntegrationConfigured } from "@/lib/integrations/config";
 
 export const metaProviderScopes = {
-  facebook: ["pages_show_list", "pages_read_engagement"],
+  facebook: ["pages_show_list", "pages_read_engagement", "business_management"],
   instagram: [
     "instagram_basic",
     "instagram_manage_insights",

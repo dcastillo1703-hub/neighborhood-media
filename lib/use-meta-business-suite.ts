@@ -2,7 +2,11 @@
 
 import { useEffect, useState } from "react";
 
-import type { IntegrationConnection, MetaBusinessSuiteSummary } from "@/types";
+import type {
+  AnalyticsSnapshot,
+  IntegrationConnection,
+  MetaBusinessSuiteSummary
+} from "@/types";
 
 async function readApiError(response: Response, fallback: string) {
   try {
@@ -21,7 +25,6 @@ export function useMetaBusinessSuite(clientId: string) {
 
   useEffect(() => {
     let active = true;
-
     const load = async () => {
       setReady(false);
       setError(null);
@@ -64,10 +67,27 @@ export function useMetaBusinessSuite(clientId: string) {
     };
   }, [clientId]);
 
+  async function reloadSummary() {
+    setError(null);
+    const response = await fetch(`/api/meta-suite?clientId=${encodeURIComponent(clientId)}`, {
+      method: "GET",
+      cache: "no-store"
+    });
+
+    if (!response.ok) {
+      throw new Error(await readApiError(response, "Failed to load Meta Business Suite summary."));
+    }
+
+    const payload = (await response.json()) as { summary: MetaBusinessSuiteSummary };
+    setSummary(payload.summary);
+    return payload.summary;
+  }
+
   return {
     summary,
     ready,
     error,
+    reloadSummary,
     async beginConnection(provider: "facebook" | "instagram") {
       const response = await fetch("/api/meta-suite/connect", {
         method: "POST",
@@ -122,6 +142,35 @@ export function useMetaBusinessSuite(clientId: string) {
           )
         };
       });
+
+      return payload;
+    },
+    async syncInsights(provider: "facebook" | "instagram") {
+      const response = await fetch("/api/meta-suite/sync", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ clientId, provider })
+      });
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response, "Failed to sync Meta insights."));
+      }
+
+      const payload = (await response.json()) as {
+        sync: {
+          provider: "facebook" | "instagram";
+          syncedAt: string;
+          snapshot: AnalyticsSnapshot;
+          postCount: number;
+          topPost?: string | null;
+          pageName: string;
+        };
+        summary: MetaBusinessSuiteSummary;
+      };
+
+      setSummary(payload.summary);
 
       return payload;
     },

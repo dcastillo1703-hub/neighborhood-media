@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { ListCard } from "@/components/dashboard/list-card";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { StatGrid } from "@/components/dashboard/stat-grid";
 import { MetricCard } from "@/components/metric-card";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { calculateRevenueModel } from "@/lib/calculations";
 import { useActiveClient } from "@/lib/client-context";
@@ -30,13 +31,14 @@ export default function PerformancePage() {
   const { settings, revenueModelDefaults } = useClientSettings(activeClient.id);
   const { metrics } = useWeeklyMetrics(activeClient.id);
   const { campaigns } = useCampaigns(activeClient.id);
-  const { analyticsSnapshots } = useAnalyticsSnapshots(activeClient.id);
-  const { summary: metaSummary } = useMetaBusinessSuite(activeClient.id);
+  const { analyticsSnapshots, refreshAnalyticsSnapshots } = useAnalyticsSnapshots(activeClient.id);
+  const { summary: metaSummary, syncInsights } = useMetaBusinessSuite(activeClient.id);
   const {
     enabledChannels: manualMetaChannels,
-    hasManualMeta,
     totals: manualMetaTotals
   } = useManualMetaPerformance(activeClient.id);
+  const [syncingFacebook, setSyncingFacebook] = useState(false);
+  const [facebookSyncMessage, setFacebookSyncMessage] = useState<string | null>(null);
 
   const revenueModel = calculateRevenueModel(revenueModelDefaults);
   const latestWeek = getLatestWeekSummary(metrics, settings.averageCheck);
@@ -52,10 +54,78 @@ export default function PerformancePage() {
   const campaignRecaps = summarizeCampaignRecaps(campaigns, analyticsSnapshots);
   const currentMonth = monthlyPerformance[monthlyPerformance.length - 1] ?? null;
   const topCampaign = [...campaignRecaps].sort((left, right) => right.revenue - left.revenue)[0] ?? null;
+  const connectedMetaProviders = new Set(
+    (metaSummary?.channels ?? [])
+      .filter((channel) => channel.authStatus === "connected")
+      .map((channel) => channel.provider)
+  );
+  const fallbackManualChannels = manualMetaChannels.filter(
+    (channel) => !connectedMetaProviders.has(channel.provider)
+  );
+  const fallbackManualTotals = fallbackManualChannels.reduce(
+    (totals, channel) => ({
+      impressions: totals.impressions + channel.impressions,
+      clicks: totals.clicks + channel.clicks,
+      reach: totals.reach + channel.reach,
+      attributedRevenue: totals.attributedRevenue + channel.attributedRevenue,
+      attributedCovers: totals.attributedCovers + channel.attributedCovers
+    }),
+    { impressions: 0, clicks: 0, reach: 0, attributedRevenue: 0, attributedCovers: 0 }
+  );
+  const displayedMetaRevenue =
+    (metaSummary?.totalAttributedRevenue ?? 0) + fallbackManualTotals.attributedRevenue;
+  const connectedFacebook = metaSummary?.channels.find(
+    (channel) => channel.provider === "facebook" && channel.authStatus === "connected"
+  );
+  const manualFacebook = fallbackManualChannels.find((channel) => channel.provider === "facebook");
+  const facebookRead = connectedFacebook
+    ? {
+        label: connectedFacebook.accountLabel,
+        impressions: connectedFacebook.impressions,
+        clicks: connectedFacebook.clicks,
+        engagement: connectedFacebook.conversions,
+        periodLabel: connectedFacebook.latestPeriodLabel,
+        syncedAt: connectedFacebook.lastSyncAt,
+        nextAction: connectedFacebook.nextAction,
+        source: "live" as const
+      }
+    : manualFacebook
+      ? {
+          label: manualFacebook.accountLabel,
+          impressions: manualFacebook.impressions,
+          clicks: manualFacebook.clicks,
+          engagement: manualFacebook.engagement,
+          periodLabel: manualFacebook.periodLabel,
+          syncedAt: undefined,
+          nextAction: manualFacebook.nextAction,
+          source: "manual" as const
+        }
+      : null;
   const performanceStory =
     roiSummary.revenue > 0
       ? `${activeClient.name} has ${currency(roiSummary.revenue)} in attributed campaign revenue across ${number(roiSummary.covers)} covers. ${topCampaign?.revenue ? `${topCampaign.name} is currently the strongest performer.` : "Keep tying posts and campaigns to weekly metrics to sharpen the picture."}`
       : `No campaign revenue is attributed yet. Start by adding ROI snapshots inside campaigns, then use this page to see which growth efforts are actually moving covers and revenue.`;
+
+  const syncFacebookInsights = async () => {
+    setSyncingFacebook(true);
+    setFacebookSyncMessage(null);
+
+    try {
+      const payload = await syncInsights("facebook");
+      await refreshAnalyticsSnapshots();
+      setFacebookSyncMessage(
+        payload.sync.topPost
+          ? `Facebook synced from ${payload.sync.pageName}. Impressions: ${number(payload.sync.snapshot.impressions)}, clicks: ${number(payload.sync.snapshot.clicks)}, engagement: ${number(payload.sync.snapshot.conversions)}. Top content: ${payload.sync.topPost}`
+          : `Facebook synced from ${payload.sync.pageName}. Impressions: ${number(payload.sync.snapshot.impressions)}, clicks: ${number(payload.sync.snapshot.clicks)}, engagement: ${number(payload.sync.snapshot.conversions)}. Accessible posts: ${number(payload.sync.postCount)}.`
+      );
+    } catch (error) {
+      setFacebookSyncMessage(
+        error instanceof Error ? error.message : "Facebook sync failed."
+      );
+    } finally {
+      setSyncingFacebook(false);
+    }
+  };
 
   return (
     <div className="space-y-10">
@@ -97,8 +167,12 @@ export default function PerformancePage() {
         <MetricCard
           href="/performance#meta-business-suite"
           label="Meta Revenue"
-          value={currency(hasManualMeta ? manualMetaTotals.attributedRevenue : metaSummary?.totalAttributedRevenue ?? 0)}
-          detail={hasManualMeta ? "Manual Facebook and Instagram revenue configured in Settings." : "Facebook and Instagram revenue tied back to Meta reporting."}
+          value={currency(displayedMetaRevenue)}
+          detail={
+            fallbackManualChannels.length
+              ? "Live Facebook plus manual fallback for channels that are not connected yet."
+              : "Facebook and Instagram revenue tied back to Meta reporting."
+          }
         />
         <MetricCard href="/performance#business-snapshot" label="Latest Weekly Change" value={`${latestWeek.latestWowChange > 0 ? "+" : ""}${number(latestWeek.latestWowChange)} covers`} detail="Most recent week-over-week movement." tone="olive" />
       </StatGrid>
@@ -186,12 +260,86 @@ export default function PerformancePage() {
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <Card id="meta-business-suite">
           <CardHeader>
-            <div>
-              <CardDescription>Meta Business Suite</CardDescription>
-              <CardTitle className="mt-3">Digestible Meta performance</CardTitle>
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <CardDescription>Meta Business Suite</CardDescription>
+                <CardTitle className="mt-3">Digestible Meta performance</CardTitle>
+                <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
+                  Facebook is the first live source here. Instagram can continue as manual fallback until that connection is ready.
+                </p>
+              </div>
+              <Button
+                disabled={
+                  syncingFacebook ||
+                  !metaSummary?.channels.find(
+                    (channel) =>
+                      channel.provider === "facebook" && channel.authStatus === "connected"
+                  )
+                }
+                onClick={() => void syncFacebookInsights()}
+                size="sm"
+                variant="outline"
+              >
+                {syncingFacebook ? "Syncing Facebook..." : "Sync Facebook insights"}
+              </Button>
             </div>
           </CardHeader>
-          {hasManualMeta ? (
+          {facebookSyncMessage ? (
+            <div className="rounded-2xl border border-border/70 bg-card/65 p-4 text-sm text-muted-foreground">
+              {facebookSyncMessage}
+            </div>
+          ) : null}
+          {facebookRead ? (
+            <div className="space-y-3">
+              <ListCard>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-sm text-muted-foreground">
+                      {facebookRead.source === "live" ? "Live Facebook snapshot" : "Manual Facebook snapshot"}
+                    </p>
+                    <p className="mt-2 text-xl font-medium text-foreground">{facebookRead.label}</p>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      {facebookRead.periodLabel || "Current Facebook reporting window"}
+                    </p>
+                  </div>
+                  {facebookRead.syncedAt ? (
+                    <p className="text-xs uppercase tracking-[0.16em] text-primary">
+                      Synced {new Date(facebookRead.syncedAt).toLocaleDateString()}
+                    </p>
+                  ) : (
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Manual</p>
+                  )}
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-2xl bg-muted/50 px-4 py-3">
+                    <p className="text-xs text-muted-foreground">Impressions</p>
+                    <p className="mt-2 text-xl font-medium text-foreground">{number(facebookRead.impressions)}</p>
+                  </div>
+                  <div className="rounded-2xl bg-muted/50 px-4 py-3">
+                    <p className="text-xs text-muted-foreground">Clicks</p>
+                    <p className="mt-2 text-xl font-medium text-foreground">{number(facebookRead.clicks)}</p>
+                  </div>
+                  <div className="rounded-2xl bg-muted/50 px-4 py-3">
+                    <p className="text-xs text-muted-foreground">Engagement</p>
+                    <p className="mt-2 text-xl font-medium text-foreground">{number(facebookRead.engagement)}</p>
+                  </div>
+                </div>
+                <p className="mt-4 text-sm text-muted-foreground">
+                  {facebookRead.nextAction ||
+                    (facebookRead.impressions > 0
+                      ? "Facebook is connected and reporting live page-level performance."
+                      : "Facebook is connected, but Meta is still returning a thin performance payload for this Page.")}
+                </p>
+              </ListCard>
+            </div>
+          ) : null}
+          {!metaSummary && !manualMetaChannels.length ? (
+            <EmptyState
+              title="Meta digest not ready"
+              description="Connect Meta Business Suite and sync Facebook analytics to populate this summary."
+            />
+          ) : manualMetaChannels.length > 0 &&
+            !(metaSummary?.channels.some((channel) => channel.authStatus === "connected")) ? (
             <div className="space-y-3">
               <ListCard>
                 <p className="text-sm text-muted-foreground">Manual Meta Performance</p>
@@ -258,19 +406,24 @@ export default function PerformancePage() {
             <div className="space-y-3">
               <ListCard>
                 <p className="text-sm text-muted-foreground">Combined Meta Performance</p>
-                <div className="mt-3 grid gap-2 md:grid-cols-3">
+                <div className="mt-3 grid gap-2 md:grid-cols-4">
                   <p className="text-sm text-muted-foreground">
-                    Impressions: <span className="text-foreground">{number(metaSummary.totalImpressions)}</span>
+                    Impressions: <span className="text-foreground">{number(metaSummary.totalImpressions + fallbackManualTotals.impressions)}</span>
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    Clicks: <span className="text-foreground">{number(metaSummary.totalClicks)}</span>
+                    Clicks: <span className="text-foreground">{number(metaSummary.totalClicks + fallbackManualTotals.clicks)}</span>
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    Revenue: <span className="text-foreground">{currency(metaSummary.totalAttributedRevenue)}</span>
+                    Reach: <span className="text-foreground">{number(fallbackManualTotals.reach)}</span>
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Revenue: <span className="text-foreground">{currency(displayedMetaRevenue)}</span>
                   </p>
                 </div>
               </ListCard>
-              {metaSummary.channels.map((channel) => (
+              {metaSummary.channels
+                .filter((channel) => channel.authStatus === "connected")
+                .map((channel) => (
                 <ListCard key={channel.provider}>
                   <div className="flex items-center justify-between gap-4">
                     <div>
@@ -278,12 +431,50 @@ export default function PerformancePage() {
                       <p className="mt-1 text-sm text-muted-foreground">{channel.accountLabel}</p>
                     </div>
                     <p className="text-xs uppercase tracking-[0.16em] text-primary">
-                      {channel.authStatus}
+                      {channel.lastSyncAt
+                        ? `Synced ${new Date(channel.lastSyncAt).toLocaleDateString()}`
+                        : channel.authStatus}
                     </p>
                   </div>
+                  {channel.latestPeriodLabel ? (
+                    <p className="mt-2 text-sm text-muted-foreground">{channel.latestPeriodLabel}</p>
+                  ) : null}
                   <div className="mt-3 grid gap-2 md:grid-cols-3">
                     <p className="text-sm text-muted-foreground">
                       Impressions: <span className="text-foreground">{number(channel.impressions)}</span>
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Clicks: <span className="text-foreground">{number(channel.clicks)}</span>
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Covers: <span className="text-foreground">{number(channel.attributedCovers)}</span>
+                    </p>
+                  </div>
+                  {channel.nextAction ? (
+                    <p className="mt-3 text-sm text-muted-foreground">{channel.nextAction}</p>
+                  ) : null}
+                </ListCard>
+              ))}
+              {fallbackManualChannels.map((channel) => (
+                <ListCard key={`manual-${channel.provider}`}>
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="font-medium capitalize text-foreground">{channel.provider}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Manual fallback · {channel.accountLabel}
+                        {channel.handle ? ` · ${channel.handle}` : ""}
+                      </p>
+                    </div>
+                    <p className="text-xs uppercase tracking-[0.16em] text-primary">
+                      {channel.periodLabel}
+                    </p>
+                  </div>
+                  <div className="mt-3 grid gap-2 md:grid-cols-4">
+                    <p className="text-sm text-muted-foreground">
+                      Impressions: <span className="text-foreground">{number(channel.impressions)}</span>
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Reach: <span className="text-foreground">{number(channel.reach)}</span>
                     </p>
                     <p className="text-sm text-muted-foreground">
                       Clicks: <span className="text-foreground">{number(channel.clicks)}</span>

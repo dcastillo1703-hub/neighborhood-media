@@ -6,8 +6,11 @@ import {
 } from "@/lib/integrations/credential-vault";
 import { buildMetaSetupState } from "@/lib/integrations/meta";
 import { integrationEnv } from "@/lib/integrations/config";
-import { mapIntegrationConnectionRow } from "@/lib/supabase/mappers";
-import type { IntegrationSetup } from "@/types";
+import {
+  mapIntegrationConnectionInsert,
+  mapIntegrationConnectionRow
+} from "@/lib/supabase/mappers";
+import type { IntegrationConnection, IntegrationSetup } from "@/types";
 
 type MetaOAuthState = {
   provider: "facebook" | "instagram";
@@ -29,6 +32,16 @@ type MetaManagedPage = {
     id: string;
     username?: string;
   };
+};
+
+type MetaProfile = {
+  id: string;
+  name: string;
+};
+
+type MetaPermission = {
+  permission: string;
+  status: string;
 };
 
 function getPublicMetaAssets(
@@ -58,6 +71,27 @@ async function getSupabaseServerClient() {
   const serverModule = await import("@/lib/supabase/server");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (await serverModule.getSupabaseServerClient()) as any;
+}
+
+function buildMetaScaffoldConnection(
+  clientId: string,
+  provider: "facebook" | "instagram"
+): IntegrationConnection {
+  return {
+    id: `ic-${clientId}-${provider}`,
+    clientId,
+    provider,
+    accountLabel: provider === "facebook" ? "Meta Facebook Page" : "Meta Instagram account",
+    status: "Scaffolded",
+    notes:
+      provider === "facebook"
+        ? "Ready for Meta Page connection and publish permissions."
+        : "Ready for Instagram business account connection.",
+    setup: {
+      authStatus: "unconfigured",
+      ...buildMetaSetupState(provider, clientId)
+    }
+  };
 }
 
 function assertMetaCredentials() {
@@ -143,7 +177,44 @@ async function fetchManagedPages(accessToken: string) {
   return payload.data ?? [];
 }
 
-async function getRawIntegrationConnection(
+async function fetchMetaProfile(accessToken: string) {
+  const params = new URLSearchParams({
+    fields: "id,name",
+    access_token: accessToken
+  });
+  const response = await fetch(`https://graph.facebook.com/v23.0/me?${params.toString()}`, {
+    method: "GET",
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  return (await response.json()) as MetaProfile;
+}
+
+async function fetchGrantedPermissions(accessToken: string) {
+  const params = new URLSearchParams({
+    access_token: accessToken
+  });
+  const response = await fetch(
+    `https://graph.facebook.com/v23.0/me/permissions?${params.toString()}`,
+    {
+      method: "GET",
+      cache: "no-store"
+    }
+  );
+
+  if (!response.ok) {
+    return [] as MetaPermission[];
+  }
+
+  const payload = (await response.json()) as { data?: MetaPermission[] };
+  return payload.data ?? [];
+}
+
+async function ensureMetaIntegrationConnection(
   clientId: string,
   provider: "facebook" | "instagram"
 ) {
@@ -153,6 +224,48 @@ async function getRawIntegrationConnection(
     throw new Error("Supabase is required for live Meta connection handling.");
   }
 
+  const scaffold = buildMetaScaffoldConnection(clientId, provider);
+  const { data, error } = await supabase
+    .from("integration_connections")
+    .upsert(mapIntegrationConnectionInsert(scaffold), { onConflict: "id" })
+    .select("*")
+    .single();
+
+  if (error || !data) {
+    throw error ?? new Error("Unable to create Meta connection scaffold.");
+  }
+
+  return data as Parameters<typeof mapIntegrationConnectionRow>[0];
+}
+
+async function getRawIntegrationConnection(
+  clientId: string,
+  provider: "facebook" | "instagram",
+  connectionId?: string
+) {
+  const supabase = await getSupabaseServerClient();
+
+  if (!supabase) {
+    throw new Error("Supabase is required for live Meta connection handling.");
+  }
+
+  if (connectionId) {
+    const { data, error } = await supabase
+      .from("integration_connections")
+      .select("*")
+      .eq("id", connectionId)
+      .eq("client_id", clientId)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    if (data) {
+      return data as Parameters<typeof mapIntegrationConnectionRow>[0];
+    }
+  }
+
   const { data, error } = await supabase
     .from("integration_connections")
     .select("*")
@@ -160,8 +273,12 @@ async function getRawIntegrationConnection(
     .eq("provider", provider)
     .maybeSingle();
 
-  if (error || !data) {
-    throw error ?? new Error("Meta connection not found.");
+  if (error) {
+    throw error;
+  }
+
+  if (!data) {
+    return ensureMetaIntegrationConnection(clientId, provider);
   }
 
   return data as Parameters<typeof mapIntegrationConnectionRow>[0];
@@ -171,7 +288,8 @@ export async function completeMetaOAuthCallback(code: string, state: string) {
   const decodedState = decodeMetaState(state);
   const rawConnection = await getRawIntegrationConnection(
     decodedState.clientId,
-    decodedState.provider
+    decodedState.provider,
+    decodedState.connectionId
   );
   const connection = mapIntegrationConnectionRow(rawConnection);
 
@@ -185,10 +303,19 @@ export async function completeMetaOAuthCallback(code: string, state: string) {
       : managedPages[0];
 
   if (!selectedPage) {
+    const [profile, permissions] = await Promise.all([
+      fetchMetaProfile(longLivedToken.access_token),
+      fetchGrantedPermissions(longLivedToken.access_token)
+    ]);
+    const grantedPermissions = permissions
+      .filter((permission) => permission.status === "granted")
+      .map((permission) => permission.permission)
+      .join(", ");
+
     throw new Error(
       decodedState.provider === "instagram"
         ? "No Instagram business account was available through Meta."
-        : "No Facebook Page was available through Meta."
+        : `No Facebook Page was available through Meta${profile?.name ? ` for ${profile.name}` : ""}. Granted permissions: ${grantedPermissions || "none returned"}.`
     );
   }
 

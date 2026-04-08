@@ -58,7 +58,8 @@ export default function SettingsPage() {
     ready: metaReady,
     error: metaError,
     beginConnection,
-    selectAsset
+    selectAsset,
+    syncInsights
   } = useMetaBusinessSuite(activeClient.id);
   const {
     config: manualMeta,
@@ -75,6 +76,7 @@ export default function SettingsPage() {
   const [connectingProvider, setConnectingProvider] = useState<"facebook" | "instagram" | null>(
     null
   );
+  const [syncingProvider, setSyncingProvider] = useState<"facebook" | "instagram" | null>(null);
   const [selectingAsset, setSelectingAsset] = useState<string | null>(null);
   const [mobileNavKeys, setMobileNavKeys] = useState<MobileNavItemKey[]>(defaultMobileNavItemKeys);
   const [metaActionError, setMetaActionError] = useState<string | null>(null);
@@ -187,6 +189,28 @@ export default function SettingsPage() {
       );
     } finally {
       setSelectingAsset(null);
+    }
+  };
+
+  const syncMetaProviderInsights = async (provider: "facebook" | "instagram") => {
+    setSyncingProvider(provider);
+    setMetaActionError(null);
+
+    try {
+      const payload = await syncInsights(provider);
+      setMetaNotice({
+        tone: "success",
+        title: `${provider === "facebook" ? "Facebook" : "Instagram"} sync completed`,
+        detail: payload.sync.topPost
+          ? `Synced ${payload.sync.pageName}. Impressions: ${number(payload.sync.snapshot.impressions)}, clicks: ${number(payload.sync.snapshot.clicks)}, engagement: ${number(payload.sync.snapshot.conversions)}. Top content: ${payload.sync.topPost}`
+          : `Synced ${payload.sync.pageName}. Impressions: ${number(payload.sync.snapshot.impressions)}, clicks: ${number(payload.sync.snapshot.clicks)}, engagement: ${number(payload.sync.snapshot.conversions)}. Accessible posts: ${number(payload.sync.postCount)}.`
+      });
+    } catch (error) {
+      setMetaActionError(
+        error instanceof Error ? error.message : "Failed to sync Meta insights."
+      );
+    } finally {
+      setSyncingProvider(null);
     }
   };
 
@@ -547,6 +571,18 @@ export default function SettingsPage() {
                       >
                         Open Meta login
                       </a>
+                    ) : null}
+                    {channel.provider === "facebook" && channel.authStatus === "connected" ? (
+                      <Button
+                        disabled={syncingProvider === channel.provider}
+                        onClick={() => void syncMetaProviderInsights(channel.provider)}
+                        size="sm"
+                        variant="outline"
+                      >
+                        {syncingProvider === channel.provider
+                          ? "Syncing..."
+                          : "Sync insights"}
+                      </Button>
                     ) : null}
                   </div>
                 </ListCard>

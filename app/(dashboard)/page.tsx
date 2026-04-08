@@ -47,6 +47,8 @@ import { useActivityEvents } from "@/lib/repositories/use-activity-events";
 import { useOperationalTasks } from "@/lib/repositories/use-operational-tasks";
 import { useWeeklyMetrics } from "@/lib/repositories/use-weekly-metrics";
 import { useApprovalsApi } from "@/lib/use-approvals-api";
+import { useManualMetaPerformance } from "@/lib/use-manual-meta-performance";
+import { useMetaBusinessSuite } from "@/lib/use-meta-business-suite";
 import { cn, currency, number } from "@/lib/utils";
 import { useWorkspaceContext } from "@/lib/workspace-context";
 import type { ClientHomeCard, ClientHomeSection, ClientSettings } from "@/types";
@@ -199,6 +201,8 @@ export default function DashboardPage() {
   const { tasks } = useOperationalTasks(workspace.id);
   const { events } = useActivityEvents(workspace.id);
   const { approvals, ready: approvalsReady, reviewApproval, deleteApproval } = useApprovalsApi(activeClient.id);
+  const { summary: metaSummary } = useMetaBusinessSuite(activeClient.id);
+  const { enabledChannels: manualMetaChannels } = useManualMetaPerformance(activeClient.id);
   const [isEditingOverview, setIsEditingOverview] = useState(false);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -278,6 +282,29 @@ export default function DashboardPage() {
     },
     [campaigns, relevantCampaigns]
   );
+  const connectedFacebook = metaSummary?.channels.find(
+    (channel) => channel.provider === "facebook" && channel.authStatus === "connected"
+  );
+  const manualFacebook = manualMetaChannels.find((channel) => channel.provider === "facebook");
+  const homeFacebookSummary = connectedFacebook
+    ? {
+        label: connectedFacebook.accountLabel || "Facebook",
+        impressions: connectedFacebook.impressions,
+        clicks: connectedFacebook.clicks,
+        engagement: connectedFacebook.conversions,
+        periodLabel: connectedFacebook.latestPeriodLabel,
+        syncedAt: connectedFacebook.lastSyncAt
+      }
+    : manualFacebook
+      ? {
+          label: manualFacebook.accountLabel || "Facebook",
+          impressions: manualFacebook.impressions,
+          clicks: manualFacebook.clicks,
+          engagement: manualFacebook.engagement,
+          periodLabel: manualFacebook.periodLabel,
+          syncedAt: undefined
+        }
+      : null;
 
   const clientActions = useMemo<ClientAction[]>(() => {
     const actions: ClientAction[] = [];
@@ -1049,6 +1076,44 @@ export default function DashboardPage() {
               </CardHeader>
               {activeHomeCampaigns.length ? (
                 <div className="space-y-3">
+                  {homeFacebookSummary ? (
+                    <div className="rounded-3xl border border-border/70 bg-[var(--app-accent-soft)]/55 p-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0">
+                          <p className="font-medium text-foreground">Facebook snapshot</p>
+                          <p className="mt-1 line-clamp-2 text-sm leading-6 text-muted-foreground">
+                            {homeFacebookSummary.label}
+                            {homeFacebookSummary.periodLabel ? ` · ${homeFacebookSummary.periodLabel}` : ""}
+                          </p>
+                        </div>
+                        <Link
+                          className="shrink-0 text-sm font-medium text-primary"
+                          href={"/performance#meta-business-suite" as Route}
+                        >
+                          Open
+                        </Link>
+                      </div>
+                      <div className="mt-4 grid grid-cols-3 gap-2">
+                        <div className="rounded-2xl bg-background/70 px-3 py-3">
+                          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Impressions</p>
+                          <p className="mt-2 text-lg font-semibold text-foreground">{number(homeFacebookSummary.impressions)}</p>
+                        </div>
+                        <div className="rounded-2xl bg-background/70 px-3 py-3">
+                          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Clicks</p>
+                          <p className="mt-2 text-lg font-semibold text-foreground">{number(homeFacebookSummary.clicks)}</p>
+                        </div>
+                        <div className="rounded-2xl bg-background/70 px-3 py-3">
+                          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Engagement</p>
+                          <p className="mt-2 text-lg font-semibold text-foreground">{number(homeFacebookSummary.engagement)}</p>
+                        </div>
+                      </div>
+                      {homeFacebookSummary.syncedAt ? (
+                        <p className="mt-3 text-xs text-muted-foreground">
+                          Synced {new Date(homeFacebookSummary.syncedAt).toLocaleDateString()}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
                   {activeHomeCampaigns.map((campaign) => {
                     const campaignOverview = getCampaignOverview(campaign, posts, blogPosts, assets, metrics, analyticsSnapshots);
 

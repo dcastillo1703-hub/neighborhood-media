@@ -363,6 +363,7 @@ export type MetaBusinessChannelSummary = {
   provider: "facebook" | "instagram";
   accountLabel: string;
   status: IntegrationConnection["status"];
+  lastSyncAt?: string;
   authStatus: IntegrationSetup["authStatus"];
   tokenStatus: IntegrationSetup["tokenStatus"];
   authorizationUrl?: string;

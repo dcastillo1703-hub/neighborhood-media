@@ -24,6 +24,14 @@ export function useAnalyticsSnapshots(clientId: string) {
     ready,
     addAnalyticsSnapshot(snapshot: AnalyticsSnapshot) {
       setAnalyticsSnapshots((current) => [...current, snapshot]);
+    },
+    async refreshAnalyticsSnapshots() {
+      if (!analyticsSnapshotsAdapter.isConfigured) {
+        return;
+      }
+
+      const nextSnapshots = await analyticsSnapshotsAdapter.load(clientId);
+      setAnalyticsSnapshots(nextSnapshots);
     }
   };
 }

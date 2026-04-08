@@ -134,24 +134,43 @@ export async function updateIntegrationConnection(
   update: Partial<IntegrationConnection>
 ) {
   const snapshot = getClientSnapshot(clientId);
-  const existing = snapshot.connections.find((entry) => entry.id === connectionId);
-
-  if (!existing) {
-    throw new Error("Integration connection not found.");
-  }
-
-  const next = { ...existing, ...update };
   const serverModule = await import("@/lib/supabase/server");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const supabase = (await serverModule.getSupabaseServerClient()) as any;
 
   if (supabase) {
-    const { data: existingRow } = await supabase
+    const { data: existingRow, error: existingError } = await supabase
       .from("integration_connections")
-      .select("notes")
+      .select("*")
       .eq("id", connectionId)
       .eq("client_id", clientId)
       .maybeSingle();
+
+    if (existingError) {
+      throw existingError;
+    }
+
+    const existing = existingRow
+      ? mapIntegrationConnectionRow(existingRow as Parameters<typeof mapIntegrationConnectionRow>[0])
+      : snapshot.connections.find((entry) => entry.id === connectionId);
+
+    const next = existing
+      ? { ...existing, ...update }
+      : ({
+          id: connectionId,
+          clientId,
+          provider: update.provider,
+          accountLabel: update.accountLabel,
+          status: update.status,
+          notes: update.notes,
+          setup: update.setup,
+          lastSyncAt: update.lastSyncAt
+        } as IntegrationConnection);
+
+    if (!next.provider || !next.accountLabel || !next.status || typeof next.notes !== "string") {
+      throw new Error("Integration connection not found.");
+    }
+
     const existingSecretBlob = parseIntegrationNotes(String(existingRow?.notes ?? "")).secretBlob;
     const { data, error } = await supabase
       .from("integration_connections")
@@ -171,6 +190,14 @@ export async function updateIntegrationConnection(
 
     return mapIntegrationConnectionRow(data as Parameters<typeof mapIntegrationConnectionRow>[0]);
   }
+
+  const existing = snapshot.connections.find((entry) => entry.id === connectionId);
+
+  if (!existing) {
+    throw new Error("Integration connection not found.");
+  }
+
+  const next = { ...existing, ...update };
 
   snapshot.connections = snapshot.connections.map((entry) =>
     entry.id === connectionId ? next : entry
