@@ -25,10 +25,9 @@ import {
   defaultMobileNavItemKeys,
   maxMobileNavItems,
   mobileNavOptions,
-  readMobileNavKeys,
-  saveMobileNavKeys,
   type MobileNavItemKey
 } from "@/lib/mobile-navigation";
+import { useClientPreferences } from "@/lib/repositories/use-client-preferences";
 import { useWorkspaceContext } from "@/lib/workspace-context";
 import { currency, number } from "@/lib/utils";
 
@@ -62,6 +61,11 @@ export default function SettingsPage() {
     updateChannel: updateManualMetaChannel,
     reset: resetManualMeta
   } = useManualMetaPerformance(activeClient.id);
+  const {
+    preferences,
+    error: preferencesError,
+    savePreferences
+  } = useClientPreferences(activeClient.id);
   const [connectingProvider, setConnectingProvider] = useState<"facebook" | "instagram" | null>(
     null
   );
@@ -71,12 +75,15 @@ export default function SettingsPage() {
   const readyConnections = connections.filter((connection) => connection.status === "Ready");
 
   useEffect(() => {
-    setMobileNavKeys(readMobileNavKeys());
-  }, []);
+    setMobileNavKeys(preferences.mobileNavKeys as MobileNavItemKey[]);
+  }, [preferences.mobileNavKeys]);
 
   const updateMobileNavKeys = (nextKeys: MobileNavItemKey[]) => {
     setMobileNavKeys(nextKeys);
-    saveMobileNavKeys(nextKeys);
+    savePreferences({
+      ...preferences,
+      mobileNavKeys: nextKeys
+    });
   };
 
   const toggleMobileNavKey = (key: MobileNavItemKey) => {
@@ -228,6 +235,9 @@ export default function SettingsPage() {
             <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
               Pick up to {maxMobileNavItems} destinations for the mobile bottom bar. The order here becomes the order on your phone.
             </p>
+            {preferencesError ? (
+              <p className="mt-2 text-sm text-primary">{preferencesError}</p>
+            ) : null}
           </div>
           <Button size="sm" type="button" variant="outline" onClick={resetMobileNav}>
             Reset

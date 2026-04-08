@@ -5,12 +5,14 @@ import type {
   Asset,
   BlogPost,
   Campaign,
+  CampaignGoal,
   CampaignRoiSnapshot,
   Client,
   ClientHomeCard,
   ClientHomeConfig,
   ClientHomeSection,
   ClientMembership,
+  ClientPreferences,
   ClientSettings,
   IntegrationConnection,
   ManualMetaChannelPerformance,
@@ -239,6 +241,34 @@ export function mapClientHomeConfigInsert(config: ClientHomeConfig): TableInsert
   };
 }
 
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter((entry): entry is string => typeof entry === "string");
+}
+
+export function mapClientPreferencesRow(row: TableRow<"client_preferences">): ClientPreferences {
+  return {
+    id: row.id,
+    clientId: row.client_id,
+    mobileNavKeys: normalizeStringArray(row.mobile_nav_keys),
+    updatedAt: row.updated_at ?? undefined
+  };
+}
+
+export function mapClientPreferencesInsert(
+  preferences: ClientPreferences
+): TableInsert<"client_preferences"> {
+  return {
+    id: preferences.id,
+    client_id: preferences.clientId,
+    mobile_nav_keys: preferences.mobileNavKeys,
+    updated_at: preferences.updatedAt ?? new Date().toISOString()
+  };
+}
+
 const manualMetaProviders = new Set(["facebook", "instagram"]);
 
 function normalizeManualMetaChannels(value: unknown): ManualMetaChannelPerformance[] {
@@ -401,6 +431,30 @@ export function mapCampaignRoiSnapshotInsert(
     result_summary: snapshot.resultSummary,
     next_recommendation: snapshot.nextRecommendation,
     updated_at: snapshot.updatedAt ?? new Date().toISOString()
+  };
+}
+
+export function mapCampaignGoalRow(row: TableRow<"campaign_goals">): CampaignGoal {
+  return {
+    id: row.id,
+    clientId: row.client_id,
+    campaignId: row.campaign_id,
+    label: row.label,
+    done: row.done,
+    createdAt: row.created_at ?? undefined,
+    updatedAt: row.updated_at ?? undefined
+  };
+}
+
+export function mapCampaignGoalInsert(goal: CampaignGoal): TableInsert<"campaign_goals"> {
+  return {
+    id: goal.id,
+    client_id: goal.clientId,
+    campaign_id: goal.campaignId,
+    label: goal.label,
+    done: goal.done,
+    created_at: goal.createdAt ?? new Date().toISOString(),
+    updated_at: goal.updatedAt ?? new Date().toISOString()
   };
 }
 

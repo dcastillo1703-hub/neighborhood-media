@@ -20,6 +20,8 @@ import {
   readMobileNavKeys,
   type MobileNavItemKey
 } from "@/lib/mobile-navigation";
+import { useActiveClient } from "@/lib/client-context";
+import { useClientPreferences } from "@/lib/repositories/use-client-preferences";
 import { cn } from "@/lib/utils";
 
 const mobileNavIcons = {
@@ -35,6 +37,8 @@ const mobileNavIcons = {
 
 export function MobileNav() {
   const pathname = usePathname();
+  const { activeClient } = useActiveClient();
+  useClientPreferences(activeClient.id);
   const [visibleNavKeys, setVisibleNavKeys] = useState<MobileNavItemKey[]>(() =>
     readMobileNavKeys()
   );

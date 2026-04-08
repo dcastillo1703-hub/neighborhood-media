@@ -53,6 +53,14 @@ create table client_home_configs (
   unique (client_id)
 );
 
+create table client_preferences (
+  id text primary key,
+  client_id text not null references clients(id) on delete cascade,
+  mobile_nav_keys jsonb not null default '[]'::jsonb,
+  updated_at timestamptz default now(),
+  unique (client_id)
+);
+
 create table weekly_metrics (
   id text primary key,
   client_id text not null references clients(id) on delete cascade,
@@ -98,6 +106,16 @@ create table campaign_roi_snapshots (
   next_recommendation text not null default '',
   updated_at timestamptz default now(),
   unique (campaign_id)
+);
+
+create table campaign_goals (
+  id text primary key,
+  client_id text not null references clients(id) on delete cascade,
+  campaign_id text not null references campaigns(id) on delete cascade,
+  label text not null,
+  done boolean not null default false,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
 );
 
 create table assets (
@@ -367,9 +385,11 @@ alter table workspaces enable row level security;
 alter table clients enable row level security;
 alter table client_settings enable row level security;
 alter table client_home_configs enable row level security;
+alter table client_preferences enable row level security;
 alter table weekly_metrics enable row level security;
 alter table campaigns enable row level security;
 alter table campaign_roi_snapshots enable row level security;
+alter table campaign_goals enable row level security;
 alter table assets enable row level security;
 alter table blog_posts enable row level security;
 alter table planner_items enable row level security;
@@ -460,6 +480,15 @@ create policy "admins manage client_home_configs"
   using (public.is_platform_admin())
   with check (public.is_platform_admin());
 
+create policy "client_preferences readable by membership"
+  on client_preferences for select
+  using (public.has_client_access(client_id));
+
+create policy "admins manage client_preferences"
+  on client_preferences for all
+  using (public.is_platform_admin())
+  with check (public.is_platform_admin());
+
 create policy "weekly_metrics readable by membership"
   on weekly_metrics for select
   using (public.has_client_access(client_id));
@@ -475,6 +504,15 @@ create policy "campaigns readable by membership"
 
 create policy "admins manage campaigns"
   on campaigns for all
+  using (public.is_platform_admin())
+  with check (public.is_platform_admin());
+
+create policy "campaign_goals readable by membership"
+  on campaign_goals for select
+  using (public.has_client_access(client_id));
+
+create policy "admins manage campaign_goals"
+  on campaign_goals for all
   using (public.is_platform_admin())
   with check (public.is_platform_admin());
 

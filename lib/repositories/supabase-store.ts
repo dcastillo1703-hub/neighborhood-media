@@ -12,12 +12,16 @@ import {
   mapBlogPostInsert,
   mapBlogPostRow,
   mapCampaignInsert,
+  mapCampaignGoalInsert,
+  mapCampaignGoalRow,
   mapCampaignRoiSnapshotInsert,
   mapCampaignRoiSnapshotRow,
   mapCampaignRow,
   mapClientHomeConfigInsert,
   mapClientHomeConfigRow,
   mapClientInsert,
+  mapClientPreferencesInsert,
+  mapClientPreferencesRow,
   mapClientRow,
   mapClientSettingsInsert,
   mapClientSettingsRow,
@@ -46,9 +50,11 @@ import type {
   Asset,
   BlogPost,
   Campaign,
+  CampaignGoal,
   CampaignRoiSnapshot,
   Client,
   ClientHomeConfig,
+  ClientPreferences,
   ClientSettings,
   IntegrationConnection,
   ManualMetaPerformance,
@@ -332,6 +338,34 @@ export const clientHomeConfigAdapter: EntityAdapter<ClientHomeConfig> = {
   }
 };
 
+export const clientPreferencesAdapter: EntityAdapter<ClientPreferences> = {
+  isConfigured: hasSupabaseCredentials,
+  async load(clientId) {
+    const supabase = getSupabaseOrThrow();
+    const { data, error } = await supabase
+      .from("client_preferences")
+      .select("*")
+      .eq("client_id", clientId)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    return data ? mapClientPreferencesRow(data) : null;
+  },
+  async save(_, preferences) {
+    const supabase = getSupabaseOrThrow();
+    const { error } = await supabase
+      .from("client_preferences")
+      .upsert(mapClientPreferencesInsert(preferences), { onConflict: "id" });
+
+    if (error) {
+      throw error;
+    }
+  }
+};
+
 export const manualMetaPerformanceAdapter: EntityAdapter<ManualMetaPerformance> = {
   isConfigured: hasSupabaseCredentials,
   async load(clientId) {
@@ -381,6 +415,40 @@ export const campaignRoiSnapshotAdapter: EntityAdapter<CampaignRoiSnapshot> = {
     const { error } = await supabase
       .from("campaign_roi_snapshots")
       .upsert(mapCampaignRoiSnapshotInsert(snapshot), { onConflict: "id" });
+
+    if (error) {
+      throw error;
+    }
+  }
+};
+
+export const campaignGoalsAdapter: CollectionAdapter<CampaignGoal> = {
+  isConfigured: hasSupabaseCredentials,
+  async load(campaignId) {
+    const supabase = getSupabaseOrThrow();
+    const { data, error } = await supabase
+      .from("campaign_goals")
+      .select("*")
+      .eq("campaign_id", campaignId)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      throw error;
+    }
+
+    return (data ?? []).map(mapCampaignGoalRow);
+  },
+  async save(campaignId, goals) {
+    const supabase = getSupabaseOrThrow();
+    await deleteMissingRows("campaign_goals", "campaign_id", campaignId, goals.map((goal) => goal.id));
+
+    if (!goals.length) {
+      return;
+    }
+
+    const { error } = await supabase
+      .from("campaign_goals")
+      .upsert(goals.map(mapCampaignGoalInsert), { onConflict: "id" });
 
     if (error) {
       throw error;

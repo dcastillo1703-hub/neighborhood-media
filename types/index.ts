@@ -88,6 +88,23 @@ export type ClientHomeConfig = {
   updatedAt?: string;
 };
 
+export type ClientPreferences = {
+  id: string;
+  clientId: string;
+  mobileNavKeys: string[];
+  updatedAt?: string;
+};
+
+export type CampaignGoal = {
+  id: string;
+  clientId: string;
+  campaignId: string;
+  label: string;
+  done: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 export type ManualMetaProvider = "facebook" | "instagram";
 
 export type ManualMetaChannelPerformance = {

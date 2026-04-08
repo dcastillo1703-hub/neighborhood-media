@@ -37,6 +37,7 @@ import { getCampaignOverview } from "@/lib/domain/campaigns";
 import { useAnalyticsSnapshots } from "@/lib/repositories/use-analytics-snapshots";
 import { useAssets } from "@/lib/repositories/use-assets";
 import { useBlogPosts } from "@/lib/repositories/use-blog-posts";
+import { useCampaignGoals } from "@/lib/repositories/use-campaign-goals";
 import { useCampaigns } from "@/lib/repositories/use-campaigns";
 import { usePosts } from "@/lib/repositories/use-posts";
 import { useWeeklyMetrics } from "@/lib/repositories/use-weekly-metrics";
@@ -70,11 +71,6 @@ type CampaignOverviewSection =
 type SelectedCampaignItem =
   | { type: "post"; item: Post }
   | { type: "task"; item: OperationalTask };
-type CampaignGoal = {
-  id: string;
-  label: string;
-  done: boolean;
-};
 type CampaignRoiNumberField =
   | "adSpend"
   | "productionCost"
@@ -117,7 +113,6 @@ const taskPriorities: TaskPriority[] = ["Low", "Medium", "High"];
 const postStatuses: PostStatus[] = ["Draft", "Scheduled", "Published"];
 const taskStatuses: TaskStatus[] = ["Backlog", "In Progress", "Waiting", "Done"];
 const platformOptions: Platform[] = ["Instagram", "Facebook", "Stories", "TikTok", "Email"];
-const campaignGoalsStorageKey = "nmos-campaign-goals";
 const contentComposerId = "content-composer";
 
 function normalizeCampaignView(value: string | null | undefined): CampaignWorkspaceView {
@@ -204,6 +199,12 @@ export default function CampaignDetailPage() {
     workspace.id,
     activeClient.id
   );
+  const {
+    goals: campaignGoals,
+    ready: campaignGoalsReady,
+    error: campaignGoalsError,
+    saveGoals: saveCampaignGoals
+  } = useCampaignGoals(activeClient.id, campaignId);
   const [draft, setDraft] = useState<Post>(() => createCampaignPost(activeClient.id, campaignId));
   const [taskDraft, setTaskDraft] = useState<OperationalTask>(() =>
     createCampaignTask(workspace.id, activeClient.id, campaignId)
@@ -235,7 +236,6 @@ export default function CampaignDetailPage() {
   const [selectedTaskDraft, setSelectedTaskDraft] = useState<OperationalTask | null>(null);
   const [selectedNote, setSelectedNote] = useState("");
   const [selectedSaveError, setSelectedSaveError] = useState<string | null>(null);
-  const [campaignGoals, setCampaignGoals] = useState<CampaignGoal[]>([]);
   const [goalDraft, setGoalDraft] = useState("");
 
   useEffect(() => {
@@ -276,22 +276,6 @@ export default function CampaignDetailPage() {
       setActiveView(campaignDefaultView);
     }
   }, [campaignDefaultView, routeView]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    try {
-      const storedValue = window.localStorage.getItem(campaignGoalsStorageKey);
-      const storedGoals = storedValue
-        ? (JSON.parse(storedValue) as Record<string, CampaignGoal[]>)
-        : {};
-      setCampaignGoals(storedGoals[campaignId] ?? []);
-    } catch {
-      setCampaignGoals([]);
-    }
-  }, [campaignId]);
 
   const linkedPostIds = useMemo(
     () => new Set(overview?.linkedPosts.map((post) => post.id) ?? []),
@@ -339,27 +323,6 @@ export default function CampaignDetailPage() {
     }, 80);
   };
 
-  const persistCampaignGoals = (nextGoals: CampaignGoal[]) => {
-    setCampaignGoals(nextGoals);
-
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    try {
-      const storedValue = window.localStorage.getItem(campaignGoalsStorageKey);
-      const storedGoals = storedValue
-        ? (JSON.parse(storedValue) as Record<string, CampaignGoal[]>)
-        : {};
-      window.localStorage.setItem(
-        campaignGoalsStorageKey,
-        JSON.stringify({ ...storedGoals, [campaignId]: nextGoals })
-      );
-    } catch {
-      // Local persistence is a convenience layer; the UI should still update if storage is blocked.
-    }
-  };
-
   const addCampaignGoal = () => {
     const trimmedGoal = goalDraft.trim();
 
@@ -367,23 +330,31 @@ export default function CampaignDetailPage() {
       return;
     }
 
-    persistCampaignGoals([
+    saveCampaignGoals([
       ...campaignGoals,
-      { id: `goal-${Date.now()}`, label: trimmedGoal, done: false }
+      {
+        id: `goal-${Date.now()}`,
+        clientId: activeClient.id,
+        campaignId,
+        label: trimmedGoal,
+        done: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }
     ]);
     setGoalDraft("");
   };
 
   const toggleCampaignGoal = (goalId: string) => {
-    persistCampaignGoals(
+    saveCampaignGoals(
       campaignGoals.map((goal) =>
-        goal.id === goalId ? { ...goal, done: !goal.done } : goal
+        goal.id === goalId ? { ...goal, done: !goal.done, updatedAt: new Date().toISOString() } : goal
       )
     );
   };
 
   const deleteCampaignGoal = (goalId: string) => {
-    persistCampaignGoals(campaignGoals.filter((goal) => goal.id !== goalId));
+    saveCampaignGoals(campaignGoals.filter((goal) => goal.id !== goalId));
   };
 
   const shareCampaign = () => {
@@ -687,12 +658,12 @@ export default function CampaignDetailPage() {
     }
   };
 
-  if (!campaignsReady || !postsReady || !approvalsReady || !jobsReady || !tasksReady || !roiReady) {
+  if (!campaignsReady || !postsReady || !approvalsReady || !jobsReady || !tasksReady || !roiReady || !campaignGoalsReady) {
     return <div className="text-sm text-muted-foreground">Loading campaign workspace...</div>;
   }
 
-  if (campaignsError || postsError || tasksError) {
-    return <div className="text-sm text-destructive">{campaignsError ?? postsError ?? tasksError}</div>;
+  if (campaignsError || postsError || tasksError || campaignGoalsError) {
+    return <div className="text-sm text-destructive">{campaignsError ?? postsError ?? tasksError ?? campaignGoalsError}</div>;
   }
 
   if (!campaign || !overview) {

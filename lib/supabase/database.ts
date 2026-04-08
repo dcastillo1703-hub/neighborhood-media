@@ -253,6 +253,28 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["campaign_roi_snapshots"]["Insert"]>;
         Relationships: [];
       };
+      campaign_goals: {
+        Row: {
+          id: string;
+          client_id: string;
+          campaign_id: string;
+          label: string;
+          done: boolean;
+          created_at: string | null;
+          updated_at: string | null;
+        };
+        Insert: {
+          id: string;
+          client_id: string;
+          campaign_id: string;
+          label: string;
+          done?: boolean;
+          created_at?: string | null;
+          updated_at?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["campaign_goals"]["Insert"]>;
+        Relationships: [];
+      };
       client_memberships: {
         Row: {
           id: string;
@@ -337,6 +359,22 @@ export type Database = {
           updated_at?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["client_home_configs"]["Insert"]>;
+        Relationships: [];
+      };
+      client_preferences: {
+        Row: {
+          id: string;
+          client_id: string;
+          mobile_nav_keys: Json;
+          updated_at: string | null;
+        };
+        Insert: {
+          id: string;
+          client_id: string;
+          mobile_nav_keys?: Json;
+          updated_at?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["client_preferences"]["Insert"]>;
         Relationships: [];
       };
       clients: {
