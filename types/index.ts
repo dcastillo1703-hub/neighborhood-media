@@ -57,6 +57,37 @@ export type ClientSettings = {
   overviewShowRecentActivity: boolean;
 };
 
+export type ClientHomeCard = {
+  id: "primary" | "review" | "publish";
+  label: string;
+  value: string;
+  detail: string;
+  href: string;
+};
+
+export type ClientHomeSectionId =
+  | "attention"
+  | "review"
+  | "active-campaign"
+  | "upcoming-content"
+  | "recent-activity";
+
+export type ClientHomeSection = {
+  id: ClientHomeSectionId;
+  label: string;
+  visible: boolean;
+};
+
+export type ClientHomeConfig = {
+  id: string;
+  clientId: string;
+  headline: string;
+  note: string;
+  cards: ClientHomeCard[];
+  sections: ClientHomeSection[];
+  updatedAt?: string;
+};
+
 export type ManualMetaProvider = "facebook" | "instagram";
 
 export type ManualMetaChannelPerformance = {

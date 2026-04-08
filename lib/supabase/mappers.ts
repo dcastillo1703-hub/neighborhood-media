@@ -7,6 +7,9 @@ import type {
   Campaign,
   CampaignRoiSnapshot,
   Client,
+  ClientHomeCard,
+  ClientHomeConfig,
+  ClientHomeSection,
   ClientMembership,
   ClientSettings,
   IntegrationConnection,
@@ -167,6 +170,72 @@ export function mapClientSettingsInsert(settings: ClientSettings): TableInsert<"
     overview_show_quick_links: settings.overviewShowQuickLinks,
     overview_show_campaign_recaps: settings.overviewShowCampaignRecaps,
     overview_show_recent_activity: settings.overviewShowRecentActivity
+  };
+}
+
+const clientHomeCardIds = new Set(["primary", "review", "publish"]);
+const clientHomeSectionIds = new Set([
+  "attention",
+  "review",
+  "active-campaign",
+  "upcoming-content",
+  "recent-activity"
+]);
+
+function normalizeClientHomeCards(value: unknown): ClientHomeCard[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object"))
+    .filter((entry) => typeof entry.id === "string" && clientHomeCardIds.has(entry.id))
+    .map((entry) => ({
+      id: entry.id as ClientHomeCard["id"],
+      label: typeof entry.label === "string" ? entry.label : "",
+      value: typeof entry.value === "string" ? entry.value : "",
+      detail: typeof entry.detail === "string" ? entry.detail : "",
+      href: typeof entry.href === "string" ? entry.href : "/"
+    }))
+    .slice(0, 3);
+}
+
+function normalizeClientHomeSections(value: unknown): ClientHomeSection[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object"))
+    .filter((entry) => typeof entry.id === "string" && clientHomeSectionIds.has(entry.id))
+    .map((entry) => ({
+      id: entry.id as ClientHomeSection["id"],
+      label: typeof entry.label === "string" ? entry.label : "",
+      visible: typeof entry.visible === "boolean" ? entry.visible : true
+    }));
+}
+
+export function mapClientHomeConfigRow(row: TableRow<"client_home_configs">): ClientHomeConfig {
+  return {
+    id: row.id,
+    clientId: row.client_id,
+    headline: row.headline ?? "",
+    note: row.note ?? "",
+    cards: normalizeClientHomeCards(row.cards),
+    sections: normalizeClientHomeSections(row.sections),
+    updatedAt: row.updated_at ?? undefined
+  };
+}
+
+export function mapClientHomeConfigInsert(config: ClientHomeConfig): TableInsert<"client_home_configs"> {
+  return {
+    id: config.id,
+    client_id: config.clientId,
+    headline: config.headline,
+    note: config.note,
+    cards: config.cards,
+    sections: config.sections,
+    updated_at: config.updatedAt ?? new Date().toISOString()
   };
 }
 

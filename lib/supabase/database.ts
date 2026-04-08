@@ -317,6 +317,28 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["client_settings"]["Insert"]>;
         Relationships: [];
       };
+      client_home_configs: {
+        Row: {
+          id: string;
+          client_id: string;
+          headline: string;
+          note: string;
+          cards: Json;
+          sections: Json;
+          updated_at: string | null;
+        };
+        Insert: {
+          id: string;
+          client_id: string;
+          headline?: string;
+          note?: string;
+          cards?: Json;
+          sections?: Json;
+          updated_at?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["client_home_configs"]["Insert"]>;
+        Relationships: [];
+      };
       clients: {
         Row: {
           id: string;

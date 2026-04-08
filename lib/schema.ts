@@ -42,6 +42,17 @@ create table client_settings (
   overview_show_recent_activity boolean not null default true
 );
 
+create table client_home_configs (
+  id text primary key,
+  client_id text not null references clients(id) on delete cascade,
+  headline text not null default '',
+  note text not null default '',
+  cards jsonb not null default '[]'::jsonb,
+  sections jsonb not null default '[]'::jsonb,
+  updated_at timestamptz default now(),
+  unique (client_id)
+);
+
 create table weekly_metrics (
   id text primary key,
   client_id text not null references clients(id) on delete cascade,
@@ -355,6 +366,7 @@ $$;
 alter table workspaces enable row level security;
 alter table clients enable row level security;
 alter table client_settings enable row level security;
+alter table client_home_configs enable row level security;
 alter table weekly_metrics enable row level security;
 alter table campaigns enable row level security;
 alter table campaign_roi_snapshots enable row level security;
@@ -436,6 +448,15 @@ create policy "client_settings readable by membership"
 
 create policy "admins manage client_settings"
   on client_settings for all
+  using (public.is_platform_admin())
+  with check (public.is_platform_admin());
+
+create policy "client_home_configs readable by membership"
+  on client_home_configs for select
+  using (public.has_client_access(client_id));
+
+create policy "admins manage client_home_configs"
+  on client_home_configs for all
   using (public.is_platform_admin())
   with check (public.is_platform_admin());
 

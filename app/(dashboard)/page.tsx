@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { Route } from "next";
 import Link from "next/link";
 import { motion } from "framer-motion";
@@ -33,6 +33,11 @@ import { useAnalyticsSnapshots } from "@/lib/repositories/use-analytics-snapshot
 import { useAssets } from "@/lib/repositories/use-assets";
 import { useBlogPosts } from "@/lib/repositories/use-blog-posts";
 import { useCampaigns } from "@/lib/repositories/use-campaigns";
+import {
+  createDefaultClientHomeConfig,
+  defaultClientHomeSections,
+  useClientHomeConfig
+} from "@/lib/repositories/use-client-home-config";
 import { useClientSettings } from "@/lib/repositories/use-client-settings";
 import { usePlannerItems } from "@/lib/repositories/use-planner-items";
 import { usePosts } from "@/lib/repositories/use-posts";
@@ -42,7 +47,7 @@ import { useWeeklyMetrics } from "@/lib/repositories/use-weekly-metrics";
 import { useApprovalsApi } from "@/lib/use-approvals-api";
 import { cn, currency, number } from "@/lib/utils";
 import { useWorkspaceContext } from "@/lib/workspace-context";
-import type { ClientSettings } from "@/types";
+import type { ClientHomeCard, ClientHomeSection, ClientSettings } from "@/types";
 
 type OverviewDraft = {
   averageCheck: string;
@@ -54,21 +59,10 @@ type OverviewDraft = {
   overviewPinnedCampaignId: string;
   overviewFeaturedMetric: ClientSettings["overviewFeaturedMetric"];
   overviewCards: OverviewCardDraft[];
+  overviewSections: ClientHomeSection[];
 };
 
-type OverviewCardDraft = {
-  id: "primary" | "review" | "publish";
-  label: string;
-  value: string;
-  detail: string;
-  href: Route;
-};
-
-type OverviewDisplayState = {
-  headline: string;
-  summary: string;
-  cards: OverviewCardDraft[];
-};
+type OverviewCardDraft = ClientHomeCard;
 
 type ClientAction = {
   id: string;
@@ -83,7 +77,7 @@ const overviewStatePrefix = "__client_home_v1__";
 
 function decodeOverviewSummary(value: string): {
   summary: string;
-  cards?: OverviewCardDraft[];
+  cards?: ClientHomeCard[];
 } {
   if (!value.startsWith(overviewStatePrefix)) {
     return { summary: value };
@@ -99,9 +93,9 @@ function decodeOverviewSummary(value: string): {
       summary: typeof parsed.summary === "string" ? parsed.summary : "",
       cards: Array.isArray(parsed.cards)
         ? parsed.cards
-            .filter((card): card is OverviewCardDraft => {
+            .filter((card): card is ClientHomeCard => {
               if (!card || typeof card !== "object") return false;
-              const item = card as Partial<OverviewCardDraft>;
+              const item = card as Partial<ClientHomeCard>;
               return (
                 (item.id === "primary" || item.id === "review" || item.id === "publish") &&
                 typeof item.label === "string" &&
@@ -118,27 +112,39 @@ function decodeOverviewSummary(value: string): {
   }
 }
 
-function encodeOverviewSummary(summary: string, cards: OverviewCardDraft[]) {
+function encodeOverviewSummary(summary: string, cards: ClientHomeCard[]) {
   return `${overviewStatePrefix}${JSON.stringify({ summary, cards })}`;
 }
 
-function getOverviewDisplayStorageKey(clientId: string) {
-  return `nmos-overview-display-${clientId}`;
-}
-
-function toOverviewDraft(settings: ClientSettings, fallbackCards: OverviewCardDraft[] = []): OverviewDraft {
+function toOverviewDraft(
+  settings: ClientSettings,
+  fallbackCards: OverviewCardDraft[] = [],
+  homeConfig?: {
+    headline: string;
+    note: string;
+    cards: ClientHomeCard[];
+    sections: ClientHomeSection[];
+  }
+): OverviewDraft {
   const decodedOverview = decodeOverviewSummary(settings.overviewSummary);
+  const resolvedCards =
+    homeConfig?.cards.length === 3
+      ? homeConfig.cards
+      : decodedOverview.cards?.length === 3
+        ? decodedOverview.cards
+        : fallbackCards;
 
   return {
     averageCheck: String(settings.averageCheck),
     weeklyCovers: String(settings.weeklyCovers),
     monthlyCovers: String(settings.monthlyCovers),
     growthTarget: String(settings.defaultGrowthTarget),
-    overviewHeadline: settings.overviewHeadline,
-    overviewSummary: decodedOverview.summary,
+    overviewHeadline: homeConfig?.headline ?? settings.overviewHeadline,
+    overviewSummary: homeConfig?.note ?? decodedOverview.summary,
     overviewPinnedCampaignId: settings.overviewPinnedCampaignId ?? "",
     overviewFeaturedMetric: settings.overviewFeaturedMetric,
-    overviewCards: decodedOverview.cards?.length === 3 ? decodedOverview.cards : fallbackCards
+    overviewCards: resolvedCards as OverviewCardDraft[],
+    overviewSections: homeConfig?.sections ?? defaultClientHomeSections
   };
 }
 
@@ -177,7 +183,6 @@ export default function DashboardPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [mobileAttentionExpanded, setMobileAttentionExpanded] = useState(false);
   const [overviewDraft, setOverviewDraft] = useState<OverviewDraft>(() => toOverviewDraft(settings));
-  const [overviewDisplayOverride, setOverviewDisplayOverride] = useState<OverviewDisplayState | null>(null);
 
   const model = calculateRevenueModel(revenueModelDefaults);
   const scheduledContent = useMemo(() => {
@@ -324,54 +329,46 @@ export default function DashboardPage() {
     }
   ], [approvalsReady, featuredMetric, nextScheduledItem, pendingApprovals.length]);
 
-  const clientHomeCards =
-    overviewDisplayOverride?.cards ??
-    (decodedOverview.cards?.length === 3 ? decodedOverview.cards : defaultHomeCards);
-  const overviewHeadline = overviewDisplayOverride?.headline ?? settings.overviewHeadline;
-  const overviewSummary = overviewDisplayOverride?.summary ?? decodedOverview.summary;
+  const fallbackClientHomeConfig = useMemo(
+    () =>
+      createDefaultClientHomeConfig(activeClient.id, {
+        headline: settings.overviewHeadline,
+        note: decodedOverview.summary,
+        cards: decodedOverview.cards?.length === 3 ? decodedOverview.cards : defaultHomeCards
+      }),
+    [activeClient.id, decodedOverview.cards, decodedOverview.summary, defaultHomeCards, settings.overviewHeadline]
+  );
+  const {
+    config: clientHomeConfig,
+    error: clientHomeConfigError,
+    saveConfig: saveClientHomeConfig
+  } = useClientHomeConfig(activeClient.id, fallbackClientHomeConfig);
+  const clientHomeCards = clientHomeConfig.cards.length === 3 ? clientHomeConfig.cards : defaultHomeCards;
+  const visibleSectionIds = useMemo(
+    () => new Set(clientHomeConfig.sections.filter((section) => section.visible).map((section) => section.id)),
+    [clientHomeConfig.sections]
+  );
+  const overviewHeadline = clientHomeConfig.headline;
+  const overviewSummary = clientHomeConfig.note;
   const mobileOverviewTitle = overviewHeadline || getGreeting(clientFirstName);
   const mobileOverviewSummary =
     overviewSummary || "Use Customize to control the headline, note, and the three client-home rows.";
 
-  useEffect(() => {
-    const stored = window.localStorage.getItem(getOverviewDisplayStorageKey(activeClient.id));
-
-    if (!stored) {
-      return;
-    }
-
-    try {
-      const parsed = JSON.parse(stored) as Partial<OverviewDisplayState>;
-
-      if (
-        typeof parsed.headline === "string" &&
-        typeof parsed.summary === "string" &&
-        Array.isArray(parsed.cards) &&
-        parsed.cards.length === 3
-      ) {
-        setOverviewDisplayOverride(parsed as OverviewDisplayState);
-      }
-    } catch {
-      window.localStorage.removeItem(getOverviewDisplayStorageKey(activeClient.id));
-    }
-  }, [activeClient.id]);
-
-  useEffect(() => {
-    setOverviewDraft(toOverviewDraft(settings, defaultHomeCards));
-  }, [defaultHomeCards, settings]);
+  const openOverviewEditor = () => {
+    setOverviewDraft(toOverviewDraft(settings, defaultHomeCards, clientHomeConfig));
+    setIsEditingOverview(true);
+  };
 
   const saveOverview = () => {
-    const nextDisplayState: OverviewDisplayState = {
+    const nextConfig = {
+      ...clientHomeConfig,
       headline: overviewDraft.overviewHeadline.trim(),
-      summary: overviewDraft.overviewSummary.trim(),
-      cards: overviewDraft.overviewCards
+      note: overviewDraft.overviewSummary.trim(),
+      cards: overviewDraft.overviewCards,
+      sections: overviewDraft.overviewSections
     };
 
-    setOverviewDisplayOverride(nextDisplayState);
-    window.localStorage.setItem(
-      getOverviewDisplayStorageKey(activeClient.id),
-      JSON.stringify(nextDisplayState)
-    );
+    saveClientHomeConfig(nextConfig);
 
     setSettings((current) => ({
       ...current,
@@ -379,8 +376,8 @@ export default function DashboardPage() {
       weeklyCovers: Math.round(Number(overviewDraft.weeklyCovers) || 0),
       monthlyCovers: Math.round(Number(overviewDraft.monthlyCovers) || 0),
       defaultGrowthTarget: Number(overviewDraft.growthTarget) || 0,
-      overviewHeadline: nextDisplayState.headline,
-      overviewSummary: encodeOverviewSummary(nextDisplayState.summary, nextDisplayState.cards),
+      overviewHeadline: nextConfig.headline,
+      overviewSummary: encodeOverviewSummary(nextConfig.note, nextConfig.cards),
       overviewPinnedCampaignId: overviewDraft.overviewPinnedCampaignId || undefined,
       overviewFeaturedMetric: overviewDraft.overviewFeaturedMetric
     }));
@@ -437,7 +434,7 @@ export default function DashboardPage() {
           <button
             className="shrink-0 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white/70"
             type="button"
-            onClick={() => setIsEditingOverview((current) => !current)}
+            onClick={isEditingOverview ? () => setIsEditingOverview(false) : openOverviewEditor}
             aria-label="Customize client home"
           >
             {isEditingOverview ? "Close" : "Customize"}
@@ -451,7 +448,7 @@ export default function DashboardPage() {
                 "flex items-center justify-between gap-4 px-4 py-3",
                 index ? "border-t border-white/10" : ""
               )}
-              href={card.href}
+              href={card.href as Route}
               key={card.id}
             >
               <span className="min-w-0">
@@ -463,71 +460,73 @@ export default function DashboardPage() {
           ))}
         </div>
 
-        <div className="mt-3 rounded-[1.35rem] border border-white/10 bg-[#1b1c1f] p-4">
-          <button
-            className="flex w-full items-center justify-between text-left"
-            type="button"
-            onClick={() => setMobileAttentionExpanded((current) => !current)}
-          >
-            <span>
-              <span className="block text-sm text-white/45">Today</span>
-              <span className="mt-1 block text-base font-semibold tracking-[-0.03em]">
-                {clientActions.length ? `${clientActions.length} item${clientActions.length === 1 ? "" : "s"} need attention` : "Nothing needs attention"}
+        {visibleSectionIds.has("attention") ? (
+          <div className="mt-3 rounded-[1.35rem] border border-white/10 bg-[#1b1c1f] p-4">
+            <button
+              className="flex w-full items-center justify-between text-left"
+              type="button"
+              onClick={() => setMobileAttentionExpanded((current) => !current)}
+            >
+              <span>
+                <span className="block text-sm text-white/45">Today</span>
+                <span className="mt-1 block text-base font-semibold tracking-[-0.03em]">
+                  {clientActions.length ? `${clientActions.length} item${clientActions.length === 1 ? "" : "s"} need attention` : "Nothing needs attention"}
+                </span>
               </span>
-            </span>
-            <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-white/55">
-              {mobileAttentionExpanded ? "Close" : "Expand"}
-            </span>
-          </button>
-          {mobileAttentionExpanded ? (
-            <div className="mt-5 space-y-4 border-t border-white/10 pt-4">
-              {clientActions.length ? (
-                clientActions.map((action) => (
-                  <div className="flex items-start gap-4" key={action.id}>
-                    <Link
-                      className="flex min-w-0 flex-1 items-start gap-4"
-                      href={action.href}
-                    >
-                      <span
-                        className={cn(
-                          "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border",
-                          action.tone === "review" ? "border-[var(--app-accent-bg)] text-[var(--app-accent-bg)]" : "border-white/25 text-white/60"
-                        )}
+              <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-white/55">
+                {mobileAttentionExpanded ? "Close" : "Expand"}
+              </span>
+            </button>
+            {mobileAttentionExpanded ? (
+              <div className="mt-5 space-y-4 border-t border-white/10 pt-4">
+                {clientActions.length ? (
+                  clientActions.map((action) => (
+                    <div className="flex items-start gap-4" key={action.id}>
+                      <Link
+                        className="flex min-w-0 flex-1 items-start gap-4"
+                        href={action.href}
                       >
-                        {action.tone === "review" ? <MessageSquare className="h-4 w-4" /> : <Circle className="h-4 w-4" />}
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block truncate text-base font-semibold">{action.title}</span>
-                        <span className="mt-1 flex flex-wrap items-center gap-2 text-sm leading-5 text-white/55">
-                          <span>{action.detail}</span>
-                          {action.date ? (
-                            <DatePill className="border-white/15 bg-white/10 text-white/75" value={action.date} />
-                          ) : null}
+                        <span
+                          className={cn(
+                            "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border",
+                            action.tone === "review" ? "border-[var(--app-accent-bg)] text-[var(--app-accent-bg)]" : "border-white/25 text-white/60"
+                          )}
+                        >
+                          {action.tone === "review" ? <MessageSquare className="h-4 w-4" /> : <Circle className="h-4 w-4" />}
                         </span>
-                      </span>
-                    </Link>
-                    {action.tone === "review" ? (
-                      <button
-                        aria-label="Delete approval"
-                        className="rounded-full border border-white/10 p-2 text-white/45"
-                        disabled={deletingId === action.id}
-                        type="button"
-                        onClick={() => void handleDeleteApproval(action.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    ) : null}
+                        <span className="min-w-0">
+                          <span className="block truncate text-base font-semibold">{action.title}</span>
+                          <span className="mt-1 flex flex-wrap items-center gap-2 text-sm leading-5 text-white/55">
+                            <span>{action.detail}</span>
+                            {action.date ? (
+                              <DatePill className="border-white/15 bg-white/10 text-white/75" value={action.date} />
+                            ) : null}
+                          </span>
+                        </span>
+                      </Link>
+                      {action.tone === "review" ? (
+                        <button
+                          aria-label="Delete approval"
+                          className="rounded-full border border-white/10 p-2 text-white/45"
+                          disabled={deletingId === action.id}
+                          type="button"
+                          onClick={() => void handleDeleteApproval(action.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      ) : null}
+                    </div>
+                  ))
+                ) : (
+                  <div className="flex items-center gap-4 text-white/65">
+                    <CheckCircle2 className="h-9 w-9 text-[var(--app-accent-bg)]" />
+                    <p className="text-base">Nothing needs approval right now.</p>
                   </div>
-                ))
-              ) : (
-                <div className="flex items-center gap-4 text-white/65">
-                  <CheckCircle2 className="h-9 w-9 text-[var(--app-accent-bg)]" />
-                  <p className="text-base">Nothing needs approval right now.</p>
-                </div>
-              )}
-            </div>
-          ) : null}
-        </div>
+                )}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
       </section>
 
@@ -540,7 +539,7 @@ export default function DashboardPage() {
             "A calmer client-facing view of what needs review, what is going out next, and how the restaurant is tracking."
           }
         />
-        <Button className="shrink-0" variant="outline" onClick={() => setIsEditingOverview((current) => !current)}>
+        <Button className="shrink-0" variant="outline" onClick={isEditingOverview ? () => setIsEditingOverview(false) : openOverviewEditor}>
           <Pencil className="mr-2 h-4 w-4" />
           {isEditingOverview ? "Close" : "Customize"}
         </Button>
@@ -554,6 +553,11 @@ export default function DashboardPage() {
                 <div>
                   <CardDescription>Client Home Settings</CardDescription>
                   <CardTitle className="mt-3">Tune what appears first</CardTitle>
+                  {clientHomeConfigError ? (
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      Saving locally right now. Run the client home SQL to sync this across devices.
+                    </p>
+                  ) : null}
                 </div>
                 <Button type="button" variant="ghost" onClick={() => setIsEditingOverview(false)}>
                   Close
@@ -698,8 +702,40 @@ export default function DashboardPage() {
               </div>
             </div>
 
+            <div className="rounded-[1.25rem] border border-border/70 bg-card/55 p-4">
+              <p className="text-sm font-medium text-foreground">Visible sections</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Hide anything that feels repetitive. The mobile home stays compact by default.
+              </p>
+              <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                {overviewDraft.overviewSections.map((section) => (
+                  <button
+                    className={cn(
+                      "flex items-center justify-between rounded-2xl border px-4 py-3 text-left text-sm transition",
+                      section.visible
+                        ? "border-primary/40 bg-[var(--app-accent-soft)] text-foreground"
+                        : "border-border/70 bg-background/60 text-muted-foreground"
+                    )}
+                    key={section.id}
+                    type="button"
+                    onClick={() =>
+                      setOverviewDraft((current) => ({
+                        ...current,
+                        overviewSections: current.overviewSections.map((item) =>
+                          item.id === section.id ? { ...item, visible: !item.visible } : item
+                        )
+                      }))
+                    }
+                  >
+                    <span>{section.label}</span>
+                    <span className="text-xs font-medium">{section.visible ? "Shown" : "Hidden"}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="flex justify-end gap-3">
-              <Button variant="outline" onClick={() => setOverviewDraft(toOverviewDraft(settings, defaultHomeCards))}>
+              <Button variant="outline" onClick={() => setOverviewDraft(toOverviewDraft(settings, defaultHomeCards, clientHomeConfig))}>
                 Reset
               </Button>
               <Button onClick={saveOverview}>Save Client Home</Button>
@@ -709,9 +745,9 @@ export default function DashboardPage() {
         </div>
       ) : null}
 
-      <motion.div animate={{ opacity: 1, y: 0 }} className="grid gap-4 md:grid-cols-3" initial={{ opacity: 0, y: 12 }}>
+      <motion.div animate={{ opacity: 1, y: 0 }} className="hidden gap-4 sm:grid md:grid-cols-3" initial={{ opacity: 0, y: 12 }}>
         {clientHomeCards.map((card) => (
-          <Link href={card.href} key={card.id}>
+          <Link href={card.href as Route} key={card.id}>
             <Card className="h-full p-5">
               <p className="text-sm text-muted-foreground">{card.label}</p>
               <p className="mt-3 truncate font-display text-4xl text-foreground">{card.value}</p>
@@ -721,105 +757,112 @@ export default function DashboardPage() {
         ))}
       </motion.div>
 
-      <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
-        <Card id="client-review">
-          <CardHeader>
-            <div>
-              <CardDescription>Client Review</CardDescription>
-              <CardTitle className="mt-3">What needs a decision</CardTitle>
-            </div>
-            <Link className="hidden items-center gap-1 text-sm font-medium text-primary sm:flex" href="/approvals">
-              Open inbox <ChevronRight className="h-4 w-4" />
-            </Link>
-          </CardHeader>
-          <div className="space-y-3">
-            {pendingApprovals.length ? (
-              pendingApprovals.slice(0, 3).map((approval) => (
-                <div className="rounded-3xl border border-border/70 bg-card/60 p-4" key={approval.id}>
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="font-medium text-foreground">{approval.summary}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">{approval.note ?? `Requested by ${approval.requesterName}`}</p>
+      {visibleSectionIds.has("review") || visibleSectionIds.has("active-campaign") ? (
+        <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+          {visibleSectionIds.has("review") ? (
+            <Card id="client-review">
+              <CardHeader>
+                <div>
+                  <CardDescription>Client Review</CardDescription>
+                  <CardTitle className="mt-3">What needs a decision</CardTitle>
+                </div>
+                <Link className="hidden items-center gap-1 text-sm font-medium text-primary sm:flex" href="/approvals">
+                  Open inbox <ChevronRight className="h-4 w-4" />
+                </Link>
+              </CardHeader>
+              <div className="space-y-3">
+                {pendingApprovals.length ? (
+                  pendingApprovals.slice(0, 3).map((approval) => (
+                    <div className="rounded-3xl border border-border/70 bg-card/60 p-4" key={approval.id}>
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className="font-medium text-foreground">{approval.summary}</p>
+                          <p className="mt-1 text-sm text-muted-foreground">{approval.note ?? `Requested by ${approval.requesterName}`}</p>
+                        </div>
+                        <p className="shrink-0 rounded-full bg-[var(--app-accent-soft)] px-3 py-1 text-xs font-medium text-[var(--app-accent-bg)]">
+                          Review
+                        </p>
+                      </div>
+                      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                        <Button
+                          className="sm:w-auto"
+                          disabled={reviewingId === approval.id}
+                          onClick={() => void handleReview(approval.id, "Approved")}
+                        >
+                          Approve
+                        </Button>
+                        <Button
+                          className="sm:w-auto"
+                          disabled={reviewingId === approval.id}
+                          variant="outline"
+                          onClick={() => void handleReview(approval.id, "Changes Requested")}
+                        >
+                          Request changes
+                        </Button>
+                        <Button
+                          className="sm:w-auto"
+                          disabled={deletingId === approval.id}
+                          variant="ghost"
+                          onClick={() => void handleDeleteApproval(approval.id)}
+                        >
+                          Delete
+                        </Button>
+                      </div>
                     </div>
-                    <p className="shrink-0 rounded-full bg-[var(--app-accent-soft)] px-3 py-1 text-xs font-medium text-[var(--app-accent-bg)]">
-                      Review
-                    </p>
-                  </div>
-                  <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                    <Button
-                      className="sm:w-auto"
-                      disabled={reviewingId === approval.id}
-                      onClick={() => void handleReview(approval.id, "Approved")}
-                    >
-                      Approve
-                    </Button>
-                    <Button
-                      className="sm:w-auto"
-                      disabled={reviewingId === approval.id}
-                      variant="outline"
-                      onClick={() => void handleReview(approval.id, "Changes Requested")}
-                    >
-                      Request changes
-                    </Button>
-                    <Button
-                      className="sm:w-auto"
-                      disabled={deletingId === approval.id}
-                      variant="ghost"
-                      onClick={() => void handleDeleteApproval(approval.id)}
-                    >
-                      Delete
-                    </Button>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <EmptyState
-                title={approvalsReady ? "Nothing waiting on you" : "Loading reviews"}
-                description={approvalsReady ? "Approvals and requested changes will show up here when content needs a decision." : "Checking the client review inbox."}
-              />
-            )}
-          </div>
-        </Card>
-
-        <Card id="active-campaign">
-          <CardHeader>
-            <div>
-              <CardDescription>Active Campaign</CardDescription>
-              <CardTitle className="mt-3">{pinnedCampaign ? pinnedCampaign.name : "No campaign pinned yet"}</CardTitle>
-            </div>
-          </CardHeader>
-          {leadCampaign && pinnedCampaign ? (
-            <div className="space-y-5">
-              <p className="text-sm leading-6 text-muted-foreground">
-                {pinnedCampaign.objective || overviewHeadline || overviewSummary || buildImpactSentence(activeClient.name, revenueModelDefaults)}
-              </p>
-              <div className="grid gap-3 text-sm">
-                <div className="flex items-center justify-between rounded-2xl bg-muted/50 px-4 py-3">
-                  <span className="text-muted-foreground">Status</span>
-                  <span className="font-medium text-foreground">{pinnedCampaign.status}</span>
-                </div>
-                <div className="flex items-center justify-between rounded-2xl bg-muted/50 px-4 py-3">
-                  <span className="text-muted-foreground">Campaign content</span>
-                  <span className="font-medium text-foreground">{number(leadCampaign.linkedPosts.length)} posts</span>
-                </div>
-                <div className="flex items-center justify-between rounded-2xl bg-muted/50 px-4 py-3">
-                  <span className="text-muted-foreground">Attributed revenue</span>
-                  <span className="font-medium text-foreground">{currency(leadCampaign.attributedRevenue)}</span>
-                </div>
+                  ))
+                ) : (
+                  <EmptyState
+                    title={approvalsReady ? "Nothing waiting on you" : "Loading reviews"}
+                    description={approvalsReady ? "Approvals and requested changes will show up here when content needs a decision." : "Checking the client review inbox."}
+                  />
+                )}
               </div>
-              <Link
-                className="inline-flex h-10 w-full items-center justify-center rounded-full bg-primary px-5 py-2 text-sm font-medium text-primary-foreground shadow-[0_10px_24px_rgba(149,114,46,0.18)] transition-colors hover:bg-primary/92"
-                href={`/campaigns/${pinnedCampaign.id}` as Route}
-              >
-                Open campaign
-              </Link>
-            </div>
-          ) : (
-            <EmptyState title="No campaign yet" description="Create or pin a campaign to give clients a clean current-focus area." />
-          )}
-        </Card>
-      </div>
+            </Card>
+          ) : null}
 
+          {visibleSectionIds.has("active-campaign") ? (
+            <Card id="active-campaign">
+              <CardHeader>
+                <div>
+                  <CardDescription>Active Campaign</CardDescription>
+                  <CardTitle className="mt-3">{pinnedCampaign ? pinnedCampaign.name : "No campaign pinned yet"}</CardTitle>
+                </div>
+              </CardHeader>
+              {leadCampaign && pinnedCampaign ? (
+                <div className="space-y-5">
+                  <p className="text-sm leading-6 text-muted-foreground">
+                    {pinnedCampaign.objective || overviewHeadline || overviewSummary || buildImpactSentence(activeClient.name, revenueModelDefaults)}
+                  </p>
+                  <div className="grid gap-3 text-sm">
+                    <div className="flex items-center justify-between rounded-2xl bg-muted/50 px-4 py-3">
+                      <span className="text-muted-foreground">Status</span>
+                      <span className="font-medium text-foreground">{pinnedCampaign.status}</span>
+                    </div>
+                    <div className="flex items-center justify-between rounded-2xl bg-muted/50 px-4 py-3">
+                      <span className="text-muted-foreground">Campaign content</span>
+                      <span className="font-medium text-foreground">{number(leadCampaign.linkedPosts.length)} posts</span>
+                    </div>
+                    <div className="flex items-center justify-between rounded-2xl bg-muted/50 px-4 py-3">
+                      <span className="text-muted-foreground">Attributed revenue</span>
+                      <span className="font-medium text-foreground">{currency(leadCampaign.attributedRevenue)}</span>
+                    </div>
+                  </div>
+                  <Link
+                    className="inline-flex h-10 w-full items-center justify-center rounded-full bg-primary px-5 py-2 text-sm font-medium text-primary-foreground shadow-[0_10px_24px_rgba(149,114,46,0.18)] transition-colors hover:bg-primary/92"
+                    href={`/campaigns/${pinnedCampaign.id}` as Route}
+                  >
+                    Open campaign
+                  </Link>
+                </div>
+              ) : (
+                <EmptyState title="No campaign yet" description="Create or pin a campaign to give clients a clean current-focus area." />
+              )}
+            </Card>
+          ) : null}
+        </div>
+      ) : null}
+
+      {visibleSectionIds.has("upcoming-content") ? (
       <div>
         <Card id="upcoming-content">
           <CardHeader>
@@ -870,8 +913,9 @@ export default function DashboardPage() {
           </div>
         </Card>
       </div>
+      ) : null}
 
-      {recentActivity.length ? (
+      {visibleSectionIds.has("recent-activity") && recentActivity.length ? (
         <Card className="hidden sm:block">
           <CardHeader>
             <div>

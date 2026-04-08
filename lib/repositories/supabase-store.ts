@@ -15,6 +15,8 @@ import {
   mapCampaignRoiSnapshotInsert,
   mapCampaignRoiSnapshotRow,
   mapCampaignRow,
+  mapClientHomeConfigInsert,
+  mapClientHomeConfigRow,
   mapClientInsert,
   mapClientRow,
   mapClientSettingsInsert,
@@ -46,6 +48,7 @@ import type {
   Campaign,
   CampaignRoiSnapshot,
   Client,
+  ClientHomeConfig,
   ClientSettings,
   IntegrationConnection,
   ManualMetaPerformance,
@@ -294,6 +297,34 @@ export const clientSettingsAdapter: EntityAdapter<ClientSettings> = {
     const { error } = await supabase
       .from("client_settings")
       .upsert(mapClientSettingsInsert(settings), { onConflict: "id" });
+
+    if (error) {
+      throw error;
+    }
+  }
+};
+
+export const clientHomeConfigAdapter: EntityAdapter<ClientHomeConfig> = {
+  isConfigured: hasSupabaseCredentials,
+  async load(clientId) {
+    const supabase = getSupabaseOrThrow();
+    const { data, error } = await supabase
+      .from("client_home_configs")
+      .select("*")
+      .eq("client_id", clientId)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    return data ? mapClientHomeConfigRow(data) : null;
+  },
+  async save(_, config) {
+    const supabase = getSupabaseOrThrow();
+    const { error } = await supabase
+      .from("client_home_configs")
+      .upsert(mapClientHomeConfigInsert(config), { onConflict: "id" });
 
     if (error) {
       throw error;
