@@ -462,7 +462,14 @@ export default function SettingsPage() {
                 <ListCard key={channel.provider}>
                   <div className="flex items-start justify-between gap-4">
                     <div>
-                      <p className="font-medium capitalize text-foreground">{channel.provider}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium capitalize text-foreground">{channel.provider}</p>
+                        {channel.provider === "facebook" ? (
+                          <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[0.62rem] font-medium uppercase tracking-[0.14em] text-primary">
+                            Start here
+                          </span>
+                        ) : null}
+                      </div>
                       <p className="mt-1 text-sm text-muted-foreground">{channel.accountLabel}</p>
                     </div>
                     <p className="text-xs uppercase tracking-[0.16em] text-primary">
@@ -478,7 +485,11 @@ export default function SettingsPage() {
                     </p>
                   </div>
                   <p className="mt-3 text-sm text-muted-foreground">
-                    {channel.nextAction ?? "Complete Meta connection setup."}
+                    {channel.provider === "facebook"
+                      ? channel.nextAction ?? "Complete Meta connection setup."
+                      : channel.authStatus === "connected"
+                        ? channel.nextAction ?? "Complete Meta connection setup."
+                        : "Optional for now. Add Instagram after Facebook is working and the Instagram professional account is attached to the Facebook Page."}
                   </p>
                   {channel.availableAssets?.length ? (
                     <div className="mt-4 rounded-2xl border border-border/70 bg-card/65 p-4">

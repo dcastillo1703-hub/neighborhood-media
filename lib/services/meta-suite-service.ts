@@ -155,6 +155,12 @@ export async function getMetaBusinessSuiteSummary(
     )
   ];
   const configStatus = getMetaBusinessSuiteConfigStatus();
+  const facebookConnected = channels.some(
+    (channel) => channel.provider === "facebook" && channel.authStatus === "connected"
+  );
+  const instagramConnected = channels.some(
+    (channel) => channel.provider === "instagram" && channel.authStatus === "connected"
+  );
 
   return {
     clientId,
@@ -179,7 +185,11 @@ export async function getMetaBusinessSuiteSummary(
     totalPublishedJobs: channels.reduce((sum, channel) => sum + channel.publishedJobs, 0),
     highlights: [
       configStatus.ready
-        ? "Meta app credentials are configured, so Facebook and Instagram can move into real OAuth connection."
+        ? facebookConnected
+          ? instagramConnected
+            ? "Facebook and Instagram are both connected through Meta Business Suite."
+            : "Facebook is connected. Instagram can be added later once the professional account and Page connection are ready."
+          : "Meta app credentials are configured. Connect Facebook first, then add Instagram later if needed."
         : configStatus.nextAction,
       channels.some((channel) => channel.scheduledPosts > 0)
         ? "Scheduled Meta content is already flowing through the publish queue."
