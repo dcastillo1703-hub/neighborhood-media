@@ -5,6 +5,8 @@ import type { Route } from "next";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import {
+  ArrowDown,
+  ArrowUp,
   CalendarDays,
   CheckCircle2,
   ChevronRight,
@@ -161,6 +163,25 @@ function formatToday() {
     month: "long",
     day: "2-digit"
   }).format(new Date());
+}
+
+function moveSection(
+  sections: ClientHomeSection[],
+  sectionId: ClientHomeSection["id"],
+  direction: "up" | "down"
+) {
+  const currentIndex = sections.findIndex((section) => section.id === sectionId);
+  const nextIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+
+  if (currentIndex < 0 || nextIndex < 0 || nextIndex >= sections.length) {
+    return sections;
+  }
+
+  const nextSections = [...sections];
+  const [section] = nextSections.splice(currentIndex, 1);
+  nextSections.splice(nextIndex, 0, section);
+
+  return nextSections;
 }
 
 export default function DashboardPage() {
@@ -344,10 +365,19 @@ export default function DashboardPage() {
     saveConfig: saveClientHomeConfig
   } = useClientHomeConfig(activeClient.id, fallbackClientHomeConfig);
   const clientHomeCards = clientHomeConfig.cards.length === 3 ? clientHomeConfig.cards : defaultHomeCards;
-  const visibleSectionIds = useMemo(
-    () => new Set(clientHomeConfig.sections.filter((section) => section.visible).map((section) => section.id)),
+  const orderedVisibleSections = useMemo(
+    () => clientHomeConfig.sections.filter((section) => section.visible),
     [clientHomeConfig.sections]
   );
+  const visibleSectionIds = useMemo(
+    () => new Set(orderedVisibleSections.map((section) => section.id)),
+    [orderedVisibleSections]
+  );
+  const getSectionOrder = (sectionId: ClientHomeSection["id"]) => {
+    const index = orderedVisibleSections.findIndex((section) => section.id === sectionId);
+
+    return index < 0 ? orderedVisibleSections.length : index;
+  };
   const overviewHeadline = clientHomeConfig.headline;
   const overviewSummary = clientHomeConfig.note;
   const mobileOverviewTitle = overviewHeadline || getGreeting(clientFirstName);
@@ -423,7 +453,7 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="space-y-6 sm:space-y-8">
+    <div className="grid gap-6 sm:gap-8">
       <section className="-mx-4 -mt-4 rounded-b-[1.75rem] bg-[#202124] px-4 pb-5 pt-6 text-white shadow-[0_18px_60px_rgba(0,0,0,0.22)] sm:hidden">
         <div className="flex items-start justify-between">
           <div className="min-w-0 pr-4">
@@ -703,33 +733,71 @@ export default function DashboardPage() {
             </div>
 
             <div className="rounded-[1.25rem] border border-border/70 bg-card/55 p-4">
-              <p className="text-sm font-medium text-foreground">Visible sections</p>
+              <p className="text-sm font-medium text-foreground">Sections</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Hide anything that feels repetitive. The mobile home stays compact by default.
+                Hide anything repetitive, then move the important pieces higher.
               </p>
-              <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                {overviewDraft.overviewSections.map((section) => (
-                  <button
+              <div className="mt-4 space-y-2">
+                {overviewDraft.overviewSections.map((section, index) => (
+                  <div
                     className={cn(
-                      "flex items-center justify-between rounded-2xl border px-4 py-3 text-left text-sm transition",
+                      "flex flex-col gap-3 rounded-2xl border px-4 py-3 text-sm transition sm:flex-row sm:items-center sm:justify-between",
                       section.visible
                         ? "border-primary/40 bg-[var(--app-accent-soft)] text-foreground"
                         : "border-border/70 bg-background/60 text-muted-foreground"
                     )}
                     key={section.id}
-                    type="button"
-                    onClick={() =>
-                      setOverviewDraft((current) => ({
-                        ...current,
-                        overviewSections: current.overviewSections.map((item) =>
-                          item.id === section.id ? { ...item, visible: !item.visible } : item
-                        )
-                      }))
-                    }
                   >
-                    <span>{section.label}</span>
-                    <span className="text-xs font-medium">{section.visible ? "Shown" : "Hidden"}</span>
-                  </button>
+                    <button
+                      className="flex flex-1 items-center justify-between text-left"
+                      type="button"
+                      onClick={() =>
+                        setOverviewDraft((current) => ({
+                          ...current,
+                          overviewSections: current.overviewSections.map((item) =>
+                            item.id === section.id ? { ...item, visible: !item.visible } : item
+                          )
+                        }))
+                      }
+                    >
+                      <span className="font-medium">{section.label}</span>
+                      <span className="text-xs font-medium">{section.visible ? "Shown" : "Hidden"}</span>
+                    </button>
+                    <div className="flex gap-2">
+                      <Button
+                        aria-label={`Move ${section.label} up`}
+                        className="h-8 flex-1 sm:flex-none"
+                        disabled={index === 0}
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                        onClick={() =>
+                          setOverviewDraft((current) => ({
+                            ...current,
+                            overviewSections: moveSection(current.overviewSections, section.id, "up")
+                          }))
+                        }
+                      >
+                        <ArrowUp className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        aria-label={`Move ${section.label} down`}
+                        className="h-8 flex-1 sm:flex-none"
+                        disabled={index === overviewDraft.overviewSections.length - 1}
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                        onClick={() =>
+                          setOverviewDraft((current) => ({
+                            ...current,
+                            overviewSections: moveSection(current.overviewSections, section.id, "down")
+                          }))
+                        }
+                      >
+                        <ArrowDown className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>
@@ -758,9 +826,12 @@ export default function DashboardPage() {
       </motion.div>
 
       {visibleSectionIds.has("review") || visibleSectionIds.has("active-campaign") ? (
-        <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+        <div
+          className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]"
+          style={{ order: Math.min(getSectionOrder("review"), getSectionOrder("active-campaign")) }}
+        >
           {visibleSectionIds.has("review") ? (
-            <Card id="client-review">
+            <Card id="client-review" style={{ order: getSectionOrder("review") }}>
               <CardHeader>
                 <div>
                   <CardDescription>Client Review</CardDescription>
@@ -821,7 +892,7 @@ export default function DashboardPage() {
           ) : null}
 
           {visibleSectionIds.has("active-campaign") ? (
-            <Card id="active-campaign">
+            <Card id="active-campaign" style={{ order: getSectionOrder("active-campaign") }}>
               <CardHeader>
                 <div>
                   <CardDescription>Active Campaign</CardDescription>
@@ -863,7 +934,7 @@ export default function DashboardPage() {
       ) : null}
 
       {visibleSectionIds.has("upcoming-content") ? (
-      <div>
+      <div style={{ order: getSectionOrder("upcoming-content") }}>
         <Card id="upcoming-content">
           <CardHeader>
             <div>
@@ -916,7 +987,7 @@ export default function DashboardPage() {
       ) : null}
 
       {visibleSectionIds.has("recent-activity") && recentActivity.length ? (
-        <Card className="hidden sm:block">
+        <Card className="hidden sm:block" style={{ order: getSectionOrder("recent-activity") }}>
           <CardHeader>
             <div>
               <CardDescription>Recent Updates</CardDescription>

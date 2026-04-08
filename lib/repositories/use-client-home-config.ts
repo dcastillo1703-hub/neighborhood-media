@@ -55,7 +55,22 @@ function writeStore(store: Record<string, ClientHomeConfig>) {
 }
 
 function normalizeConfig(config: ClientHomeConfig, fallback: ClientHomeConfig): ClientHomeConfig {
-  const sectionsById = new Map(config.sections.map((section) => [section.id, section]));
+  const defaultSectionsById = new Map(defaultClientHomeSections.map((section) => [section.id, section]));
+  const usedSectionIds = new Set<ClientHomeSection["id"]>();
+  const orderedSections = config.sections
+    .filter((section) => defaultSectionsById.has(section.id))
+    .map((section) => {
+      const defaultSection = defaultSectionsById.get(section.id);
+      usedSectionIds.add(section.id);
+
+      return {
+        ...defaultSection,
+        ...section,
+        label: section.label || defaultSection?.label || section.id
+      } as ClientHomeSection;
+    });
+
+  const missingSections = defaultClientHomeSections.filter((section) => !usedSectionIds.has(section.id));
 
   return {
     ...fallback,
@@ -63,11 +78,7 @@ function normalizeConfig(config: ClientHomeConfig, fallback: ClientHomeConfig): 
     headline: config.headline ?? fallback.headline,
     note: config.note ?? fallback.note,
     cards: config.cards.length ? config.cards.slice(0, 3) : fallback.cards,
-    sections: defaultClientHomeSections.map((section) => ({
-      ...section,
-      ...sectionsById.get(section.id),
-      label: sectionsById.get(section.id)?.label || section.label
-    }))
+    sections: [...orderedSections, ...missingSections]
   };
 }
 
