@@ -11,7 +11,6 @@ import {
   Circle,
   Clock3,
   MessageSquare,
-  MoreHorizontal,
   Pencil,
   Trash2,
   TrendingUp
@@ -317,6 +316,9 @@ export default function DashboardPage() {
 
   const clientHomeCards =
     decodedOverview.cards?.length === 3 ? decodedOverview.cards : defaultHomeCards;
+  const mobileOverviewTitle = settings.overviewHeadline || getGreeting(clientFirstName);
+  const mobileOverviewSummary =
+    decodedOverview.summary || "Use Customize to control the headline, note, and the three client-home rows.";
 
   const performancePulse: Array<{ label: string; value: string; href: Route }> = clientHomeCards.map((card) => ({
     label: card.label,
@@ -332,8 +334,8 @@ export default function DashboardPage() {
     setSettings((current) => ({
       ...current,
       averageCheck: Number(overviewDraft.averageCheck) || 0,
-      weeklyCovers: Number(overviewDraft.weeklyCovers) || 0,
-      monthlyCovers: Number(overviewDraft.monthlyCovers) || 0,
+      weeklyCovers: Math.round(Number(overviewDraft.weeklyCovers) || 0),
+      monthlyCovers: Math.round(Number(overviewDraft.monthlyCovers) || 0),
       defaultGrowthTarget: Number(overviewDraft.growthTarget) || 0,
       overviewHeadline: overviewDraft.overviewHeadline.trim(),
       overviewSummary: encodeOverviewSummary(overviewDraft.overviewSummary.trim(), overviewDraft.overviewCards),
@@ -383,23 +385,43 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6 sm:space-y-8">
-      <section className="-mx-4 -mt-4 rounded-b-[2rem] bg-[#202124] px-4 pb-6 pt-7 text-white shadow-[0_18px_60px_rgba(0,0,0,0.22)] sm:hidden">
+      <section className="-mx-4 -mt-4 rounded-b-[1.75rem] bg-[#202124] px-4 pb-5 pt-6 text-white shadow-[0_18px_60px_rgba(0,0,0,0.22)] sm:hidden">
         <div className="flex items-start justify-between">
-          <div>
+          <div className="min-w-0 pr-4">
             <p className="text-sm font-semibold text-white/70">{formatToday()}</p>
-            <h1 className="mt-2 text-4xl font-semibold tracking-[-0.05em]">{getGreeting(clientFirstName)}</h1>
+            <h1 className="mt-2 text-3xl font-semibold tracking-[-0.05em]">{mobileOverviewTitle}</h1>
+            <p className="mt-2 line-clamp-2 text-sm leading-6 text-white/50">{mobileOverviewSummary}</p>
           </div>
           <button
-            className="rounded-2xl border border-white/10 bg-white/5 p-3 text-white/70"
+            className="shrink-0 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white/70"
             type="button"
             onClick={() => setIsEditingOverview((current) => !current)}
             aria-label="Customize client home"
           >
-            <MoreHorizontal className="h-5 w-5" />
+            {isEditingOverview ? "Close" : "Customize"}
           </button>
         </div>
 
-        <div className="mt-8 rounded-[1.45rem] border border-white/10 bg-[#1b1c1f] p-4">
+        <div className="mt-5 overflow-hidden rounded-[1.35rem] border border-white/10 bg-[#1b1c1f]">
+          {clientHomeCards.map((card, index) => (
+            <Link
+              className={cn(
+                "flex items-center justify-between gap-4 px-4 py-3",
+                index ? "border-t border-white/10" : ""
+              )}
+              href={card.href}
+              key={card.id}
+            >
+              <span className="min-w-0">
+                <span className="block truncate text-base font-semibold text-white">{card.label}</span>
+                <span className="mt-0.5 block truncate text-xs text-white/45">{card.detail}</span>
+              </span>
+              <span className="shrink-0 text-right text-lg font-semibold tracking-[-0.03em] text-white">{card.value}</span>
+            </Link>
+          ))}
+        </div>
+
+        <div className="mt-3 rounded-[1.35rem] border border-white/10 bg-[#1b1c1f] p-4">
           <button
             className="flex w-full items-center justify-between text-left"
             type="button"
@@ -407,7 +429,7 @@ export default function DashboardPage() {
           >
             <span>
               <span className="block text-sm text-white/45">Today</span>
-              <span className="mt-1 block text-xl font-semibold tracking-[-0.04em]">
+              <span className="mt-1 block text-base font-semibold tracking-[-0.03em]">
                 {clientActions.length ? `${clientActions.length} item${clientActions.length === 1 ? "" : "s"} need attention` : "Nothing needs attention"}
               </span>
             </span>
@@ -465,21 +487,12 @@ export default function DashboardPage() {
           ) : null}
         </div>
 
-        <div className="mt-5 grid gap-3">
-          {clientHomeCards.map((card) => (
-            <Link className="rounded-[1.45rem] border border-white/10 bg-[#1b1c1f] p-4" href={card.href} key={card.id}>
-              <p className="text-sm text-white/50">{card.label}</p>
-              <p className="mt-2 truncate text-3xl font-semibold tracking-[-0.04em] text-white">{card.value}</p>
-              <p className="mt-2 line-clamp-2 text-sm leading-6 text-white/50">{card.detail}</p>
-            </Link>
-          ))}
-        </div>
       </section>
 
       <div className="hidden items-start justify-between gap-6 sm:flex">
         <PageHeader
           eyebrow="Client Home"
-          title={`${activeClient.name} home`}
+          title={settings.overviewHeadline || `${activeClient.name} home`}
           description={
             decodedOverview.summary ||
             "A calmer client-facing view of what needs review, what is going out next, and how the restaurant is tracking."
