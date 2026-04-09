@@ -26,6 +26,7 @@ import { useAnalyticsSnapshots } from "@/lib/repositories/use-analytics-snapshot
 import { useCampaigns } from "@/lib/repositories/use-campaigns";
 import { useClientSettings } from "@/lib/repositories/use-client-settings";
 import { useWeeklyMetrics } from "@/lib/repositories/use-weekly-metrics";
+import { useGoogleAnalytics } from "@/lib/use-google-analytics";
 import { useManualMetaPerformance } from "@/lib/use-manual-meta-performance";
 import { useMetaBusinessSuite } from "@/lib/use-meta-business-suite";
 import { currency, number, percent } from "@/lib/utils";
@@ -36,6 +37,10 @@ export default function PerformancePage() {
   const { metrics } = useWeeklyMetrics(activeClient.id);
   const { campaigns } = useCampaigns(activeClient.id);
   const { analyticsSnapshots, refreshAnalyticsSnapshots } = useAnalyticsSnapshots(activeClient.id);
+  const {
+    summary: googleAnalyticsSummary,
+    sync: syncGoogleAnalytics
+  } = useGoogleAnalytics(activeClient.id);
   const { summary: metaSummary, syncInsights } = useMetaBusinessSuite(activeClient.id);
   const {
     enabledChannels: manualMetaChannels,
@@ -43,6 +48,8 @@ export default function PerformancePage() {
   } = useManualMetaPerformance(activeClient.id);
   const [syncingFacebook, setSyncingFacebook] = useState(false);
   const [facebookSyncMessage, setFacebookSyncMessage] = useState<string | null>(null);
+  const [syncingGoogleAnalytics, setSyncingGoogleAnalytics] = useState(false);
+  const [googleAnalyticsMessage, setGoogleAnalyticsMessage] = useState<string | null>(null);
 
   const revenueModel = calculateRevenueModel(revenueModelDefaults);
   const latestWeek = getLatestWeekSummary(metrics, settings.averageCheck);
@@ -132,6 +139,26 @@ export default function PerformancePage() {
     }
   };
 
+  const syncWebsiteAnalytics = async () => {
+    setSyncingGoogleAnalytics(true);
+    setGoogleAnalyticsMessage(null);
+
+    try {
+      const payload = await syncGoogleAnalytics();
+      setGoogleAnalyticsMessage(
+        `Google Analytics synced. Sessions: ${number(payload.summary.sessions)}, users: ${number(
+          payload.summary.users
+        )}, views: ${number(payload.summary.views)}.`
+      );
+    } catch (error) {
+      setGoogleAnalyticsMessage(
+        error instanceof Error ? error.message : "Google Analytics sync failed."
+      );
+    } finally {
+      setSyncingGoogleAnalytics(false);
+    }
+  };
+
   return (
     <div className="space-y-10">
       <PageHeader
@@ -180,6 +207,12 @@ export default function PerformancePage() {
               ? "Live Facebook plus manual fallback for channels that are not connected yet."
               : "Facebook and Instagram revenue tied back to Meta reporting."
           }
+        />
+        <MetricCard
+          href="/performance#website-analytics"
+          label="Website Sessions"
+          value={number(googleAnalyticsSummary?.sessions ?? 0)}
+          detail="Latest synced Google Analytics sessions."
         />
         <MetricCard href="/performance#business-snapshot" label="Latest Weekly Change" value={`${latestWeek.latestWowChange > 0 ? "+" : ""}${number(latestWeek.latestWowChange)} covers`} detail="Most recent week-over-week movement." tone="olive" />
       </StatGrid>
@@ -307,6 +340,116 @@ export default function PerformancePage() {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <Card id="website-analytics">
+          <CardHeader>
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <CardDescription>Website Analytics</CardDescription>
+                <CardTitle className="mt-3">What the website is doing</CardTitle>
+                <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
+                  This is the website traffic layer from GA4. It tells you whether campaigns are creating attention before we tie that traffic back to covers and revenue.
+                </p>
+              </div>
+              <Button
+                disabled={!googleAnalyticsSummary?.readyToSync || syncingGoogleAnalytics}
+                onClick={() => void syncWebsiteAnalytics()}
+                size="sm"
+                variant="outline"
+              >
+                {syncingGoogleAnalytics ? "Syncing website..." : "Sync Google Analytics"}
+              </Button>
+            </div>
+          </CardHeader>
+          {googleAnalyticsMessage ? (
+            <div className="rounded-2xl border border-border/70 bg-card/65 p-4 text-sm text-muted-foreground">
+              {googleAnalyticsMessage}
+            </div>
+          ) : null}
+          {googleAnalyticsSummary ? (
+            <div className="space-y-3">
+              <ListCard>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Live GA4 website snapshot</p>
+                    <p className="mt-2 text-xl font-medium text-foreground">
+                      {googleAnalyticsSummary.accountLabel}
+                    </p>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      {googleAnalyticsSummary.periodLabel || "Last 30 days"}
+                    </p>
+                  </div>
+                  {googleAnalyticsSummary.lastSyncAt ? (
+                    <p className="text-xs uppercase tracking-[0.16em] text-primary">
+                      Synced {new Date(googleAnalyticsSummary.lastSyncAt).toLocaleDateString()}
+                    </p>
+                  ) : (
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Waiting on first sync</p>
+                  )}
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-4">
+                  <div className="rounded-2xl bg-muted/50 px-4 py-3">
+                    <p className="text-xs text-muted-foreground">Sessions</p>
+                    <p className="mt-2 text-xl font-medium text-foreground">{number(googleAnalyticsSummary.sessions)}</p>
+                  </div>
+                  <div className="rounded-2xl bg-muted/50 px-4 py-3">
+                    <p className="text-xs text-muted-foreground">Users</p>
+                    <p className="mt-2 text-xl font-medium text-foreground">{number(googleAnalyticsSummary.users)}</p>
+                  </div>
+                  <div className="rounded-2xl bg-muted/50 px-4 py-3">
+                    <p className="text-xs text-muted-foreground">Views</p>
+                    <p className="mt-2 text-xl font-medium text-foreground">{number(googleAnalyticsSummary.views)}</p>
+                  </div>
+                  <div className="rounded-2xl bg-muted/50 px-4 py-3">
+                    <p className="text-xs text-muted-foreground">Events</p>
+                    <p className="mt-2 text-xl font-medium text-foreground">{number(googleAnalyticsSummary.events)}</p>
+                  </div>
+                </div>
+              </ListCard>
+              <div className="grid gap-3 lg:grid-cols-2">
+                <ListCard>
+                  <p className="font-medium text-foreground">Top traffic sources</p>
+                  <div className="mt-3 space-y-2">
+                    {googleAnalyticsSummary.topSources.length ? (
+                      googleAnalyticsSummary.topSources.map((source) => (
+                        <div className="flex items-center justify-between gap-4 text-sm" key={source.label}>
+                          <span className="text-muted-foreground">{source.label}</span>
+                          <span className="text-foreground">{number(source.sessions)}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        Run the first sync to see where the strongest sessions are coming from.
+                      </p>
+                    )}
+                  </div>
+                </ListCard>
+                <ListCard>
+                  <p className="font-medium text-foreground">Top landing pages</p>
+                  <div className="mt-3 space-y-2">
+                    {googleAnalyticsSummary.topPages.length ? (
+                      googleAnalyticsSummary.topPages.map((page) => (
+                        <div className="flex items-center justify-between gap-4 text-sm" key={page.path}>
+                          <span className="truncate text-muted-foreground">{page.path}</span>
+                          <span className="shrink-0 text-foreground">{number(page.views)}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        Run the first sync to see which pages are doing the work.
+                      </p>
+                    )}
+                  </div>
+                </ListCard>
+              </div>
+            </div>
+          ) : (
+            <EmptyState
+              title="Website analytics not ready"
+              description="Add the GA4 property and service account credentials, then run the first sync."
+            />
+          )}
+        </Card>
+
         <Card id="meta-business-suite">
           <CardHeader>
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">

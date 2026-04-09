@@ -19,6 +19,7 @@ import { useActiveClient } from "@/lib/client-context";
 import { useClientMemberships } from "@/lib/repositories/use-client-memberships";
 import { useIntegrations } from "@/lib/repositories/use-integrations";
 import { appAccents, useTheme } from "@/lib/theme-context";
+import { useGoogleAnalytics } from "@/lib/use-google-analytics";
 import { useManualMetaPerformance } from "@/lib/use-manual-meta-performance";
 import { useMetaBusinessSuite } from "@/lib/use-meta-business-suite";
 import {
@@ -62,6 +63,12 @@ export default function SettingsPage() {
     syncInsights
   } = useMetaBusinessSuite(activeClient.id);
   const {
+    summary: googleAnalyticsSummary,
+    ready: googleAnalyticsReady,
+    error: googleAnalyticsError,
+    sync: syncGoogleAnalytics
+  } = useGoogleAnalytics(activeClient.id);
+  const {
     config: manualMeta,
     enabledChannels: manualMetaChannels,
     totals: manualMetaTotals,
@@ -81,6 +88,10 @@ export default function SettingsPage() {
   const [mobileNavKeys, setMobileNavKeys] = useState<MobileNavItemKey[]>(defaultMobileNavItemKeys);
   const [metaActionError, setMetaActionError] = useState<string | null>(null);
   const [metaNotice, setMetaNotice] = useState<MetaConnectionNotice | null>(null);
+  const [syncingGoogleAnalytics, setSyncingGoogleAnalytics] = useState(false);
+  const [googleAnalyticsNotice, setGoogleAnalyticsNotice] = useState<MetaConnectionNotice | null>(
+    null
+  );
 
   const readyConnections = connections.filter((connection) => connection.status === "Ready");
 
@@ -214,6 +225,29 @@ export default function SettingsPage() {
     }
   };
 
+  const runGoogleAnalyticsSync = async () => {
+    setSyncingGoogleAnalytics(true);
+    setGoogleAnalyticsNotice(null);
+
+    try {
+      const payload = await syncGoogleAnalytics();
+      setGoogleAnalyticsNotice({
+        tone: "success",
+        title: "Google Analytics sync completed",
+        detail: `Synced property ${payload.sync.propertyId}. Sessions: ${number(payload.summary.sessions)}, users: ${number(payload.summary.users)}, views: ${number(payload.summary.views)}.`
+      });
+    } catch (error) {
+      setGoogleAnalyticsNotice({
+        tone: "error",
+        title: "Google Analytics needs attention",
+        detail:
+          error instanceof Error ? error.message : "Failed to sync Google Analytics."
+      });
+    } finally {
+      setSyncingGoogleAnalytics(false);
+    }
+  };
+
   return (
     <div className="space-y-10">
       <PageHeader
@@ -228,6 +262,7 @@ export default function SettingsPage() {
         <MetricCard href="/settings#workspace-access" label="Client Access" value={number(memberships.length)} detail="People assigned directly to this client account." />
         <MetricCard href="/settings#channel-readiness" label="Ready Connections" value={number(readyConnections.length)} detail="Integrations that are in a usable state today." />
         <MetricCard href="/settings#meta-business-suite" label="Meta Channels Connected" value={number(metaSummary?.connectedChannels ?? 0)} detail="Facebook and Instagram channels connected through Meta Business Suite." />
+        <MetricCard href="/settings#google-analytics" label="GA Sessions" value={number(googleAnalyticsSummary?.sessions ?? 0)} detail="Latest synced website sessions from Google Analytics." />
         <MetricCard href="/settings#channel-readiness" label="Sync Jobs" value={number(syncJobs.length)} detail="Background sync definitions attached to this client." tone="olive" />
       </StatGrid>
 
@@ -409,6 +444,136 @@ export default function SettingsPage() {
       </Card>
 
       <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+        <Card id="google-analytics">
+          <CardHeader>
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <CardDescription>Google Analytics</CardDescription>
+                <CardTitle className="mt-3">Website traffic connection</CardTitle>
+                <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
+                  Pull your website sessions, users, landing pages, and top traffic sources into the app so Performance can connect web activity back to campaigns.
+                </p>
+              </div>
+              <Button
+                disabled={!googleAnalyticsSummary?.readyToSync || syncingGoogleAnalytics}
+                onClick={() => void runGoogleAnalyticsSync()}
+                size="sm"
+                variant="outline"
+              >
+                {syncingGoogleAnalytics ? "Syncing GA4..." : "Sync Google Analytics"}
+              </Button>
+            </div>
+          </CardHeader>
+          {!googleAnalyticsReady ? (
+            <p className="text-sm text-muted-foreground">Loading Google Analytics setup...</p>
+          ) : googleAnalyticsError || !googleAnalyticsSummary ? (
+            <p className="text-sm text-primary">
+              {googleAnalyticsError ?? "Unable to load Google Analytics setup."}
+            </p>
+          ) : (
+            <div className="space-y-4">
+              {googleAnalyticsNotice ? (
+                <div
+                  className={[
+                    "rounded-[1.25rem] border p-4 text-sm",
+                    googleAnalyticsNotice.tone === "success"
+                      ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-900 dark:text-emerald-100"
+                      : "border-primary/30 bg-primary/10 text-primary"
+                  ].join(" ")}
+                >
+                  <p className="font-medium">{googleAnalyticsNotice.title}</p>
+                  <p className="mt-1 leading-6 opacity-85">{googleAnalyticsNotice.detail}</p>
+                </div>
+              ) : null}
+              <ListCard>
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <p className="font-medium text-foreground">
+                      {googleAnalyticsSummary.readyToSync
+                        ? "Google Analytics is ready"
+                        : "Google Analytics still needs configuration"}
+                    </p>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      {googleAnalyticsSummary.nextAction}
+                    </p>
+                    {googleAnalyticsSummary.propertyId ? (
+                      <p className="mt-3 break-all text-xs text-muted-foreground">
+                        Property ID:{" "}
+                        <span className="text-foreground">{googleAnalyticsSummary.propertyId}</span>
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="grid min-w-48 gap-2">
+                    {googleAnalyticsSummary.checks.map((check) => (
+                      <div
+                        className="flex items-center justify-between gap-3 rounded-full border border-border bg-card/70 px-3 py-2 text-xs"
+                        key={check.key}
+                      >
+                        <span className="font-medium text-foreground">{check.label}</span>
+                        <span
+                          className={check.ready ? "text-emerald-600 dark:text-emerald-300" : "text-primary"}
+                        >
+                          {check.ready ? "Ready" : "Missing"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </ListCard>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <ListCard>
+                  <p className="text-sm text-muted-foreground">Sessions</p>
+                  <p className="mt-2 text-2xl font-medium text-foreground">{number(googleAnalyticsSummary.sessions)}</p>
+                </ListCard>
+                <ListCard>
+                  <p className="text-sm text-muted-foreground">Users</p>
+                  <p className="mt-2 text-2xl font-medium text-foreground">{number(googleAnalyticsSummary.users)}</p>
+                </ListCard>
+                <ListCard>
+                  <p className="text-sm text-muted-foreground">Views</p>
+                  <p className="mt-2 text-2xl font-medium text-foreground">{number(googleAnalyticsSummary.views)}</p>
+                </ListCard>
+                <ListCard>
+                  <p className="text-sm text-muted-foreground">Events</p>
+                  <p className="mt-2 text-2xl font-medium text-foreground">{number(googleAnalyticsSummary.events)}</p>
+                </ListCard>
+              </div>
+              <div className="grid gap-3 lg:grid-cols-2">
+                <ListCard>
+                  <p className="font-medium text-foreground">Top traffic sources</p>
+                  <div className="mt-3 space-y-2">
+                    {googleAnalyticsSummary.topSources.length ? (
+                      googleAnalyticsSummary.topSources.map((source) => (
+                        <div className="flex items-center justify-between gap-4 text-sm" key={source.label}>
+                          <span className="text-muted-foreground">{source.label}</span>
+                          <span className="text-foreground">{number(source.sessions)}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Run the first sync to see where your traffic is coming from.</p>
+                    )}
+                  </div>
+                </ListCard>
+                <ListCard>
+                  <p className="font-medium text-foreground">Top landing pages</p>
+                  <div className="mt-3 space-y-2">
+                    {googleAnalyticsSummary.topPages.length ? (
+                      googleAnalyticsSummary.topPages.map((page) => (
+                        <div className="flex items-center justify-between gap-4 text-sm" key={page.path}>
+                          <span className="truncate text-muted-foreground">{page.path}</span>
+                          <span className="shrink-0 text-foreground">{number(page.views)}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Run the first sync to see which pages are doing the work.</p>
+                    )}
+                  </div>
+                </ListCard>
+              </div>
+            </div>
+          )}
+        </Card>
+
         <Card id="meta-business-suite">
           <CardHeader>
             <div>

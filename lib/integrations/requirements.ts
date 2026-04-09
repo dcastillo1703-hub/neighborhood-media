@@ -52,7 +52,7 @@ export function getIntegrationRequirements(provider: IntegrationProvider) {
           satisfied: isIntegrationConfigured(integrationEnv.googleAnalyticsPropertyId)
         },
         {
-          label: "Measurement source validated",
+          label: "First website sync completed",
           satisfied: false
         }
       ] satisfies IntegrationRequirement[];

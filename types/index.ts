@@ -344,6 +344,22 @@ export type IntegrationSetup = {
   }>;
   capabilities?: string[];
   connectionMode?: "meta-business-suite" | "direct";
+  websiteUrl?: string;
+  periodLabel?: string;
+  syncedTotals?: {
+    sessions?: number;
+    users?: number;
+    views?: number;
+    events?: number;
+  };
+  topSources?: Array<{
+    label: string;
+    sessions: number;
+  }>;
+  topPages?: Array<{
+    path: string;
+    views: number;
+  }>;
 };
 
 export type MetaBusinessSuiteConfigCheck = {
@@ -403,6 +419,36 @@ export type MetaBusinessSuiteSummary = {
   totalQueuedPublishJobs: number;
   totalPublishedJobs: number;
   highlights: string[];
+};
+
+export type GoogleAnalyticsConfigCheck = {
+  key: "property-id" | "client-email" | "private-key";
+  label: string;
+  ready: boolean;
+  detail: string;
+};
+
+export type GoogleAnalyticsSummary = {
+  clientId: string;
+  readyToSync: boolean;
+  checks: GoogleAnalyticsConfigCheck[];
+  propertyId?: string;
+  accountLabel: string;
+  lastSyncAt?: string;
+  periodLabel?: string;
+  sessions: number;
+  users: number;
+  views: number;
+  events: number;
+  topSources: Array<{
+    label: string;
+    sessions: number;
+  }>;
+  topPages: Array<{
+    path: string;
+    views: number;
+  }>;
+  nextAction: string;
 };
 
 export type IntegrationConnection = {
