@@ -97,6 +97,31 @@ export function useCampaigns(clientId: string) {
 
       setCampaigns((current) => current.filter((campaign) => campaign.id !== id));
     },
+    async updateCampaign(nextCampaign: Campaign) {
+      const response = await fetch(`/api/campaigns/${nextCampaign.id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(nextCampaign)
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to update campaign.");
+      }
+
+      const payload = (await response.json()) as {
+        campaign: Campaign;
+      };
+
+      setCampaigns((current) =>
+        current.map((campaign) =>
+          campaign.id === payload.campaign.id ? payload.campaign : campaign
+        )
+      );
+
+      return payload;
+    },
     updateCampaignStatus(id: string, status: CampaignStatus) {
       setCampaigns((current) =>
         current.map((campaign) => (campaign.id === id ? { ...campaign, status } : campaign))

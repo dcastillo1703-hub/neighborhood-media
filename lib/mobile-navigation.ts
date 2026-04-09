@@ -5,6 +5,7 @@ export type MobileNavItemKey =
   | "campaigns"
   | "calendar"
   | "performance"
+  | "web-analytics"
   | "operations"
   | "settings";
 
@@ -63,6 +64,12 @@ export const mobileNavOptions: MobileNavOption[] = [
     href: "/performance",
     label: "Growth",
     description: "Performance and ROI reads"
+  },
+  {
+    key: "web-analytics",
+    href: "/web-analytics",
+    label: "Web",
+    description: "Website traffic, sources, pages, and campaign attribution"
   },
   {
     key: "operations",

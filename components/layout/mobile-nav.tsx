@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
   Bell,
+  BarChart3,
   Briefcase,
   CalendarDays,
   CheckCircle2,
@@ -31,6 +32,7 @@ const mobileNavIcons = {
   campaigns: Briefcase,
   calendar: CalendarDays,
   performance: LineChart,
+  "web-analytics": BarChart3,
   operations: ListChecks,
   settings: UserRound
 } satisfies Record<MobileNavItemKey, typeof Home>;

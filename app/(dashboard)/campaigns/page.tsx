@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useActiveClient } from "@/lib/client-context";
+import { composeCampaignMetadata } from "@/lib/domain/campaign-metadata";
 import { summarizeCampaigns } from "@/lib/domain/campaigns";
 import { useAnalyticsSnapshots } from "@/lib/repositories/use-analytics-snapshots";
 import { useAssets } from "@/lib/repositories/use-assets";
@@ -171,9 +172,10 @@ export default function CampaignsPage() {
         linkedBlogPostIds: [],
         linkedAssetIds: [],
         linkedWeeklyMetricIds: [],
-        notes: result.data.notes
-          ? `${result.data.notes}\n\nDefault workspace view: ${defaultView}`
-          : `Default workspace view: ${defaultView}`,
+        notes: composeCampaignMetadata({
+          plainNotes: result.data.notes,
+          defaultView
+        }),
         status: result.data.status
       });
 

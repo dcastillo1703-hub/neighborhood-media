@@ -344,3 +344,37 @@ export async function archiveCampaign(clientId: string, campaignId: string) {
     event
   };
 }
+
+export async function updateCampaign(campaign: Campaign) {
+  const serverModule = await import("@/lib/supabase/server");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const supabase = (await serverModule.getSupabaseServerClient()) as any;
+
+  if (supabase) {
+    const { data, error } = await supabase
+      .from("campaigns")
+      .upsert(mapCampaignInsert(campaign), { onConflict: "id" })
+      .select("*")
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    await replaceCampaignLinks(campaign);
+
+    return mapCampaignRow(data as Parameters<typeof mapCampaignRow>[0], {
+      linkedPostIds: campaign.linkedPostIds,
+      linkedBlogPostIds: campaign.linkedBlogPostIds,
+      linkedAssetIds: campaign.linkedAssetIds,
+      linkedWeeklyMetricIds: campaign.linkedWeeklyMetricIds
+    });
+  }
+
+  const snapshot = getClientSnapshot(campaign.clientId);
+  snapshot.campaigns = snapshot.campaigns.map((item) =>
+    item.id === campaign.id ? campaign : item
+  );
+
+  return campaign;
+}

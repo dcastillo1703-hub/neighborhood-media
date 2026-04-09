@@ -33,6 +33,12 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/lib/auth-context";
 import { useActiveClient } from "@/lib/client-context";
+import {
+  composeCampaignMetadata,
+  getCampaignWebsiteMetadata,
+  parseCampaignMetadata,
+  slugifyCampaignName
+} from "@/lib/domain/campaign-metadata";
 import { getCampaignOverview } from "@/lib/domain/campaigns";
 import { useAnalyticsSnapshots } from "@/lib/repositories/use-analytics-snapshots";
 import { useAssets } from "@/lib/repositories/use-assets";
@@ -44,6 +50,7 @@ import { useWeeklyMetrics } from "@/lib/repositories/use-weekly-metrics";
 import { useTheme } from "@/lib/theme-context";
 import { useApprovalsApi } from "@/lib/use-approvals-api";
 import { useCampaignRoi } from "@/lib/use-campaign-roi";
+import { useGoogleAnalytics } from "@/lib/use-google-analytics";
 import { useOperationsApi } from "@/lib/use-operations-api";
 import { usePublishingApi } from "@/lib/use-publishing-api";
 import { currency, formatShortDate, number } from "@/lib/utils";
@@ -123,8 +130,8 @@ function normalizeCampaignView(value: string | null | undefined): CampaignWorksp
 }
 
 function getDefaultViewFromCampaignNotes(notes: string | null | undefined): CampaignWorkspaceView {
-  const match = notes?.match(/Default workspace view:\s*(overview|list|board|calendar|performance)/i);
-  return normalizeCampaignView(match?.[1]);
+  const parsed = parseCampaignMetadata(notes);
+  return normalizeCampaignView(parsed.defaultView);
 }
 
 function createCampaignPost(clientId: string, campaignId: string): Post {
@@ -180,12 +187,18 @@ export default function CampaignDetailPage() {
   const { profile } = useAuth();
   const { workspace } = useWorkspaceContext();
   const { accent } = useTheme();
-  const { campaigns, ready: campaignsReady, error: campaignsError } = useCampaigns(activeClient.id);
+  const {
+    campaigns,
+    ready: campaignsReady,
+    error: campaignsError,
+    updateCampaign
+  } = useCampaigns(activeClient.id);
   const { posts, addPost, updatePost, deletePost, ready: postsReady, error: postsError } = usePosts(activeClient.id);
   const { blogPosts } = useBlogPosts(activeClient.id);
   const { assets } = useAssets(activeClient.id);
   const { metrics } = useWeeklyMetrics(activeClient.id);
   const { analyticsSnapshots } = useAnalyticsSnapshots(activeClient.id);
+  const { summary: googleAnalyticsSummary } = useGoogleAnalytics(activeClient.id);
   const { approvals, ready: approvalsReady, reviewApproval, prependApproval } = useApprovalsApi(activeClient.id);
   const { jobs, ready: jobsReady, processJob } = usePublishingApi(activeClient.id);
   const {
@@ -239,6 +252,14 @@ export default function CampaignDetailPage() {
   const [goalDraft, setGoalDraft] = useState("");
   const [goalDueDateDraft, setGoalDueDateDraft] = useState("");
   const [goalAssigneeDraft, setGoalAssigneeDraft] = useState("");
+  const [websiteDraft, setWebsiteDraft] = useState({
+    landingPath: "",
+    utmSource: "facebook",
+    utmMedium: "social",
+    utmCampaign: ""
+  });
+  const [savingWebsite, setSavingWebsite] = useState(false);
+  const [websiteError, setWebsiteError] = useState<string | null>(null);
 
   useEffect(() => {
     setRoiDraft(roiSnapshot);
@@ -260,6 +281,7 @@ export default function CampaignDetailPage() {
   const campaignDefaultView = campaign
     ? getDefaultViewFromCampaignNotes(campaign.notes)
     : null;
+  const campaignMetadata = campaign ? parseCampaignMetadata(campaign.notes) : null;
   const overview = useMemo(
     () =>
       campaign
@@ -278,6 +300,14 @@ export default function CampaignDetailPage() {
       setActiveView(campaignDefaultView);
     }
   }, [campaignDefaultView, routeView]);
+
+  useEffect(() => {
+    if (!campaign) {
+      return;
+    }
+
+    setWebsiteDraft(getCampaignWebsiteMetadata(campaign));
+  }, [campaign]);
 
   const linkedPostIds = useMemo(
     () => new Set(overview?.linkedPosts.map((post) => post.id) ?? []),
@@ -315,6 +345,19 @@ export default function CampaignDetailPage() {
     ["Queued", "Processing", "Blocked"].includes(job.status)
   ).length;
   const openCampaignTasks = campaignTasks.filter((task) => task.status !== "Done").length;
+  const websitePreviewPath = websiteDraft.landingPath.startsWith("/")
+    ? websiteDraft.landingPath
+    : websiteDraft.landingPath
+      ? `/${websiteDraft.landingPath}`
+      : "/";
+  const websiteQuery = new URLSearchParams(
+    Object.entries({
+      utm_source: websiteDraft.utmSource.trim(),
+      utm_medium: websiteDraft.utmMedium.trim(),
+      utm_campaign: websiteDraft.utmCampaign.trim() || (campaign ? slugifyCampaignName(campaign.name) : "")
+    }).filter(([, value]) => value)
+  ).toString();
+  const websiteHandoff = `${websitePreviewPath}${websiteQuery ? `?${websiteQuery}` : ""}`;
 
   const scrollToComposer = () => {
     window.setTimeout(() => {
@@ -723,6 +766,36 @@ export default function CampaignDetailPage() {
     roiSummary.totalInvestment > 0 || roiDraft.attributedRevenue > 0
       ? `${campaign.name} has ${currency(roiDraft.attributedRevenue)} in tracked revenue against ${currency(roiSummary.totalInvestment)} in estimated investment, for a ${number(roiSummary.roiMultiple, 1)}x return.`
       : "Add investment and outcome data to turn this campaign into a clear ROI story.";
+  const saveWebsiteAttribution = async () => {
+    if (!campaign) {
+      return;
+    }
+
+    setSavingWebsite(true);
+    setWebsiteError(null);
+
+    try {
+      await updateCampaign({
+        ...campaign,
+        notes: composeCampaignMetadata({
+          plainNotes: campaignMetadata?.plainNotes ?? "",
+          defaultView: campaignDefaultView ?? "overview",
+          website: {
+            landingPath: websitePreviewPath,
+            utmSource: websiteDraft.utmSource,
+            utmMedium: websiteDraft.utmMedium,
+            utmCampaign: websiteDraft.utmCampaign || slugifyCampaignName(campaign.name)
+          }
+        })
+      });
+    } catch (error) {
+      setWebsiteError(
+        error instanceof Error ? error.message : "Unable to save website attribution."
+      );
+    } finally {
+      setSavingWebsite(false);
+    }
+  };
 
   return (
     <div className="space-y-6 pb-28 sm:space-y-7 sm:pb-0">
@@ -1120,7 +1193,9 @@ export default function CampaignDetailPage() {
             </ListCard>
             <ListCard>
               <p className="text-sm text-muted-foreground">Notes</p>
-              <p className="mt-2 text-sm text-foreground">{campaign.notes || "No campaign notes yet."}</p>
+              <p className="mt-2 text-sm text-foreground">
+                {campaignMetadata?.plainNotes || "No campaign notes yet."}
+              </p>
             </ListCard>
           </div>
         </Card>
@@ -1793,6 +1868,98 @@ export default function CampaignDetailPage() {
               <p className="text-sm text-muted-foreground">Linked weekly metrics</p>
               <p className="mt-2 text-2xl text-foreground">{number(overview.linkedMetrics.length)}</p>
             </ListCard>
+          </div>
+        </Card>
+
+        <Card id="website-attribution">
+          <CardHeader>
+            <div>
+              <CardDescription>Website handoff</CardDescription>
+              <CardTitle className="mt-3">Give this campaign a website path you can track</CardTitle>
+            </div>
+          </CardHeader>
+          <div className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-2">
+              <div>
+                <Label>Landing path</Label>
+                <Input
+                  value={websiteDraft.landingPath}
+                  placeholder="/menu/wine"
+                  onChange={(event) =>
+                    setWebsiteDraft((current) => ({
+                      ...current,
+                      landingPath: event.target.value
+                    }))
+                  }
+                />
+              </div>
+              <div>
+                <Label>UTM campaign</Label>
+                <Input
+                  value={websiteDraft.utmCampaign}
+                  placeholder={slugifyCampaignName(campaign.name)}
+                  onChange={(event) =>
+                    setWebsiteDraft((current) => ({
+                      ...current,
+                      utmCampaign: event.target.value
+                    }))
+                  }
+                />
+              </div>
+              <div>
+                <Label>UTM source</Label>
+                <Input
+                  value={websiteDraft.utmSource}
+                  placeholder="facebook"
+                  onChange={(event) =>
+                    setWebsiteDraft((current) => ({
+                      ...current,
+                      utmSource: event.target.value
+                    }))
+                  }
+                />
+              </div>
+              <div>
+                <Label>UTM medium</Label>
+                <Input
+                  value={websiteDraft.utmMedium}
+                  placeholder="social"
+                  onChange={(event) =>
+                    setWebsiteDraft((current) => ({
+                      ...current,
+                      utmMedium: event.target.value
+                    }))
+                  }
+                />
+              </div>
+            </div>
+
+            <ListCard>
+              <p className="text-sm text-muted-foreground">Campaign link preview</p>
+              <p className="mt-2 break-all text-sm text-foreground">{websiteHandoff}</p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Use this handoff when you link from ads, posts, stories, or QR codes so the traffic read stays cleaner in web analytics.
+              </p>
+            </ListCard>
+
+            <ListCard>
+              <p className="text-sm text-muted-foreground">Current website read</p>
+              <p className="mt-2 text-sm text-foreground">
+                {googleAnalyticsSummary?.topPages[0]
+                  ? `${googleAnalyticsSummary.topPages[0].path} is the strongest landing page right now, and ${googleAnalyticsSummary.topSources[0]?.label ?? "Direct / unknown"} is the strongest traffic source.`
+                  : "Sync Google Analytics from the Web Analytics page to compare campaign handoff choices against live website behavior."}
+              </p>
+            </ListCard>
+
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <Button onClick={() => void saveWebsiteAttribution()} disabled={savingWebsite}>
+                {savingWebsite ? "Saving..." : "Save website handoff"}
+              </Button>
+              <Link className={buttonVariants({ variant: "outline" })} href="/web-analytics">
+                Open web analytics
+              </Link>
+            </div>
+            {websiteError ? <p className="text-xs text-primary">{websiteError}</p> : null}
           </div>
         </Card>
 

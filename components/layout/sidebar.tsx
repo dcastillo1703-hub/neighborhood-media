@@ -11,7 +11,8 @@ import {
   PenSquare,
   ShieldCheck,
   Target,
-  TrendingUp
+  TrendingUp,
+  BarChart3
 } from "lucide-react";
 
 import { useActiveClient } from "@/lib/client-context";
@@ -28,6 +29,7 @@ export const navigation: Array<{
   { href: "/content", label: "Content", icon: PenSquare },
   { href: "/approvals", label: "Approvals", icon: CheckSquare },
   { href: "/performance", label: "Performance", icon: TrendingUp },
+  { href: "/web-analytics", label: "Web Analytics", icon: BarChart3 },
   { href: "/settings", label: "Settings", icon: ShieldCheck }
 ];
 

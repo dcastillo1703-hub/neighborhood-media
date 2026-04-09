@@ -1,6 +1,7 @@
 import { ReactNode } from "react";
 
 import { MobileNav } from "@/components/layout/mobile-nav";
+import { MobileTopMenu } from "@/components/layout/mobile-top-menu";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
 
@@ -15,6 +16,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
           <div className="hidden lg:block">
             <Topbar />
           </div>
+          <MobileTopMenu />
           <MobileNav />
           <div className="pb-12">{children}</div>
         </main>
