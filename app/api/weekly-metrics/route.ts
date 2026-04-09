@@ -52,6 +52,8 @@ export async function POST(request: NextRequest) {
     clientId: parsed.data.clientId,
     weekLabel: parsed.data.weekLabel,
     covers: parsed.data.covers,
+    netSales: parsed.data.netSales,
+    totalOrders: parsed.data.totalOrders,
     notes: parsed.data.notes,
     campaignAttribution: parsed.data.campaignAttribution,
     campaignId: parsed.data.campaignId,

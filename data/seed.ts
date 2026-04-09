@@ -19,6 +19,10 @@ import {
   Workspace,
   WorkspaceMember
 } from "@/types";
+import {
+  meamaLatestToastSnapshot,
+  meamaToastWeeklyMetrics
+} from "@/data/toast";
 
 export const neighborhoodWorkspace: Workspace = {
   id: "ws-neighborhood",
@@ -72,12 +76,12 @@ export const seededClients: Client[] = [meamaClient];
 export const meamaSettings: ClientSettings = {
   id: "settings-meama",
   clientId: meamaClient.id,
-  averageCheck: 45,
-  monthlyCovers: 1166,
-  weeklyCovers: 151.625,
+  averageCheck: meamaLatestToastSnapshot.averageCheck,
+  monthlyCovers: meamaLatestToastSnapshot.covers,
+  weeklyCovers: Number((meamaLatestToastSnapshot.covers / 4.33).toFixed(2)),
   daysOpenPerWeek: 7,
   weeksPerMonth: 4.33,
-  guestsPerTable: 2.5,
+  guestsPerTable: meamaLatestToastSnapshot.guestsPerTable,
   defaultGrowthTarget: 10,
   overviewHeadline: "Set the weekly restaurant story here.",
   overviewSummary:
@@ -106,61 +110,7 @@ export const defaultRevenueModel: RevenueModelInput = {
 
 export const seededCampaigns: Campaign[] = [];
 
-export const seededWeeklyMetrics: WeeklyMetric[] = [
-  {
-    id: "wm-1",
-    clientId: meamaClient.id,
-    weekLabel: "Jan 6",
-    covers: 86,
-    campaignAttribution: "Winter prix fixe",
-    notes: "Snow week but strong Friday close.",
-    createdAt: "2026-01-12T10:00:00.000Z"
-  },
-  {
-    id: "wm-2",
-    clientId: meamaClient.id,
-    weekLabel: "Jan 13",
-    covers: 93,
-    campaignAttribution: "Happy hour reels",
-    createdAt: "2026-01-19T10:00:00.000Z"
-  },
-  {
-    id: "wm-3",
-    clientId: meamaClient.id,
-    weekLabel: "Jan 20",
-    covers: 98,
-    campaignAttribution: "Date-night carousel",
-    notes: "Thursday uplift after paid boost.",
-    createdAt: "2026-01-26T10:00:00.000Z"
-  },
-  {
-    id: "wm-4",
-    clientId: meamaClient.id,
-    weekLabel: "Jan 27",
-    covers: 101,
-    campaignAttribution: "Chef feature story",
-    createdAt: "2026-02-02T10:00:00.000Z"
-  },
-  {
-    id: "wm-5",
-    clientId: meamaClient.id,
-    weekLabel: "Feb 3",
-    covers: 95,
-    campaignAttribution: "Slow-night wine pairing",
-    campaignId: "ca-1",
-    createdAt: "2026-02-09T10:00:00.000Z"
-  },
-  {
-    id: "wm-6",
-    clientId: meamaClient.id,
-    weekLabel: "Feb 10",
-    covers: 108,
-    campaignAttribution: "Valentine bookings",
-    campaignId: "ca-1",
-    notes: "Best Tuesday in 8 weeks.",
-    createdAt: "2026-02-16T10:00:00.000Z"
-  }
-];
+export const seededWeeklyMetrics: WeeklyMetric[] = meamaToastWeeklyMetrics;
 
 export const seededAssets: Asset[] = [];
 

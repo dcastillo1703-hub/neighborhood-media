@@ -220,7 +220,7 @@ export default function RevenueModelingPage() {
               <CardTitle className="mt-3">Current week vs target week by day</CardTitle>
             </div>
             <p className="text-sm text-muted-foreground">
-              Built from Meama&apos;s July 2025 day-of-week cover mix, so the weekly target lands where the business actually performs, with Friday and Saturday carrying more demand than Monday or Tuesday.
+              Built from Meama&apos;s Toast daily mix from October 2025 through March 2026, so the weekly target lands where the business actually performs instead of using the old reservation-only baseline.
             </p>
           </CardHeader>
           <ChartShell>

@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useActiveClient } from "@/lib/client-context";
+import { meamaToastMonthlySnapshots } from "@/data/toast";
 import { buildMonthlyPerformance, getLatestWeekSummary } from "@/lib/domain/performance";
 import { useCampaigns } from "@/lib/repositories/use-campaigns";
 import { useClientSettings } from "@/lib/repositories/use-client-settings";
@@ -30,6 +31,8 @@ const createEmptyMetric = (clientId: string): WeeklyMetric => ({
   clientId,
   weekLabel: "",
   covers: 0,
+  netSales: 0,
+  totalOrders: 0,
   notes: "",
   campaignAttribution: ""
 });
@@ -63,8 +66,8 @@ export default function WeeklyPerformancePage() {
       ),
     [metrics, settings.averageCheck, settings.guestsPerTable, showFullMonthlyTimeline]
   );
-  const spreadsheetMonthlySnapshot =
-    monthlyPerformance.find((entry) => entry.monthLabel === "Jul 2025") ?? null;
+  const latestToastMonthlySnapshot =
+    meamaToastMonthlySnapshots[meamaToastMonthlySnapshots.length - 1] ?? null;
 
   const resetDraft = () => {
     setDraft(createEmptyMetric(activeClient.id));
@@ -165,6 +168,29 @@ export default function WeeklyPerformancePage() {
               {errors.covers ? <p className="mt-2 text-xs text-primary">{errors.covers}</p> : null}
             </div>
             <div>
+              <Label>Net Sales</Label>
+              <Input
+                value={draft.netSales || ""}
+                type="number"
+                step="0.01"
+                onChange={(event) =>
+                  setDraft((current) => ({ ...current, netSales: Number(event.target.value) }))
+                }
+                placeholder="4850.25"
+              />
+            </div>
+            <div>
+              <Label>Total Orders / Tables</Label>
+              <Input
+                value={draft.totalOrders || ""}
+                type="number"
+                onChange={(event) =>
+                  setDraft((current) => ({ ...current, totalOrders: Number(event.target.value) }))
+                }
+                placeholder="42"
+              />
+            </div>
+            <div>
               <Label>Campaign Attribution</Label>
               <Input
                 value={draft.campaignAttribution}
@@ -223,6 +249,11 @@ export default function WeeklyPerformancePage() {
                       <p className="mt-1 text-sm text-muted-foreground">
                         {number(metric.covers)} covers, {currency(metric.revenue)} revenue
                       </p>
+                      {typeof metric.totalOrders === "number" ? (
+                        <p className="mt-2 text-sm text-muted-foreground">
+                          {number(metric.totalOrders)} orders / tables captured by Toast
+                        </p>
+                      ) : null}
                       <p className="mt-2 text-sm text-primary">
                         {metric.wowChange >= 0 ? "+" : ""}
                         {number(metric.wowChange)} covers vs prior week
@@ -323,13 +354,13 @@ export default function WeeklyPerformancePage() {
             <CardDescription>Monthly Timeline</CardDescription>
             <CardTitle className="mt-3">Monthly covers and average tables</CardTitle>
           </div>
-          {spreadsheetMonthlySnapshot ? (
+          {latestToastMonthlySnapshot ? (
             <div className="mt-4 rounded-2xl border border-border/60 bg-card/65 px-4 py-3 text-sm">
               <p className="text-muted-foreground">
-                {spreadsheetMonthlySnapshot.monthLabel} snapshot from the daily covers sheet
+                {latestToastMonthlySnapshot.monthLabel} snapshot from the Toast sales summary
               </p>
               <p className="mt-2 font-medium text-foreground">
-                {number(spreadsheetMonthlySnapshot.covers)} covers · {number(spreadsheetMonthlySnapshot.averageTables, 1)} estimated tables
+                {number(latestToastMonthlySnapshot.covers)} covers · {number(latestToastMonthlySnapshot.orders)} orders / tables · {currency(latestToastMonthlySnapshot.revenue)} net sales
               </p>
             </div>
           ) : null}

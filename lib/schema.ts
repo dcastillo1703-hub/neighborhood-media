@@ -66,6 +66,8 @@ create table weekly_metrics (
   client_id text not null references clients(id) on delete cascade,
   week_label text not null,
   covers integer not null,
+  net_sales numeric(12,2),
+  total_orders integer,
   notes text,
   campaign_attribution text,
   campaign_id text,

@@ -1,13 +1,5 @@
 import { WeeklyMetric } from "@/types";
-
-const MEAMA_SPREADSHEET_MONTHS = [
-  {
-    monthKey: "2025-07",
-    monthLabel: "Jul 2025",
-    covers: 1166,
-    weeks: 4
-  }
-];
+import { meamaToastMonthlySnapshots } from "@/data/toast";
 
 export function calculateWeeklyRevenue(covers: number, averageCheck: number) {
   return covers * averageCheck;
@@ -17,11 +9,12 @@ export function buildWeeklyPerformance(metrics: WeeklyMetric[], averageCheck: nu
   return metrics.map((metric, index) => {
     const previous = metrics[index - 1];
     const revenue = calculateWeeklyRevenue(metric.covers, averageCheck);
+    const resolvedRevenue = metric.netSales ?? revenue;
     const change = previous ? metric.covers - previous.covers : 0;
 
     return {
       ...metric,
-      revenue,
+      revenue: resolvedRevenue,
       wowChange: change,
       wowChangePercent: previous ? (change / previous.covers) * 100 : 0
     };
@@ -51,7 +44,7 @@ export function buildMonthlyPerformance(
 ) {
   const grouped = new Map<string, { monthKey: string; monthLabel: string; covers: number; weeks: number }>();
   const metricDates = metrics.map(resolveMetricDate);
-  const spreadsheetDates = MEAMA_SPREADSHEET_MONTHS.map(
+  const spreadsheetDates = meamaToastMonthlySnapshots.map(
     (entry) => new Date(`${entry.monthKey}-01T00:00:00`)
   );
   const allDates = [...metricDates, ...spreadsheetDates];
@@ -83,13 +76,13 @@ export function buildMonthlyPerformance(
 
   const combined = new Map(grouped);
 
-  MEAMA_SPREADSHEET_MONTHS.forEach((entry) => {
+  meamaToastMonthlySnapshots.forEach((entry) => {
     const existing = combined.get(entry.monthKey);
     combined.set(entry.monthKey, {
       monthKey: entry.monthKey,
       monthLabel: entry.monthLabel,
       covers: existing ? existing.covers : entry.covers,
-      weeks: existing ? existing.weeks : entry.weeks
+      weeks: existing ? existing.weeks : 4
     });
   });
 
@@ -110,11 +103,14 @@ export function buildMonthlyPerformance(
       covers: 0,
       weeks: 0
     };
+    const toastSnapshot = meamaToastMonthlySnapshots.find((snapshot) => snapshot.monthKey === monthKey);
 
     return {
       ...entry,
-      revenue: calculateWeeklyRevenue(entry.covers, averageCheck),
-      averageTables: guestsPerTable > 0 ? entry.covers / guestsPerTable : 0
+      revenue: toastSnapshot?.revenue ?? calculateWeeklyRevenue(entry.covers, averageCheck),
+      averageTables:
+        toastSnapshot?.orders ??
+        (guestsPerTable > 0 ? entry.covers / guestsPerTable : 0)
     };
   });
 

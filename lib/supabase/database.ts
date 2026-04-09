@@ -705,6 +705,8 @@ export type Database = {
           client_id: string;
           week_label: string;
           covers: number;
+          net_sales: number | null;
+          total_orders: number | null;
           notes: string | null;
           campaign_attribution: string | null;
           campaign_id: string | null;
@@ -715,6 +717,8 @@ export type Database = {
           client_id: string;
           week_label: string;
           covers: number;
+          net_sales?: number | null;
+          total_orders?: number | null;
           notes?: string | null;
           campaign_attribution?: string | null;
           campaign_id?: string | null;

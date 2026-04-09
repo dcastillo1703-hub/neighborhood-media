@@ -1,20 +1,11 @@
-import { DayOfWeek, RevenueModelInput, RevenueModelOutput, WeekdayProjection } from "@/types";
-
-const MEAMA_WEEKDAY_BASELINE: Array<{ day: DayOfWeek; averageCovers: number }> = [
-  { day: "Monday", averageCovers: 8.375 },
-  { day: "Tuesday", averageCovers: 5.125 },
-  { day: "Wednesday", averageCovers: 14.875 },
-  { day: "Thursday", averageCovers: 10.75 },
-  { day: "Friday", averageCovers: 51 },
-  { day: "Saturday", averageCovers: 54.625 },
-  { day: "Sunday", averageCovers: 6.875 }
-];
+import { RevenueModelInput, RevenueModelOutput, WeekdayProjection } from "@/types";
+import { meamaToastWeekdayBaseline } from "@/data/toast";
 
 function buildWeekdayBreakdown(input: RevenueModelInput, weeklyCovers: number): WeekdayProjection[] {
-  const totalBaselineCovers = MEAMA_WEEKDAY_BASELINE.reduce((sum, day) => sum + day.averageCovers, 0);
+  const totalBaselineCovers = meamaToastWeekdayBaseline.reduce((sum, day) => sum + day.averageCovers, 0);
   const growthMultiplier = 1 + input.growthTarget / 100;
 
-  return MEAMA_WEEKDAY_BASELINE.map((entry) => {
+  return meamaToastWeekdayBaseline.map((entry) => {
     const shareOfWeek = entry.averageCovers / totalBaselineCovers;
     const currentCovers = weeklyCovers * shareOfWeek;
     const projectedCovers = currentCovers * growthMultiplier;

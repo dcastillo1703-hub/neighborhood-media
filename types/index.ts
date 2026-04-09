@@ -224,6 +224,8 @@ export type WeeklyMetric = {
   clientId: string;
   weekLabel: string;
   covers: number;
+  netSales?: number;
+  totalOrders?: number;
   notes?: string;
   campaignAttribution?: string;
   campaignId?: string;
