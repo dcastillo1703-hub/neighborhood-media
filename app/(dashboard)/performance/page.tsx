@@ -12,7 +12,11 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { calculateRevenueModel } from "@/lib/calculations";
 import { useActiveClient } from "@/lib/client-context";
-import { buildMonthlyPerformance, getLatestWeekSummary } from "@/lib/domain/performance";
+import {
+  buildMonthlyPerformance,
+  buildToastOpportunitySummary,
+  getLatestWeekSummary
+} from "@/lib/domain/performance";
 import {
   summarizeCampaignRecaps,
   summarizeChannelContribution,
@@ -42,6 +46,7 @@ export default function PerformancePage() {
 
   const revenueModel = calculateRevenueModel(revenueModelDefaults);
   const latestWeek = getLatestWeekSummary(metrics, settings.averageCheck);
+  const toastOpportunities = buildToastOpportunitySummary(metrics, settings.averageCheck);
   const monthlyPerformance = buildMonthlyPerformance(
     metrics,
     settings.averageCheck,
@@ -152,8 +157,10 @@ export default function PerformancePage() {
               <p className="mt-2 text-xl font-medium text-foreground">{number(roiSummary.covers)}</p>
             </div>
             <div className="rounded-2xl bg-muted/50 px-4 py-3">
-              <p className="text-xs text-muted-foreground">Top campaign</p>
-              <p className="mt-2 truncate text-xl font-medium text-foreground">{topCampaign?.revenue ? topCampaign.name : "None yet"}</p>
+              <p className="text-xs text-muted-foreground">Biggest opportunity</p>
+              <p className="mt-2 truncate text-xl font-medium text-foreground">
+                {toastOpportunities.weakestDay.day}
+              </p>
             </div>
           </div>
         </div>
@@ -192,7 +199,8 @@ export default function PerformancePage() {
                 {currency(latestWeek.latestRevenue)}
               </p>
               <p className="mt-2 text-sm text-muted-foreground">
-                Derived from the most recent weekly covers record.
+                {toastOpportunities.weekOverWeekRevenueChange >= 0 ? "+" : ""}
+                {currency(toastOpportunities.weekOverWeekRevenueChange)} vs the prior week.
               </p>
             </ListCard>
             <ListCard>
@@ -207,24 +215,65 @@ export default function PerformancePage() {
               </p>
             </ListCard>
             <ListCard>
-              <p className="text-sm text-muted-foreground">Annual Upside</p>
+              <p className="text-sm text-muted-foreground">Month-over-Month Revenue</p>
               <p className="mt-2 text-2xl text-foreground">
-                {currency(revenueModel.annualUpside)}
+                {toastOpportunities.monthOverMonthRevenueChange >= 0 ? "+" : ""}
+                {currency(toastOpportunities.monthOverMonthRevenueChange)}
               </p>
               <p className="mt-2 text-sm text-muted-foreground">
-                Value if the current growth target sustains for twelve months.
+                {currentMonth
+                  ? `${currentMonth.monthLabel} compared with the previous Toast month.`
+                  : "Add more weekly records to build the monthly timeline."}
               </p>
             </ListCard>
             <ListCard>
-              <p className="text-sm text-muted-foreground">Peak Service Night</p>
-              <p className="mt-2 text-2xl text-foreground">{revenueModel.busiestDay.day}</p>
+              <p className="text-sm text-muted-foreground">Biggest Opportunity Night</p>
+              <p className="mt-2 text-2xl text-foreground">{toastOpportunities.weakestDay.day}</p>
               <p className="mt-2 text-sm text-muted-foreground">
-                {number(revenueModel.busiestDay.projectedTables, 1)} projected tables at target.
+                Baseline is about {number(toastOpportunities.weakestDay.averageCovers, 1)} covers and{" "}
+                {currency(toastOpportunities.weakestDay.averageRevenue)} in Toast revenue.
               </p>
             </ListCard>
           </div>
         </Card>
 
+        <Card id="opportunity-flags">
+          <CardHeader>
+            <div>
+              <CardDescription>Opportunity Flags</CardDescription>
+              <CardTitle className="mt-3">Where the next growth move should go</CardTitle>
+            </div>
+          </CardHeader>
+          <div className="space-y-3">
+            <ListCard>
+              <p className="text-sm leading-6 text-muted-foreground">{toastOpportunities.recommendation}</p>
+            </ListCard>
+            {toastOpportunities.flags.map((flag) => (
+              <ListCard key={flag.id}>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="font-medium text-foreground">{flag.title}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">{flag.detail}</p>
+                  </div>
+                  <p
+                    className={
+                      flag.tone === "positive"
+                        ? "text-sm text-emerald-600"
+                        : flag.tone === "warning"
+                          ? "text-sm text-amber-600"
+                          : "text-sm text-foreground"
+                    }
+                  >
+                    {flag.value}
+                  </p>
+                </div>
+              </ListCard>
+            ))}
+          </div>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <Card id="source-mix">
           <CardHeader>
             <div>

@@ -31,6 +31,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useActiveClient } from "@/lib/client-context";
 import { calculateRevenueModel } from "@/lib/calculations";
 import { getCampaignOverview } from "@/lib/domain/campaigns";
+import { buildToastOpportunitySummary } from "@/lib/domain/performance";
 import { useAnalyticsSnapshots } from "@/lib/repositories/use-analytics-snapshots";
 import { useAssets } from "@/lib/repositories/use-assets";
 import { useBlogPosts } from "@/lib/repositories/use-blog-posts";
@@ -261,6 +262,10 @@ export default function DashboardPage() {
   const leadCampaign = pinnedCampaign
     ? getCampaignOverview(pinnedCampaign, posts, blogPosts, assets, metrics, analyticsSnapshots)
     : null;
+  const toastOpportunities = useMemo(
+    () => buildToastOpportunitySummary(metrics, settings.averageCheck),
+    [metrics, settings.averageCheck]
+  );
   const relevantCampaigns = useMemo(
     () =>
       [...campaigns]
@@ -1076,6 +1081,33 @@ export default function DashboardPage() {
               </CardHeader>
               {activeHomeCampaigns.length ? (
                 <div className="space-y-3">
+                  <div className="rounded-3xl border border-border/70 bg-card/60 p-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <p className="font-medium text-foreground">Most relevant right now</p>
+                        <p className="mt-1 line-clamp-3 text-sm leading-6 text-muted-foreground">
+                          {toastOpportunities.recommendation}
+                        </p>
+                      </div>
+                      <Link
+                        className="shrink-0 text-sm font-medium text-primary"
+                        href={"/performance#business-snapshot" as Route}
+                      >
+                        Open
+                      </Link>
+                    </div>
+                    <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                      {toastOpportunities.flags.map((flag) => (
+                        <div className="rounded-2xl bg-muted/50 px-3 py-3" key={flag.id}>
+                          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                            {flag.title}
+                          </p>
+                          <p className="mt-2 text-lg font-semibold text-foreground">{flag.value}</p>
+                          <p className="mt-1 text-xs leading-5 text-muted-foreground">{flag.detail}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                   {homeFacebookSummary ? (
                     <div className="rounded-3xl border border-border/70 bg-[var(--app-accent-soft)]/55 p-4">
                       <div className="flex items-start justify-between gap-4">

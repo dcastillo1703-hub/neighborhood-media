@@ -1,5 +1,30 @@
 import { WeeklyMetric } from "@/types";
-import { meamaToastMonthlySnapshots } from "@/data/toast";
+import { meamaToastMonthlySnapshots, meamaToastWeekdayBaseline } from "@/data/toast";
+
+export type OpportunityFlagTone = "positive" | "warning" | "neutral";
+
+export type OpportunityFlag = {
+  id: string;
+  title: string;
+  value: string;
+  detail: string;
+  tone: OpportunityFlagTone;
+};
+
+export type ToastOpportunitySummary = {
+  latestWeekRevenue: number;
+  latestWeekCovers: number;
+  weekOverWeekRevenueChange: number;
+  weekOverWeekCoversChange: number;
+  weekOverWeekRevenuePercent: number;
+  monthOverMonthRevenueChange: number;
+  monthOverMonthRevenuePercent: number;
+  monthOverMonthCoverChange: number;
+  weakestDay: (typeof meamaToastWeekdayBaseline)[number];
+  strongestDay: (typeof meamaToastWeekdayBaseline)[number];
+  recommendation: string;
+  flags: OpportunityFlag[];
+};
 
 export function calculateWeeklyRevenue(covers: number, averageCheck: number) {
   return covers * averageCheck;
@@ -140,5 +165,89 @@ export function getLatestWeekSummary(metrics: WeeklyMetric[], averageCheck: numb
     latestWowChange: latest?.wowChange ?? 0,
     average: rollingAverage(metrics),
     best: bestWeek(metrics)
+  };
+}
+
+export function buildToastOpportunitySummary(
+  metrics: WeeklyMetric[],
+  averageCheck: number
+): ToastOpportunitySummary {
+  const performance = buildWeeklyPerformance(metrics, averageCheck);
+  const latestWeek = performance[performance.length - 1];
+  const previousWeek = performance[performance.length - 2];
+  const latestMonth = meamaToastMonthlySnapshots[meamaToastMonthlySnapshots.length - 1];
+  const previousMonth = meamaToastMonthlySnapshots[meamaToastMonthlySnapshots.length - 2];
+  const weakestDay = [...meamaToastWeekdayBaseline].sort(
+    (left, right) => left.averageRevenue - right.averageRevenue
+  )[0];
+  const strongestDay = [...meamaToastWeekdayBaseline].sort(
+    (left, right) => right.averageRevenue - left.averageRevenue
+  )[0];
+  const latestWeekRevenue = latestWeek?.revenue ?? 0;
+  const latestWeekCovers = latestWeek?.covers ?? 0;
+  const previousWeekRevenue = previousWeek?.revenue ?? 0;
+  const weekOverWeekRevenueChange = latestWeekRevenue - previousWeekRevenue;
+  const weekOverWeekCoversChange = latestWeekCovers - (previousWeek?.covers ?? 0);
+  const weekOverWeekRevenuePercent =
+    previousWeekRevenue > 0 ? (weekOverWeekRevenueChange / previousWeekRevenue) * 100 : 0;
+  const monthOverMonthRevenueChange = latestMonth.revenue - previousMonth.revenue;
+  const monthOverMonthRevenuePercent =
+    previousMonth.revenue > 0
+      ? (monthOverMonthRevenueChange / previousMonth.revenue) * 100
+      : 0;
+  const monthOverMonthCoverChange = latestMonth.covers - previousMonth.covers;
+
+  const flags: OpportunityFlag[] = [
+    {
+      id: "month-trend",
+      title: monthOverMonthRevenueChange >= 0 ? "Monthly revenue lift" : "Monthly revenue dip",
+      value: `${monthOverMonthRevenueChange >= 0 ? "+" : ""}$${Math.round(
+        monthOverMonthRevenueChange
+      ).toLocaleString()}`,
+      detail: `${latestMonth.monthLabel} vs ${previousMonth.monthLabel} in Toast net sales.`,
+      tone: monthOverMonthRevenueChange >= 0 ? "positive" : "warning"
+    },
+    {
+      id: "soft-night",
+      title: "Biggest opportunity night",
+      value: weakestDay.day,
+      detail: `This is the softest recurring night at about $${Math.round(
+        weakestDay.averageRevenue
+      ).toLocaleString()} and ${Math.round(weakestDay.averageCovers)} covers.`,
+      tone: "warning"
+    },
+    {
+      id: "anchor-night",
+      title: "Strongest recurring night",
+      value: strongestDay.day,
+      detail: `This is the anchor night to protect and learn from at about $${Math.round(
+        strongestDay.averageRevenue
+      ).toLocaleString()} and ${Math.round(strongestDay.averageCovers)} covers.`,
+      tone: "positive"
+    }
+  ];
+
+  const recommendation =
+    monthOverMonthRevenueChange >= 0
+      ? `${latestMonth.monthLabel} outperformed ${previousMonth.monthLabel} by $${Math.round(
+          monthOverMonthRevenueChange
+        ).toLocaleString()}. Keep pressure on ${weakestDay.day.toLowerCase()} with a focused campaign while protecting ${strongestDay.day.toLowerCase()} as the dependable revenue anchor.`
+      : `${latestMonth.monthLabel} fell behind ${previousMonth.monthLabel} by $${Math.round(
+          Math.abs(monthOverMonthRevenueChange)
+        ).toLocaleString()}. The clearest recovery opportunity is ${weakestDay.day.toLowerCase()}, while ${strongestDay.day.toLowerCase()} remains the baseline to measure against.`;
+
+  return {
+    latestWeekRevenue,
+    latestWeekCovers,
+    weekOverWeekRevenueChange,
+    weekOverWeekCoversChange,
+    weekOverWeekRevenuePercent,
+    monthOverMonthRevenueChange,
+    monthOverMonthRevenuePercent,
+    monthOverMonthCoverChange,
+    weakestDay,
+    strongestDay,
+    recommendation,
+    flags
   };
 }
