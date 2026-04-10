@@ -29,6 +29,11 @@ import {
   type MobileNavItemKey
 } from "@/lib/mobile-navigation";
 import { useClientPreferences } from "@/lib/repositories/use-client-preferences";
+import {
+  computeNextSyncRun,
+  syncScheduleOptions,
+  type SyncScheduleOption
+} from "@/lib/integrations/schedule";
 import { useWorkspaceContext } from "@/lib/workspace-context";
 import { currency, number } from "@/lib/utils";
 
@@ -52,7 +57,9 @@ export default function SettingsPage() {
     connections,
     syncJobs,
     ready: integrationsReady,
-    error: integrationsError
+    error: integrationsError,
+    updateSyncJob,
+    runSyncJob
   } = useIntegrations(activeClient.id);
   const {
     summary: metaSummary,
@@ -93,7 +100,30 @@ export default function SettingsPage() {
     null
   );
 
+  const formatSyncTimestamp = (value?: string | null) => {
+    if (!value) {
+      return "Not scheduled yet";
+    }
+
+    const parsed = new Date(value);
+
+    if (Number.isNaN(parsed.getTime())) {
+      return value;
+    }
+
+    return new Intl.DateTimeFormat("en-US", {
+      month: "numeric",
+      day: "numeric",
+      year: "2-digit",
+      hour: "numeric",
+      minute: "2-digit"
+    }).format(parsed);
+  };
+
   const readyConnections = connections.filter((connection) => connection.status === "Ready");
+  const googleAnalyticsSyncJob = syncJobs.find(
+    (job) => job.provider === "google-analytics" && job.jobType === "sync-insights"
+  );
 
   useEffect(() => {
     setMobileNavKeys(preferences.mobileNavKeys as MobileNavItemKey[]);
@@ -242,6 +272,52 @@ export default function SettingsPage() {
         title: "Google Analytics needs attention",
         detail:
           error instanceof Error ? error.message : "Failed to sync Google Analytics."
+      });
+    } finally {
+      setSyncingGoogleAnalytics(false);
+    }
+  };
+
+  const updateGoogleAnalyticsSchedule = async (schedule: SyncScheduleOption) => {
+    if (!googleAnalyticsSyncJob) {
+      return;
+    }
+
+    await updateSyncJob(googleAnalyticsSyncJob.id, {
+      ...googleAnalyticsSyncJob,
+      schedule,
+      status: googleAnalyticsSummary?.readyToSync ? "Ready" : "Blocked",
+      nextRunAt: computeNextSyncRun(schedule),
+      detail: `Scheduled to run ${schedule.toLowerCase()}.`
+    });
+
+    setGoogleAnalyticsNotice({
+      tone: "success",
+      title: "Google Analytics schedule updated",
+      detail: `The website analytics sync will now run ${schedule.toLowerCase()}.`
+    });
+  };
+
+  const runScheduledGoogleAnalyticsJob = async () => {
+    if (!googleAnalyticsSyncJob) {
+      return;
+    }
+
+    setSyncingGoogleAnalytics(true);
+    setGoogleAnalyticsNotice(null);
+
+    try {
+      const payload = await runSyncJob(googleAnalyticsSyncJob.id);
+      setGoogleAnalyticsNotice({
+        tone: "success",
+        title: "Scheduled GA sync completed",
+        detail: payload.job.detail
+      });
+    } catch (error) {
+      setGoogleAnalyticsNotice({
+        tone: "error",
+        title: "Scheduled GA sync needs attention",
+        detail: error instanceof Error ? error.message : "Unable to run scheduled GA sync."
       });
     } finally {
       setSyncingGoogleAnalytics(false);
@@ -570,6 +646,67 @@ export default function SettingsPage() {
                   </div>
                 </ListCard>
               </div>
+              <ListCard>
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <p className="font-medium text-foreground">Scheduled sync</p>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      Keep GA4 fresh without constant browser refreshes. The app will also run the sync automatically when it is due and someone opens a relevant page.
+                    </p>
+                    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                      <span>
+                        Next run:{" "}
+                        <span className="text-foreground">
+                          {formatSyncTimestamp(googleAnalyticsSummary.syncJob?.nextRunAt)}
+                        </span>
+                      </span>
+                      {googleAnalyticsSummary.syncJob?.lastRunAt ? (
+                        <span>
+                          Last run:{" "}
+                          <span className="text-foreground">
+                            {formatSyncTimestamp(googleAnalyticsSummary.syncJob.lastRunAt)}
+                          </span>
+                        </span>
+                      ) : null}
+                      {googleAnalyticsSummary.syncJob ? (
+                        <span
+                          className={[
+                            "rounded-full px-2.5 py-1 font-medium uppercase tracking-[0.14em]",
+                            googleAnalyticsSummary.syncJob.due
+                              ? "bg-primary/10 text-primary"
+                              : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                          ].join(" ")}
+                        >
+                          {googleAnalyticsSummary.syncJob.due ? "Due now" : "On schedule"}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="grid gap-3 lg:min-w-[15rem]">
+                    <select
+                      className="h-11 rounded-2xl border border-border bg-card/70 px-4 text-sm text-foreground"
+                      value={googleAnalyticsSyncJob?.schedule ?? "Every 6 hours"}
+                      onChange={(event) =>
+                        void updateGoogleAnalyticsSchedule(event.target.value as SyncScheduleOption)
+                      }
+                    >
+                      {syncScheduleOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                    <Button
+                      disabled={!googleAnalyticsSummary.readyToSync || syncingGoogleAnalytics}
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void runScheduledGoogleAnalyticsJob()}
+                    >
+                      {syncingGoogleAnalytics ? "Running..." : "Run scheduled sync now"}
+                    </Button>
+                  </div>
+                </div>
+              </ListCard>
             </div>
           )}
         </Card>

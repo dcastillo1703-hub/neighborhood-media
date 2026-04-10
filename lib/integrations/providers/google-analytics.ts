@@ -36,6 +36,12 @@ export const googleAnalyticsAdapter: IntegrationAdapter = {
     };
   },
   async sync(_job, connection) {
-    return this.getConnectionStatus(connection);
+    return {
+      ...this.getConnectionStatus(connection),
+      setup: {
+        ...connection?.setup,
+        lastCheckedAt: new Date().toISOString()
+      }
+    };
   }
 };

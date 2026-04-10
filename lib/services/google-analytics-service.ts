@@ -2,6 +2,7 @@ import { createSign } from "crypto";
 
 import { composeIntegrationNotes, parseIntegrationNotes } from "@/lib/domain/integration-notes";
 import { integrationEnv } from "@/lib/integrations/config";
+import { computeNextSyncRun, isSyncDue } from "@/lib/integrations/schedule";
 import {
   mapAnalyticsSnapshotInsert,
   mapAnalyticsSnapshotRow,
@@ -13,7 +14,8 @@ import type {
   AnalyticsSnapshot,
   GoogleAnalyticsCampaignImpact,
   GoogleAnalyticsSummary,
-  IntegrationConnection
+  IntegrationConnection,
+  SyncJob
 } from "@/types";
 
 type GoogleAnalyticsTokenResponse = {
@@ -270,9 +272,91 @@ async function persistGoogleAnalyticsSnapshot(snapshot: AnalyticsSnapshot) {
   return mapAnalyticsSnapshotRow(data as Parameters<typeof mapAnalyticsSnapshotRow>[0]);
 }
 
+async function getOrCreateGoogleAnalyticsSyncJob(clientId: string) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const supabase = (await getSupabaseServerClient()) as any;
+
+  if (!supabase) {
+    throw new Error("Supabase is required to manage Google Analytics sync jobs.");
+  }
+
+  const { data: existingRow, error: existingError } = await supabase
+    .from("sync_jobs")
+    .select("*")
+    .eq("client_id", clientId)
+    .eq("provider", "google-analytics")
+    .eq("job_type", "sync-insights")
+    .maybeSingle();
+
+  if (existingError) {
+    throw existingError;
+  }
+
+  if (existingRow) {
+    return {
+      id: String(existingRow.id),
+      clientId: String(existingRow.client_id),
+      provider: "google-analytics" as const,
+      jobType: "sync-insights" as const,
+      schedule: String(existingRow.schedule),
+      status: existingRow.status as SyncJob["status"],
+      lastRunAt: existingRow.last_run_at ?? undefined,
+      nextRunAt: existingRow.next_run_at ?? undefined,
+      detail: String(existingRow.detail)
+    };
+  }
+
+  const job: SyncJob = {
+    id: `sj-ga-${clientId}`,
+    clientId,
+    provider: "google-analytics",
+    jobType: "sync-insights",
+    schedule: "Every 6 hours",
+    status: "Ready",
+    nextRunAt: computeNextSyncRun("Every 6 hours"),
+    detail: "Runs Google Analytics sync on a predictable cadence."
+  };
+
+  const { data, error } = await supabase
+    .from("sync_jobs")
+    .upsert(
+      {
+        id: job.id,
+        client_id: job.clientId,
+        provider: job.provider,
+        job_type: job.jobType,
+        schedule: job.schedule,
+        status: job.status,
+        last_run_at: job.lastRunAt ?? null,
+        next_run_at: job.nextRunAt ?? null,
+        detail: job.detail
+      },
+      { onConflict: "id" }
+    )
+    .select("*")
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  return {
+    id: String(data.id),
+    clientId: String(data.client_id),
+    provider: "google-analytics" as const,
+    jobType: "sync-insights" as const,
+    schedule: String(data.schedule),
+    status: data.status as SyncJob["status"],
+    lastRunAt: data.last_run_at ?? undefined,
+    nextRunAt: data.next_run_at ?? undefined,
+    detail: String(data.detail)
+  };
+}
+
 function buildSummaryFromConnection(
   clientId: string,
-  connection: IntegrationConnection
+  connection: IntegrationConnection,
+  syncJob?: SyncJob
 ): GoogleAnalyticsSummary {
   const checks = buildGoogleAnalyticsChecks();
   const readyToSync = checks.every((check) => check.ready);
@@ -295,6 +379,16 @@ function buildSummaryFromConnection(
     events: totals?.events ?? 0,
     topSources: connection.setup?.topSources ?? [],
     topPages: connection.setup?.topPages ?? [],
+    syncJob: syncJob
+      ? {
+          id: syncJob.id,
+          schedule: syncJob.schedule,
+          lastRunAt: syncJob.lastRunAt,
+          nextRunAt: syncJob.nextRunAt,
+          due: isSyncDue(syncJob.nextRunAt),
+          status: syncJob.status
+        }
+      : undefined,
     nextAction: readyToSync
       ? connection.lastSyncAt
         ? "Google Analytics is connected. Sync again any time to refresh the website read."
@@ -304,8 +398,11 @@ function buildSummaryFromConnection(
 }
 
 export async function getGoogleAnalyticsSummary(clientId: string) {
-  const connection = await getOrCreateGoogleAnalyticsConnection(clientId);
-  return buildSummaryFromConnection(clientId, connection);
+  const [connection, syncJob] = await Promise.all([
+    getOrCreateGoogleAnalyticsConnection(clientId),
+    getOrCreateGoogleAnalyticsSyncJob(clientId)
+  ]);
+  return buildSummaryFromConnection(clientId, connection, syncJob);
 }
 
 export async function getGoogleAnalyticsCampaignImpact(input: {
@@ -441,7 +538,10 @@ export async function syncGoogleAnalytics(clientId: string): Promise<GoogleAnaly
     throw new Error("Google Analytics still needs configuration.");
   }
 
-  const connection = await getOrCreateGoogleAnalyticsConnection(clientId);
+  const [connection, syncJob] = await Promise.all([
+    getOrCreateGoogleAnalyticsConnection(clientId),
+    getOrCreateGoogleAnalyticsSyncJob(clientId)
+  ]);
   const accessToken = await fetchGoogleAnalyticsAccessToken();
   const totalsResponse = await runGoogleAnalyticsReport(accessToken, {
     dateRanges: [{ startDate: "30daysAgo", endDate: "today" }],
@@ -526,6 +626,28 @@ export async function syncGoogleAnalytics(clientId: string): Promise<GoogleAnaly
       connectionMode: "direct"
     }
   });
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const supabase = (await getSupabaseServerClient()) as any;
+
+  if (supabase && syncJob) {
+    await supabase
+      .from("sync_jobs")
+      .upsert(
+        {
+          id: syncJob.id,
+          client_id: syncJob.clientId,
+          provider: syncJob.provider,
+          job_type: syncJob.jobType,
+          schedule: syncJob.schedule,
+          status: "Ready",
+          last_run_at: syncedAt,
+          next_run_at: computeNextSyncRun(syncJob.schedule, new Date(syncedAt)),
+          detail: `GA4 sync completed successfully at ${syncedAt}.`
+        },
+        { onConflict: "id" }
+      );
+  }
 
   return {
     syncedAt,

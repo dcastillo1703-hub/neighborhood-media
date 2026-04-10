@@ -1,5 +1,6 @@
 import { seededIntegrationConnections, seededSyncJobs } from "@/data/seed";
 import { composeIntegrationNotes, parseIntegrationNotes } from "@/lib/domain/integration-notes";
+import { computeNextSyncRun } from "@/lib/integrations/schedule";
 import {
   mapActivityEventInsert,
   mapActivityEventRow,
@@ -376,12 +377,34 @@ export async function runSyncJob(clientId: string, jobId: string) {
   const connection = snapshot.connections.find(
     (entry: IntegrationConnection) => entry.provider === job.provider
   );
-  const adapter = getIntegrationAdapter(job.provider);
-  const result = await adapter.sync(job, connection);
+  const result =
+    job.provider === "google-analytics"
+      ? await (async () => {
+          if (!connection || connection.setup?.authStatus !== "connected") {
+            return {
+              provider: "google-analytics" as const,
+              status: "blocked" as const,
+              message: "Google Analytics is not connected yet."
+            };
+          }
+
+          const { syncGoogleAnalytics } = await import("@/lib/services/google-analytics-service");
+          const payload = await syncGoogleAnalytics(clientId);
+
+          return {
+            provider: "google-analytics" as const,
+            status: "success" as const,
+            syncedAt: payload.syncedAt,
+            nextRunAt: computeNextSyncRun(job.schedule, new Date(payload.syncedAt)),
+            message: `Google Analytics synced. Sessions: ${payload.snapshot.impressions}, views: ${payload.snapshot.clicks}, events: ${payload.snapshot.conversions}.`
+          };
+        })()
+      : await getIntegrationAdapter(job.provider).sync(job, connection);
   const nextJob: SyncJob = {
     ...job,
     status: result.status === "success" ? "Ready" : "Blocked",
     lastRunAt: result.syncedAt ?? new Date().toISOString(),
+    nextRunAt: result.nextRunAt ?? job.nextRunAt,
     detail: result.message
   };
 

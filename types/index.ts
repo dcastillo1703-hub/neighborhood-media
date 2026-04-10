@@ -448,6 +448,14 @@ export type GoogleAnalyticsSummary = {
     path: string;
     views: number;
   }>;
+  syncJob?: {
+    id: string;
+    schedule: string;
+    lastRunAt?: string;
+    nextRunAt?: string;
+    due: boolean;
+    status: SyncJob["status"];
+  };
   nextAction: string;
 };
 

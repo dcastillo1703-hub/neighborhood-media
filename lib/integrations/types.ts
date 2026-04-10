@@ -5,6 +5,7 @@ export type SyncResult = {
   status: "success" | "blocked";
   message: string;
   syncedAt?: string;
+  nextRunAt?: string;
   setup?: Partial<IntegrationConnection["setup"]>;
 };
 
