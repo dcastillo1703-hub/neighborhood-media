@@ -51,65 +51,96 @@ export function MobileTopMenu() {
   }
 
   return (
-    <div className="sticky top-2 z-40 mb-4 flex justify-end lg:hidden">
+    <div className="sticky top-2 z-40 mb-4 lg:hidden">
       <div className="relative">
         <Button
-          className="rounded-full border border-border bg-card/90 px-4 text-sm text-foreground shadow-sm backdrop-blur"
-          size="sm"
+          aria-expanded={open}
+          aria-label="Open more pages"
+          className="flex h-12 w-full items-center justify-between rounded-[1.15rem] border border-border bg-card/95 px-4 text-left text-sm text-foreground shadow-sm backdrop-blur"
+          size="default"
           type="button"
           variant="outline"
           onClick={() => setOpen((current) => !current)}
         >
-          <LayoutGrid className="mr-2 h-4 w-4" />
-          More pages
-          <ChevronDown className="ml-2 h-4 w-4" />
+          <span className="flex min-w-0 items-center gap-3">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+              <LayoutGrid className="h-4 w-4" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-medium">More pages</span>
+              <span className="block truncate text-xs text-muted-foreground">
+                Open pages that are not pinned in the bottom bar
+              </span>
+            </span>
+          </span>
+          <span className="ml-3 flex shrink-0 items-center gap-2 text-muted-foreground">
+            <span className="rounded-full bg-muted px-2 py-1 text-[0.68rem] font-medium text-foreground">
+              {hiddenPages.length}
+            </span>
+            <ChevronDown
+              className={cn("h-4 w-4 transition", open ? "rotate-180" : "rotate-0")}
+            />
+          </span>
         </Button>
         {open ? (
-          <div className="absolute right-0 top-12 w-[18rem] rounded-[1.4rem] border border-border bg-card/95 p-3 shadow-[0_20px_40px_rgba(0,0,0,0.18)] backdrop-blur">
-            <div className="mb-2 flex items-center justify-between px-1">
-              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                Jump to
-              </p>
-              <button
-                className="rounded-full p-1 text-muted-foreground transition hover:bg-muted hover:text-foreground"
-                type="button"
-                onClick={() => setOpen(false)}
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="space-y-2">
-              {hiddenPages.map((page) => {
-                const active =
-                  pathname === page.href ||
-                  (page.href !== "/" && pathname.startsWith(page.href));
+          <>
+            <button
+              aria-label="Close more pages menu"
+              className="fixed inset-0 z-[68] bg-black/20"
+              type="button"
+              onClick={() => setOpen(false)}
+            />
+            <div className="fixed inset-x-3 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-[69] rounded-[1.5rem] border border-border bg-card/98 p-3 shadow-[0_24px_60px_rgba(0,0,0,0.22)] backdrop-blur">
+              <div className="mb-2 flex items-center justify-between px-1">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                    More pages
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Jump without changing your bottom navigation.
+                  </p>
+                </div>
+                <button
+                  className="rounded-full p-2 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                  type="button"
+                  onClick={() => setOpen(false)}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="mt-3 space-y-2">
+                {hiddenPages.map((page) => {
+                  const active =
+                    pathname === page.href ||
+                    (page.href !== "/" && pathname.startsWith(page.href));
 
-                return (
-                  <Link
-                    key={page.key}
-                    className={cn(
-                      "flex items-start gap-3 rounded-2xl px-3 py-3 transition",
-                      active
-                        ? "bg-[rgba(189,156,87,0.16)] text-foreground"
-                        : "bg-muted/40 text-foreground hover:bg-muted"
-                    )}
-                    href={page.href as never}
-                    onClick={() => setOpen(false)}
-                  >
-                    <span className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-full bg-background/75 text-muted-foreground">
-                      <Globe2 className="h-4 w-4" />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block text-sm font-medium">{page.label}</span>
-                      <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-                        {page.description}
+                  return (
+                    <Link
+                      key={page.key}
+                      className={cn(
+                        "flex min-h-14 items-start gap-3 rounded-[1rem] px-3 py-3 transition",
+                        active
+                          ? "bg-[rgba(189,156,87,0.16)] text-foreground"
+                          : "bg-muted/40 text-foreground hover:bg-muted"
+                      )}
+                      href={page.href as never}
+                      onClick={() => setOpen(false)}
+                    >
+                      <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-background/75 text-muted-foreground">
+                        <Globe2 className="h-4 w-4" />
                       </span>
-                    </span>
-                  </Link>
-                );
-              })}
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium">{page.label}</span>
+                        <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                          {page.description}
+                        </span>
+                      </span>
+                    </Link>
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          </>
         ) : null}
       </div>
     </div>
