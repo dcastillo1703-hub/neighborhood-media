@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo, useState } from "react";
-import { ChevronDown, Globe2, LayoutGrid, X } from "lucide-react";
+import { Globe2, Menu, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -13,7 +13,6 @@ import {
 } from "@/lib/mobile-navigation";
 import { useActiveClient } from "@/lib/client-context";
 import { useClientPreferences } from "@/lib/repositories/use-client-preferences";
-import { cn } from "@/lib/utils";
 
 type ExtraMobilePage = {
   key: MobileNavItemKey | "web-analytics";
@@ -51,35 +50,23 @@ export function MobileTopMenu() {
   }
 
   return (
-    <div className="sticky top-2 z-40 mb-4 lg:hidden">
+    <div className="sticky top-2 z-40 mb-4 flex justify-end lg:hidden">
       <div className="relative">
         <Button
           aria-expanded={open}
           aria-label="Open more pages"
-          className="flex h-12 w-full items-center justify-between rounded-[1.15rem] border border-border bg-card/95 px-4 text-left text-sm text-foreground shadow-sm backdrop-blur"
-          size="default"
+          className="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-card/95 text-foreground shadow-sm backdrop-blur"
+          size="sm"
           type="button"
           variant="outline"
           onClick={() => setOpen((current) => !current)}
         >
-          <span className="flex min-w-0 items-center gap-3">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-              <LayoutGrid className="h-4 w-4" />
-            </span>
-            <span className="min-w-0">
-              <span className="block text-sm font-medium">More pages</span>
-              <span className="block truncate text-xs text-muted-foreground">
-                Open pages that are not pinned in the bottom bar
-              </span>
-            </span>
-          </span>
-          <span className="ml-3 flex shrink-0 items-center gap-2 text-muted-foreground">
-            <span className="rounded-full bg-muted px-2 py-1 text-[0.68rem] font-medium text-foreground">
+          <span className="relative flex items-center justify-center">
+            <Menu className="h-4 w-4" />
+            <span className="sr-only">More pages</span>
+            <span className="absolute -right-4 -top-3 rounded-full bg-muted px-1.5 py-0.5 text-[0.62rem] font-medium text-foreground">
               {hiddenPages.length}
             </span>
-            <ChevronDown
-              className={cn("h-4 w-4 transition", open ? "rotate-180" : "rotate-0")}
-            />
           </span>
         </Button>
         {open ? (
@@ -90,14 +77,14 @@ export function MobileTopMenu() {
               type="button"
               onClick={() => setOpen(false)}
             />
-            <div className="fixed inset-x-3 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-[69] rounded-[1.5rem] border border-border bg-card/98 p-3 shadow-[0_24px_60px_rgba(0,0,0,0.22)] backdrop-blur">
+            <div className="fixed inset-x-3 top-16 z-[69] rounded-[1.5rem] border border-border bg-card/98 p-3 shadow-[0_24px_60px_rgba(0,0,0,0.22)] backdrop-blur">
               <div className="mb-2 flex items-center justify-between px-1">
                 <div>
                   <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                    More pages
+                    Pages
                   </p>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Jump without changing your bottom navigation.
+                    Open any page without changing your bottom navigation.
                   </p>
                 </div>
                 <button
@@ -117,12 +104,12 @@ export function MobileTopMenu() {
                   return (
                     <Link
                       key={page.key}
-                      className={cn(
+                      className={[
                         "flex min-h-14 items-start gap-3 rounded-[1rem] px-3 py-3 transition",
                         active
                           ? "bg-[rgba(189,156,87,0.16)] text-foreground"
                           : "bg-muted/40 text-foreground hover:bg-muted"
-                      )}
+                      ].join(" ")}
                       href={page.href as never}
                       onClick={() => setOpen(false)}
                     >

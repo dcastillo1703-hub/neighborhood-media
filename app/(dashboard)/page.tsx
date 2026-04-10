@@ -780,11 +780,17 @@ export default function DashboardPage() {
               <div className="space-y-4">
                 <div>
                   <Label>Headline</Label>
-                  <Input value={overviewDraft.overviewHeadline} onChange={(event) => setOverviewDraft((current) => ({ ...current, overviewHeadline: event.target.value }))} placeholder="Set the headline you want at the top of the client home." />
+                  <Input value={overviewDraft.overviewHeadline} onChange={(event) => setOverviewDraft((current) => ({ ...current, overviewHeadline: event.target.value }))} placeholder="Example: Here is what matters most this week." />
+                  <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                    This is the main line the client sees first on Home. Keep it short, clear, and focused on what matters right now.
+                  </p>
                 </div>
                 <div>
                   <Label>Client Note</Label>
-                  <Textarea value={overviewDraft.overviewSummary} onChange={(event) => setOverviewDraft((current) => ({ ...current, overviewSummary: event.target.value }))} placeholder="Add the context you want the client to see first." />
+                  <Textarea value={overviewDraft.overviewSummary} onChange={(event) => setOverviewDraft((current) => ({ ...current, overviewSummary: event.target.value }))} placeholder="Example: Reviews are clear, Tuesday still needs help, and brunch traffic is strongest from Facebook." />
+                  <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                    Use this for a plain-English summary of the week, not internal notes or setup instructions.
+                  </p>
                 </div>
               </div>
 
@@ -825,7 +831,12 @@ export default function DashboardPage() {
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <p className="text-sm font-medium text-foreground">Top Home rows</p>
-                  <p className="mt-1 text-sm text-muted-foreground">These are the three compact rows shown first on mobile and the three summary cards shown first on desktop.</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    These are the three compact rows shown first on mobile and the three summary cards shown first on desktop.
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    `Use current numbers` pulls from the live app data, like your featured metric, open approvals, and next scheduled content.
+                  </p>
                 </div>
                 <Button
                   onClick={() =>
@@ -837,7 +848,7 @@ export default function DashboardPage() {
                   type="button"
                   variant="outline"
                 >
-                  Use live defaults
+                  Use current numbers
                 </Button>
               </div>
               <div className="mt-4 grid gap-4 lg:grid-cols-3">
