@@ -121,6 +121,13 @@ const postStatuses: PostStatus[] = ["Draft", "Scheduled", "Published"];
 const taskStatuses: TaskStatus[] = ["Backlog", "In Progress", "Waiting", "Done"];
 const platformOptions: Platform[] = ["Instagram", "Facebook", "Stories", "TikTok", "Email"];
 const contentComposerId = "content-composer";
+const utmSourcePresets = [
+  { label: "Facebook", source: "facebook", medium: "social" },
+  { label: "Instagram", source: "instagram", medium: "social" },
+  { label: "Email", source: "email", medium: "email" },
+  { label: "SMS", source: "sms", medium: "text" },
+  { label: "QR Code", source: "qr", medium: "offline" }
+] as const;
 
 function normalizeCampaignView(value: string | null | undefined): CampaignWorkspaceView {
   const normalizedValue = value?.toLowerCase();
@@ -270,6 +277,7 @@ export default function CampaignDetailPage() {
   const [goalAssigneeDraft, setGoalAssigneeDraft] = useState("");
   const [savingWebsite, setSavingWebsite] = useState(false);
   const [websiteError, setWebsiteError] = useState<string | null>(null);
+  const [websiteNotice, setWebsiteNotice] = useState<string | null>(null);
 
   useEffect(() => {
     setRoiDraft(roiSnapshot);
@@ -368,6 +376,14 @@ export default function CampaignDetailPage() {
     }).filter(([, value]) => value)
   ).toString();
   const websiteHandoff = `${websitePreviewPath}${websiteQuery ? `?${websiteQuery}` : ""}`;
+  const websiteReady =
+    Boolean(websiteDraft.landingPath.trim()) &&
+    Boolean(websiteDraft.utmSource.trim()) &&
+    Boolean(websiteDraft.utmMedium.trim()) &&
+    Boolean((websiteDraft.utmCampaign || (campaign ? slugifyCampaignName(campaign.name) : "")).trim());
+  const websiteActionMessage = websiteReady
+    ? "This campaign has a tagged link ready to copy into posts, ads, stories, or QR codes."
+    : "Finish the landing path and UTM fields so this campaign stops feeding unattributed traffic into GA.";
 
   const scrollToComposer = () => {
     window.setTimeout(() => {
@@ -781,8 +797,19 @@ export default function CampaignDetailPage() {
       return;
     }
 
+    if (!websiteDraft.landingPath.trim()) {
+      setWebsiteError("Add a landing path so the campaign has a real destination.");
+      return;
+    }
+
+    if (!websiteDraft.utmSource.trim() || !websiteDraft.utmMedium.trim()) {
+      setWebsiteError("Choose a source and medium so Google Analytics can label this traffic correctly.");
+      return;
+    }
+
     setSavingWebsite(true);
     setWebsiteError(null);
+    setWebsiteNotice(null);
 
     try {
       await updateCampaign({
@@ -798,12 +825,32 @@ export default function CampaignDetailPage() {
           }
         })
       });
+      setWebsiteDraft((current) => ({
+        ...current,
+        landingPath: websitePreviewPath,
+        utmCampaign: current.utmCampaign || slugifyCampaignName(campaign.name)
+      }));
+      setWebsiteNotice("Website handoff saved. Use the tagged link below when you share this campaign.");
     } catch (error) {
       setWebsiteError(
         error instanceof Error ? error.message : "Unable to save website attribution."
       );
     } finally {
       setSavingWebsite(false);
+    }
+  };
+
+  const copyWebsiteHandoff = async () => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(websiteHandoff);
+      setWebsiteNotice("Tagged campaign link copied.");
+      setWebsiteError(null);
+    } catch {
+      setWebsiteError("Unable to copy the campaign link.");
     }
   };
 
@@ -1889,6 +1936,45 @@ export default function CampaignDetailPage() {
             </div>
           </CardHeader>
           <div className="space-y-4">
+            <ListCard>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Attribution readiness</p>
+                  <p className="mt-2 text-sm text-foreground">{websiteActionMessage}</p>
+                </div>
+                <Badge
+                  className={
+                    websiteReady
+                      ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                      : "bg-muted text-muted-foreground"
+                  }
+                >
+                  {websiteReady ? "Ready to track" : "Needs tagged link"}
+                </Badge>
+              </div>
+            </ListCard>
+
+            <div className="flex flex-wrap gap-2">
+              {utmSourcePresets.map((preset) => (
+                <Button
+                  key={preset.label}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                  onClick={() =>
+                    setWebsiteDraft((current) => ({
+                      ...current,
+                      utmSource: preset.source,
+                      utmMedium: preset.medium,
+                      utmCampaign: current.utmCampaign || slugifyCampaignName(campaign.name)
+                    }))
+                  }
+                >
+                  {preset.label}
+                </Button>
+              ))}
+            </div>
+
             <div className="grid gap-3 md:grid-cols-2">
               <div>
                 <Label>Landing path</Label>
@@ -1967,10 +2053,14 @@ export default function CampaignDetailPage() {
               <Button onClick={() => void saveWebsiteAttribution()} disabled={savingWebsite}>
                 {savingWebsite ? "Saving..." : "Save website handoff"}
               </Button>
+              <Button onClick={() => void copyWebsiteHandoff()} size="sm" variant="outline">
+                Copy tagged link
+              </Button>
               <Link className={buttonVariants({ variant: "outline" })} href="/web-analytics">
                 Open web analytics
               </Link>
             </div>
+            {websiteNotice ? <p className="text-xs text-emerald-700 dark:text-emerald-300">{websiteNotice}</p> : null}
             {websiteError ? <p className="text-xs text-primary">{websiteError}</p> : null}
           </div>
         </Card>
