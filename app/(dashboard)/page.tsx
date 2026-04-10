@@ -49,9 +49,7 @@ import { useOperationalTasks } from "@/lib/repositories/use-operational-tasks";
 import { useWeeklyMetrics } from "@/lib/repositories/use-weekly-metrics";
 import { useApprovalsApi } from "@/lib/use-approvals-api";
 import { useGoogleAnalytics } from "@/lib/use-google-analytics";
-import { useManualMetaPerformance } from "@/lib/use-manual-meta-performance";
-import { useMetaBusinessSuite } from "@/lib/use-meta-business-suite";
-import { cn, currency, number } from "@/lib/utils";
+import { cn, currency, formatShortDate, number } from "@/lib/utils";
 import { useWorkspaceContext } from "@/lib/workspace-context";
 import type { ClientHomeCard, ClientHomeSection, ClientSettings } from "@/types";
 
@@ -137,9 +135,9 @@ function toOverviewDraft(
 ): OverviewDraft {
   const decodedOverview = decodeOverviewSummary(settings.overviewSummary);
   const resolvedCards =
-    homeConfig?.cards.length === 3
+    homeConfig?.cards.length === 4
       ? homeConfig.cards
-      : decodedOverview.cards?.length === 3
+      : decodedOverview.cards?.length === 4
         ? decodedOverview.cards
         : fallbackCards;
 
@@ -207,8 +205,6 @@ export default function DashboardPage() {
   const { events } = useActivityEvents(workspace.id);
   const { approvals, ready: approvalsReady, reviewApproval, deleteApproval } = useApprovalsApi(activeClient.id);
   const { summary: googleAnalyticsSummary } = useGoogleAnalytics(activeClient.id);
-  const { summary: metaSummary } = useMetaBusinessSuite(activeClient.id);
-  const { enabledChannels: manualMetaChannels } = useManualMetaPerformance(activeClient.id);
   const [isEditingOverview, setIsEditingOverview] = useState(false);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -289,30 +285,6 @@ export default function DashboardPage() {
     },
     [campaigns, relevantCampaigns]
   );
-  const connectedFacebook = metaSummary?.channels.find(
-    (channel) => channel.provider === "facebook" && channel.authStatus === "connected"
-  );
-  const manualFacebook = manualMetaChannels.find((channel) => channel.provider === "facebook");
-  const homeFacebookSummary = connectedFacebook
-    ? {
-        label: connectedFacebook.accountLabel || "Facebook",
-        impressions: connectedFacebook.impressions,
-        clicks: connectedFacebook.clicks,
-        engagement: connectedFacebook.conversions,
-        periodLabel: connectedFacebook.latestPeriodLabel,
-        syncedAt: connectedFacebook.lastSyncAt
-      }
-    : manualFacebook
-      ? {
-          label: manualFacebook.accountLabel || "Facebook",
-          impressions: manualFacebook.impressions,
-          clicks: manualFacebook.clicks,
-          engagement: manualFacebook.engagement,
-          periodLabel: manualFacebook.periodLabel,
-          syncedAt: undefined
-        }
-      : null;
-
   const clientActions = useMemo<ClientAction[]>(() => {
     const actions: ClientAction[] = [];
 
@@ -446,10 +418,10 @@ export default function DashboardPage() {
   const useBestOverviewSuggestions = () => {
     const suggestedSectionOrder: ClientHomeSection["id"][] = [
       "attention",
-      pendingApprovals.length ? "review" : "active-campaign",
-      nextScheduledItem ? "upcoming-content" : "active-campaign",
-      "recent-activity",
-      pendingApprovals.length ? "active-campaign" : "review"
+      "active-campaign",
+      "upcoming-content",
+      "review",
+      "recent-activity"
     ];
     const seenSectionIds = new Set<ClientHomeSection["id"]>();
     const orderedSectionIds = [
@@ -482,9 +454,7 @@ export default function DashboardPage() {
           visible:
             sectionId === "attention" ||
             sectionId === "active-campaign" ||
-            (sectionId === "review" && pendingApprovals.length > 0) ||
-            (sectionId === "upcoming-content" && Boolean(nextScheduledItem)) ||
-            (sectionId === "recent-activity" && recentActivity.length > 0)
+            (sectionId === "upcoming-content" && Boolean(nextScheduledItem))
         };
       })
     }));
@@ -531,20 +501,26 @@ export default function DashboardPage() {
   return (
     <div className="grid gap-6 sm:gap-8">
       <section className="-mx-4 -mt-4 rounded-b-[1.75rem] bg-[#202124] px-4 pb-5 pt-6 text-white shadow-[0_18px_60px_rgba(0,0,0,0.22)] sm:hidden">
-        <div className="flex items-start justify-between">
-          <div className="min-w-0 pr-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-white/70">{formatToday()}</p>
             <h1 className="mt-2 text-3xl font-semibold tracking-[-0.05em]">{mobileOverviewTitle}</h1>
             <p className="mt-2 line-clamp-2 text-sm leading-6 text-white/50">{mobileOverviewSummary}</p>
+            <div className="mt-4 flex items-center justify-between gap-3 rounded-[1rem] border border-white/10 bg-white/[0.04] px-3 py-3">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/45">Home setup</p>
+                <p className="mt-1 text-sm text-white/70">Adjust what Home shows first.</p>
+              </div>
+              <button
+                className="shrink-0 rounded-full bg-white px-4 py-2 text-sm font-semibold text-[#202124] shadow-sm"
+                type="button"
+                onClick={isEditingOverview ? () => setIsEditingOverview(false) : openOverviewEditor}
+                aria-label="Customize client home"
+              >
+                {isEditingOverview ? "Close" : "Customize"}
+              </button>
+            </div>
           </div>
-          <button
-            className="shrink-0 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white/70"
-            type="button"
-            onClick={isEditingOverview ? () => setIsEditingOverview(false) : openOverviewEditor}
-            aria-label="Customize client home"
-          >
-            {isEditingOverview ? "Close" : "Customize"}
-          </button>
         </div>
 
         <div className="mt-5 overflow-hidden rounded-[1.35rem] border border-white/10 bg-[#1b1c1f]">
@@ -652,9 +628,9 @@ export default function DashboardPage() {
       </div>
 
       {isEditingOverview ? (
-        <div className="fixed inset-0 z-50 flex items-end bg-black/45 p-0 backdrop-blur-sm sm:items-center sm:justify-center sm:p-6">
-          <Card className="max-h-[88vh] w-full overflow-y-auto rounded-b-none p-5 shadow-2xl sm:max-w-5xl sm:rounded-[1.5rem]">
-            <CardHeader className="px-0 pt-0">
+        <div className="fixed inset-0 z-50 flex items-end bg-black/55 p-0 sm:items-center sm:justify-center sm:p-6">
+          <Card className="flex max-h-[88vh] w-full flex-col overflow-hidden rounded-b-none p-0 shadow-2xl sm:max-w-5xl sm:rounded-[1.5rem]">
+            <CardHeader className="sticky top-0 z-10 border-b border-border/70 bg-card px-5 pb-4 pt-5 sm:px-6">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <CardDescription>Client Home Settings</CardDescription>
@@ -673,7 +649,7 @@ export default function DashboardPage() {
                 </Button>
               </div>
             </CardHeader>
-            <div className="grid gap-6">
+            <div className="grid flex-1 gap-6 overflow-y-auto px-5 py-5 sm:px-6">
             <div className="rounded-[1.25rem] border border-primary/25 bg-[var(--app-accent-soft)] p-4">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
@@ -815,13 +791,12 @@ export default function DashboardPage() {
                 ))}
               </div>
             </div>
-
-            <div className="flex justify-end gap-3">
+            </div>
+            <div className="sticky bottom-0 z-10 flex justify-end gap-3 border-t border-border/70 bg-card px-5 py-4 sm:px-6">
               <Button variant="outline" onClick={() => setOverviewDraft(toOverviewDraft(settings, defaultHomeCards, clientHomeConfig))}>
                 Reset
               </Button>
               <Button onClick={saveOverview}>Save and update Home</Button>
-            </div>
             </div>
           </Card>
         </div>
@@ -839,66 +814,77 @@ export default function DashboardPage() {
         ))}
       </motion.div>
 
-      {visibleSectionIds.has("review") || visibleSectionIds.has("active-campaign") ? (
+      {visibleSectionIds.has("attention") || visibleSectionIds.has("active-campaign") ? (
         <div
-          className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]"
-          style={{ order: Math.min(getSectionOrder("review"), getSectionOrder("active-campaign")) }}
+          className="grid gap-5 xl:grid-cols-[0.92fr_1.08fr]"
+          style={{ order: Math.min(getSectionOrder("attention"), getSectionOrder("active-campaign")) }}
         >
-          {visibleSectionIds.has("review") ? (
-            <Card id="client-review" style={{ order: getSectionOrder("review") }}>
+          {visibleSectionIds.has("attention") ? (
+            <Card id="today" style={{ order: getSectionOrder("attention") }}>
               <CardHeader>
                 <div>
-                  <CardDescription>Client Review</CardDescription>
-                  <CardTitle className="mt-3">What needs a decision</CardTitle>
+                  <CardDescription>Today</CardDescription>
+                  <CardTitle className="mt-3">What needs attention first</CardTitle>
                 </div>
                 <Link className="hidden items-center gap-1 text-sm font-medium text-primary sm:flex" href="/approvals">
-                  Open inbox <ChevronRight className="h-4 w-4" />
+                  Open tasks <ChevronRight className="h-4 w-4" />
                 </Link>
               </CardHeader>
               <div className="space-y-3">
-                {pendingApprovals.length ? (
-                  pendingApprovals.slice(0, 3).map((approval) => (
-                    <div className="rounded-3xl border border-border/70 bg-card/60 p-4" key={approval.id}>
+                {clientActions.length ? (
+                  clientActions.map((action) => (
+                    <div className="rounded-3xl border border-border/70 bg-card/60 p-4" key={action.id}>
                       <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <p className="font-medium text-foreground">{approval.summary}</p>
-                          <p className="mt-1 text-sm text-muted-foreground">{approval.note ?? `Requested by ${approval.requesterName}`}</p>
+                        <div className="min-w-0">
+                          <p className="font-medium text-foreground">{action.title}</p>
+                          <p className="mt-1 text-sm text-muted-foreground">{action.detail}</p>
                         </div>
                         <p className="shrink-0 rounded-full bg-[var(--app-accent-soft)] px-3 py-1 text-xs font-medium text-[var(--app-accent-bg)]">
-                          Review
+                          {action.tone === "review" ? "Review" : action.tone === "schedule" ? "Scheduled" : "Task"}
                         </p>
                       </div>
-                      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                        <Button
-                          className="sm:w-auto"
-                          disabled={reviewingId === approval.id}
-                          onClick={() => void handleReview(approval.id, "Approved")}
-                        >
-                          Approve
-                        </Button>
-                        <Button
-                          className="sm:w-auto"
-                          disabled={reviewingId === approval.id}
-                          variant="outline"
-                          onClick={() => void handleReview(approval.id, "Changes Requested")}
-                        >
-                          Request changes
-                        </Button>
-                        <Button
-                          className="sm:w-auto"
-                          disabled={deletingId === approval.id}
-                          variant="ghost"
-                          onClick={() => void handleDeleteApproval(approval.id)}
-                        >
-                          Delete
-                        </Button>
+                      <div className="mt-4 flex flex-wrap items-center gap-2">
+                        <Link className="text-sm font-medium text-primary" href={action.href}>
+                          Open
+                        </Link>
+                        {action.date ? <DatePill value={action.date} /> : null}
+                        {action.tone === "review" ? (
+                          <>
+                            <Button
+                              className="sm:w-auto"
+                              disabled={reviewingId === action.id}
+                              onClick={() => void handleReview(action.id, "Approved")}
+                              size="sm"
+                            >
+                              Approve
+                            </Button>
+                            <Button
+                              className="sm:w-auto"
+                              disabled={reviewingId === action.id}
+                              variant="outline"
+                              onClick={() => void handleReview(action.id, "Changes Requested")}
+                              size="sm"
+                            >
+                              Request changes
+                            </Button>
+                            <Button
+                              className="sm:w-auto"
+                              disabled={deletingId === action.id}
+                              variant="ghost"
+                              onClick={() => void handleDeleteApproval(action.id)}
+                              size="sm"
+                            >
+                              Delete
+                            </Button>
+                          </>
+                        ) : null}
                       </div>
                     </div>
                   ))
                 ) : (
                   <EmptyState
-                    title={approvalsReady ? "Nothing waiting on you" : "Loading reviews"}
-                    description={approvalsReady ? "Approvals and requested changes will show up here when content needs a decision." : "Checking the client review inbox."}
+                    title={approvalsReady ? "Nothing urgent right now" : "Loading today"}
+                    description={approvalsReady ? "New approvals, scheduled posts, and open tasks will show up here when something needs attention." : "Checking what needs attention today."}
                   />
                 )}
               </div>
@@ -915,73 +901,39 @@ export default function DashboardPage() {
               </CardHeader>
               {activeHomeCampaigns.length ? (
                 <div className="space-y-3">
-                  <div className="rounded-3xl border border-border/70 bg-card/60 p-4">
+                  <div className="rounded-3xl border border-border/70 bg-[var(--app-accent-soft)]/50 p-4">
                     <div className="flex items-start justify-between gap-4">
                       <div className="min-w-0">
-                        <p className="font-medium text-foreground">Most relevant right now</p>
+                        <p className="font-medium text-foreground">Biggest opportunity right now</p>
                         <p className="mt-1 line-clamp-3 text-sm leading-6 text-muted-foreground">
                           {toastOpportunities.recommendation}
                         </p>
                       </div>
                       <Link
                         className="shrink-0 text-sm font-medium text-primary"
-                        href={"/performance#business-snapshot" as Route}
+                        href={"/performance#opportunity-flags" as Route}
                       >
                         Open
                       </Link>
                     </div>
-                    <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                      {toastOpportunities.flags.map((flag) => (
-                        <div className="rounded-2xl bg-muted/50 px-3 py-3" key={flag.id}>
-                          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-                            {flag.title}
-                          </p>
-                          <p className="mt-2 text-lg font-semibold text-foreground">{flag.value}</p>
-                          <p className="mt-1 text-xs leading-5 text-muted-foreground">{flag.detail}</p>
-                        </div>
-                      ))}
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <span className="rounded-full bg-background/70 px-3 py-1 text-xs text-foreground">
+                        Softest night: {toastOpportunities.weakestDay.day}
+                      </span>
+                      <span className="rounded-full bg-background/70 px-3 py-1 text-xs text-foreground">
+                        Website visitors: {number(googleAnalyticsSummary?.sessions ?? 0)}
+                      </span>
+                      <span className="rounded-full bg-background/70 px-3 py-1 text-xs text-foreground">
+                        Weekly change: {toastOpportunities.weekOverWeekRevenueChange >= 0 ? "+" : ""}
+                        {currency(toastOpportunities.weekOverWeekRevenueChange)}
+                      </span>
                     </div>
                   </div>
-                  {homeFacebookSummary ? (
-                    <div className="rounded-3xl border border-border/70 bg-[var(--app-accent-soft)]/55 p-4">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="min-w-0">
-                          <p className="font-medium text-foreground">Facebook snapshot</p>
-                          <p className="mt-1 line-clamp-2 text-sm leading-6 text-muted-foreground">
-                            {homeFacebookSummary.label}
-                            {homeFacebookSummary.periodLabel ? ` · ${homeFacebookSummary.periodLabel}` : ""}
-                          </p>
-                        </div>
-                        <Link
-                          className="shrink-0 text-sm font-medium text-primary"
-                          href={"/performance#meta-business-suite" as Route}
-                        >
-                          Open
-                        </Link>
-                      </div>
-                      <div className="mt-4 grid grid-cols-3 gap-2">
-                        <div className="rounded-2xl bg-background/70 px-3 py-3">
-                          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Impressions</p>
-                          <p className="mt-2 text-lg font-semibold text-foreground">{number(homeFacebookSummary.impressions)}</p>
-                        </div>
-                        <div className="rounded-2xl bg-background/70 px-3 py-3">
-                          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Clicks</p>
-                          <p className="mt-2 text-lg font-semibold text-foreground">{number(homeFacebookSummary.clicks)}</p>
-                        </div>
-                        <div className="rounded-2xl bg-background/70 px-3 py-3">
-                          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Engagement</p>
-                          <p className="mt-2 text-lg font-semibold text-foreground">{number(homeFacebookSummary.engagement)}</p>
-                        </div>
-                      </div>
-                      {homeFacebookSummary.syncedAt ? (
-                        <p className="mt-3 text-xs text-muted-foreground">
-                          Synced {new Date(homeFacebookSummary.syncedAt).toLocaleDateString()}
-                        </p>
-                      ) : null}
-                    </div>
-                  ) : null}
                   {activeHomeCampaigns.map((campaign) => {
                     const campaignOverview = getCampaignOverview(campaign, posts, blogPosts, assets, metrics, analyticsSnapshots);
+                    const nextCampaignPost = [...campaignOverview.linkedPosts]
+                      .filter((post) => post.status === "Scheduled" && Boolean(post.publishDate))
+                      .sort((left, right) => left.publishDate.localeCompare(right.publishDate))[0];
 
                     return (
                       <Link
@@ -995,14 +947,17 @@ export default function DashboardPage() {
                             <p className="mt-1 line-clamp-2 text-sm leading-6 text-muted-foreground">
                               {campaign.objective || "No objective added yet."}
                             </p>
+                            <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                              <span className="rounded-full bg-muted/60 px-2.5 py-1">{campaign.status}</span>
+                              <span className="rounded-full bg-muted/60 px-2.5 py-1">
+                                {nextCampaignPost ? `Next publish ${formatShortDate(nextCampaignPost.publishDate)}` : "No publish scheduled"}
+                              </span>
+                              <span className="rounded-full bg-muted/60 px-2.5 py-1">
+                                {number(campaignOverview.linkedPosts.length)} posts
+                              </span>
+                            </div>
                           </div>
-                          <span className="shrink-0 rounded-full bg-[var(--app-accent-soft)] px-3 py-1 text-xs font-medium text-[var(--app-accent-bg)]">
-                            {campaign.status}
-                          </span>
-                        </div>
-                        <div className="mt-4 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                          <span className="rounded-full bg-muted/60 px-2.5 py-1">{number(campaignOverview.linkedPosts.length)} posts</span>
-                          <span className="rounded-full bg-muted/60 px-2.5 py-1">{currency(campaignOverview.attributedRevenue)} revenue</span>
+                          <span className="shrink-0 text-sm font-medium text-primary">Open</span>
                         </div>
                       </Link>
                     );
@@ -1014,6 +969,67 @@ export default function DashboardPage() {
             </Card>
           ) : null}
         </div>
+      ) : null}
+
+      {visibleSectionIds.has("review") ? (
+        <Card id="client-review" style={{ order: getSectionOrder("review") }}>
+          <CardHeader>
+            <div>
+              <CardDescription>Client Review</CardDescription>
+              <CardTitle className="mt-3">Approval queue</CardTitle>
+            </div>
+            <Link className="hidden items-center gap-1 text-sm font-medium text-primary sm:flex" href="/approvals">
+              Open inbox <ChevronRight className="h-4 w-4" />
+            </Link>
+          </CardHeader>
+          <div className="space-y-3">
+            {pendingApprovals.length ? (
+              pendingApprovals.slice(0, 3).map((approval) => (
+                <div className="rounded-3xl border border-border/70 bg-card/60 p-4" key={approval.id}>
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="font-medium text-foreground">{approval.summary}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">{approval.note ?? `Requested by ${approval.requesterName}`}</p>
+                    </div>
+                    <p className="shrink-0 rounded-full bg-[var(--app-accent-soft)] px-3 py-1 text-xs font-medium text-[var(--app-accent-bg)]">
+                      Review
+                    </p>
+                  </div>
+                  <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                    <Button
+                      className="sm:w-auto"
+                      disabled={reviewingId === approval.id}
+                      onClick={() => void handleReview(approval.id, "Approved")}
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      className="sm:w-auto"
+                      disabled={reviewingId === approval.id}
+                      variant="outline"
+                      onClick={() => void handleReview(approval.id, "Changes Requested")}
+                    >
+                      Request changes
+                    </Button>
+                    <Button
+                      className="sm:w-auto"
+                      disabled={deletingId === approval.id}
+                      variant="ghost"
+                      onClick={() => void handleDeleteApproval(approval.id)}
+                    >
+                      Delete
+                    </Button>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <EmptyState
+                title={approvalsReady ? "Nothing waiting on you" : "Loading reviews"}
+                description={approvalsReady ? "Approvals and requested changes will show up here when content needs a decision." : "Checking the client review inbox."}
+              />
+            )}
+          </div>
+        </Card>
       ) : null}
 
       {visibleSectionIds.has("upcoming-content") ? (
@@ -1030,7 +1046,7 @@ export default function DashboardPage() {
           </CardHeader>
           <div className="space-y-3">
             {scheduledContent.length ? (
-              scheduledContent.slice(0, 4).map((item) => (
+              scheduledContent.slice(0, 3).map((item) => (
                 <div
                   className="grid gap-3 rounded-3xl border border-border/70 bg-card/60 p-4 transition hover:border-primary/40 sm:grid-cols-[auto_1fr_auto] sm:items-center"
                   key={item.id}
@@ -1040,7 +1056,9 @@ export default function DashboardPage() {
                   </span>
                   <span className="min-w-0">
                     <span className="block truncate font-medium text-foreground">{item.content}</span>
-                    <span className="mt-1 block text-sm text-muted-foreground">{item.platform} · {item.cta}</span>
+                    <span className="mt-1 block text-sm text-muted-foreground">
+                      {item.platform} · {item.cta || "Scheduled content"}
+                    </span>
                   </span>
                   <span className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Clock3 className="h-4 w-4" />
@@ -1074,11 +1092,11 @@ export default function DashboardPage() {
           <CardHeader>
             <div>
               <CardDescription>Recent Updates</CardDescription>
-              <CardTitle className="mt-3">Small changes since the last check-in</CardTitle>
+              <CardTitle className="mt-3">Recent updates</CardTitle>
             </div>
           </CardHeader>
-          <div className="grid gap-3 md:grid-cols-3">
-            {recentActivity.map((item) => (
+          <div className="grid gap-3 md:grid-cols-2">
+            {recentActivity.slice(0, 2).map((item) => (
               <div className="rounded-3xl border border-border/70 bg-card/60 p-4" key={item.id}>
                 <p className="font-medium text-foreground">{item.subjectName}</p>
                 <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{item.detail}</p>

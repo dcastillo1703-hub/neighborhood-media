@@ -50,7 +50,7 @@ export function MobileTopMenu() {
   }
 
   return (
-    <div className="sticky top-3 z-40 -mb-10 flex h-0 justify-end px-1 lg:hidden">
+    <div className="fixed right-4 top-4 z-40 lg:hidden">
       <div className="relative">
         <Button
           aria-expanded={open}

@@ -9,7 +9,7 @@ const storageKey = "nmos-client-home-config";
 
 export const defaultClientHomeSections: ClientHomeSection[] = [
   { id: "attention", label: "Today / needs attention", visible: true },
-  { id: "review", label: "Client review", visible: true },
+  { id: "review", label: "Client review", visible: false },
   { id: "active-campaign", label: "Active campaign", visible: true },
   { id: "upcoming-content", label: "Upcoming content", visible: true },
   { id: "recent-activity", label: "Recent updates", visible: false }
