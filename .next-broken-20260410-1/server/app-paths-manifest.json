@@ -1,0 +1,11 @@
+{
+  "/api/client-memberships/route": "app/api/client-memberships/route.js",
+  "/api/meta-suite/route": "app/api/meta-suite/route.js",
+  "/api/google-analytics/route": "app/api/google-analytics/route.js",
+  "/api/clients/route": "app/api/clients/route.js",
+  "/api/integrations/route": "app/api/integrations/route.js",
+  "/api/workspace/members/route": "app/api/workspace/members/route.js",
+  "/(dashboard)/page": "app/(dashboard)/page.js",
+  "/(dashboard)/performance/page": "app/(dashboard)/performance/page.js",
+  "/(dashboard)/settings/page": "app/(dashboard)/settings/page.js"
+}
