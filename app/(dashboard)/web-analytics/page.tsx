@@ -22,6 +22,8 @@ export default function WebAnalyticsPage() {
 
   const topSource = summary?.topSources[0] ?? null;
   const topPage = summary?.topPages[0] ?? null;
+  const keyEvents = summary?.keyEvents ?? [];
+  const sourceQuality = summary?.sourceQuality;
   const digest = summary
     ? topSource && topPage
       ? `${activeClient.name} brought in ${number(summary.sessions)} sessions in ${
@@ -90,6 +92,11 @@ export default function WebAnalyticsPage() {
               <p className="mt-2 truncate text-lg font-medium text-foreground">
                 {topSource?.label ?? "No source yet"}
               </p>
+              {sourceQuality?.hasNotSetTraffic ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {number(Math.round(sourceQuality.notSetShare * 100))}% of traffic is unattributed.
+                </p>
+              ) : null}
             </div>
             <div className="rounded-2xl bg-muted/50 px-4 py-3">
               <p className="text-xs text-muted-foreground">Top landing page</p>
@@ -188,6 +195,82 @@ export default function WebAnalyticsPage() {
         </Card>
       </div>
 
+      <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+        <Card>
+          <CardHeader>
+            <div>
+              <CardDescription>Intent signals</CardDescription>
+              <CardTitle className="mt-3">What people are trying to do</CardTitle>
+            </div>
+          </CardHeader>
+          <div className="space-y-3">
+            {keyEvents.length ? (
+              keyEvents.map((event, index) => (
+                <ListCard key={`${event.label}-${index}`}>
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="font-medium text-foreground">{event.label}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Client-facing action signal from the website.
+                      </p>
+                    </div>
+                    <p className="text-sm text-foreground">{number(event.count)}</p>
+                  </div>
+                </ListCard>
+              ))
+            ) : (
+              <EmptyState
+                title="No tracked action events yet"
+                description="Once reservation clicks, calls, menu views, or order clicks are tracked, they will show up here."
+              />
+            )}
+          </div>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div>
+              <CardDescription>Source quality</CardDescription>
+              <CardTitle className="mt-3">How trustworthy the traffic labels are</CardTitle>
+            </div>
+          </CardHeader>
+          <div className="space-y-3">
+            <ListCard>
+              <p className="font-medium text-foreground">What “not set” means</p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                `Not set` means Google Analytics did not receive a reliable source value for part of the traffic. It usually points to missing UTMs, direct visits, or links that are not carrying campaign tags cleanly.
+              </p>
+            </ListCard>
+            <ListCard>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="font-medium text-foreground">Unattributed traffic</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Traffic currently grouped under `not set` or a missing source label.
+                  </p>
+                </div>
+                <p className="text-sm text-foreground">
+                  {number(sourceQuality?.notSetSessions ?? 0)} sessions
+                </p>
+              </div>
+            </ListCard>
+            <ListCard>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="font-medium text-foreground">Best labeled source</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    The strongest source we can confidently use for campaign learning.
+                  </p>
+                </div>
+                <p className="text-sm text-foreground">
+                  {sourceQuality?.topSourceLabel ?? "None yet"}
+                </p>
+              </div>
+            </ListCard>
+          </div>
+        </Card>
+      </div>
+
       <Card>
         <CardHeader>
           <div>
@@ -195,46 +278,32 @@ export default function WebAnalyticsPage() {
             <CardTitle className="mt-3">Turn traffic into action</CardTitle>
           </div>
         </CardHeader>
-        <div className="grid gap-3 md:grid-cols-3">
-          <ListCard>
-            <div className="flex items-start gap-3">
-              <span className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                <ArrowUpRight className="h-4 w-4" />
-              </span>
-              <div>
-                <p className="font-medium text-foreground">Support the strongest source</p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  If one source is clearly leading, mirror its language and links in the next campaign.
-                </p>
+        <div className="grid gap-3 md:grid-cols-2">
+          {(summary?.actionItems.length
+            ? summary.actionItems
+            : [
+                "Get the main campaign links tagged with UTMs so the top source is easier to trust.",
+                "Use the strongest landing page as the main destination for the next campaign push.",
+                "Track reservation clicks, calls, orders, and menu views so website traffic translates into real intent."
+              ]).map((action, index) => (
+            <ListCard key={`${action}-${index}`}>
+              <div className="flex items-start gap-3">
+                <span className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                  {index === 0 ? (
+                    <ArrowUpRight className="h-4 w-4" />
+                  ) : index === 1 ? (
+                    <MousePointerClick className="h-4 w-4" />
+                  ) : (
+                    <RefreshCcw className="h-4 w-4" />
+                  )}
+                </span>
+                <div>
+                  <p className="font-medium text-foreground">Next move {index + 1}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{action}</p>
+                </div>
               </div>
-            </div>
-          </ListCard>
-          <ListCard>
-            <div className="flex items-start gap-3">
-              <span className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                <MousePointerClick className="h-4 w-4" />
-              </span>
-              <div>
-                <p className="font-medium text-foreground">Watch landing-page intent</p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  The top page is usually where campaign links and calls-to-action should point first.
-                </p>
-              </div>
-            </div>
-          </ListCard>
-          <ListCard>
-            <div className="flex items-start gap-3">
-              <span className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                <RefreshCcw className="h-4 w-4" />
-              </span>
-              <div>
-                <p className="font-medium text-foreground">Resync after campaigns change</p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Sync again after a push goes live so the traffic read reflects the newest campaign window.
-                </p>
-              </div>
-            </div>
-          </ListCard>
+            </ListCard>
+          ))}
         </div>
       </Card>
     </div>

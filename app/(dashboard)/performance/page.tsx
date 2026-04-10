@@ -441,6 +441,48 @@ export default function PerformancePage() {
                   </div>
                 </ListCard>
               </div>
+              <div className="grid gap-3 lg:grid-cols-2">
+                <ListCard>
+                  <p className="font-medium text-foreground">Website intent signals</p>
+                  <div className="mt-3 space-y-2">
+                    {googleAnalyticsSummary.keyEvents.length ? (
+                      googleAnalyticsSummary.keyEvents.map((event) => (
+                        <div
+                          className="flex items-center justify-between gap-4 text-sm"
+                          key={event.label}
+                        >
+                          <span className="text-muted-foreground">{event.label}</span>
+                          <span className="text-foreground">{number(event.count)}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        No tracked reservation, order, call, or menu actions yet.
+                      </p>
+                    )}
+                  </div>
+                </ListCard>
+                <ListCard>
+                  <p className="font-medium text-foreground">Traffic quality</p>
+                  <div className="mt-3 space-y-2 text-sm">
+                    <p className="text-muted-foreground">
+                      Strongest usable source:{" "}
+                      <span className="text-foreground">
+                        {googleAnalyticsSummary.sourceQuality.topSourceLabel ?? "None yet"}
+                      </span>
+                    </p>
+                    <p className="text-muted-foreground">
+                      Unattributed traffic:{" "}
+                      <span className="text-foreground">
+                        {number(googleAnalyticsSummary.sourceQuality.notSetSessions)} sessions
+                      </span>
+                    </p>
+                    <p className="text-muted-foreground">
+                      If you see `not set`, Google Analytics did not get a reliable traffic-source label for those visits.
+                    </p>
+                  </div>
+                </ListCard>
+              </div>
             </div>
           ) : (
             <EmptyState

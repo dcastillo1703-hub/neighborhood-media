@@ -37,7 +37,91 @@ type GoogleAnalyticsSyncResult = {
   snapshot: AnalyticsSnapshot;
   topSources: GoogleAnalyticsSummary["topSources"];
   topPages: GoogleAnalyticsSummary["topPages"];
+  keyEvents: GoogleAnalyticsSummary["keyEvents"];
 };
+
+const candidateKeyEvents = [
+  "reservation_click",
+  "order_click",
+  "call_click",
+  "menu_view"
+] as const;
+
+function normalizeSourceLabel(value?: string) {
+  const raw = value?.trim();
+
+  if (!raw) {
+    return "Direct / unknown";
+  }
+
+  if (raw.toLowerCase() === "(not set)") {
+    return "Unattributed traffic";
+  }
+
+  return raw;
+}
+
+function buildSourceQuality(topSources: GoogleAnalyticsSummary["topSources"], sessions: number) {
+  const unattributed = topSources.find((source) => source.label === "Unattributed traffic");
+  const notSetSessions = unattributed?.sessions ?? 0;
+  const notSetShare = sessions > 0 ? notSetSessions / sessions : 0;
+  const rankedSource = topSources.find((source) => source.label !== "Unattributed traffic") ?? topSources[0];
+
+  return {
+    topSourceLabel: rankedSource?.label,
+    topSourceSessions: rankedSource?.sessions,
+    hasNotSetTraffic: notSetSessions > 0,
+    notSetSessions,
+    notSetShare
+  };
+}
+
+function buildActionItems(input: {
+  sessions: number;
+  topSources: GoogleAnalyticsSummary["topSources"];
+  topPages: GoogleAnalyticsSummary["topPages"];
+  keyEvents: GoogleAnalyticsSummary["keyEvents"];
+}) {
+  const actions: string[] = [];
+  const sourceQuality = buildSourceQuality(input.topSources, input.sessions);
+  const reservationClicks =
+    input.keyEvents.find((event) => event.label === "Reservation clicks")?.count ?? 0;
+  const orderClicks = input.keyEvents.find((event) => event.label === "Order clicks")?.count ?? 0;
+  const callClicks = input.keyEvents.find((event) => event.label === "Call clicks")?.count ?? 0;
+  const menuViews = input.keyEvents.find((event) => event.label === "Menu views")?.count ?? 0;
+
+  if (sourceQuality.hasNotSetTraffic && sourceQuality.notSetShare >= 0.2) {
+    actions.push(
+      "A meaningful share of traffic is unattributed. Tighten UTM use on campaign links so the next traffic read is easier to trust."
+    );
+  }
+
+  if (sourceQuality.topSourceLabel && sourceQuality.topSourceLabel !== "Unattributed traffic") {
+    actions.push(
+      `${sourceQuality.topSourceLabel} is your clearest website source right now. Mirror that source's message and offer in the next campaign push.`
+    );
+  }
+
+  if (input.topPages[0]?.path) {
+    actions.push(
+      `${input.topPages[0].path} is getting the most attention. Point campaigns there first, or make sure it has a stronger reservation or order call-to-action.`
+    );
+  }
+
+  if (menuViews > 0 && reservationClicks === 0 && orderClicks === 0 && callClicks === 0) {
+    actions.push(
+      "People are browsing the menu without taking the next step yet. Strengthen reservation, call, or order prompts on the menu path."
+    );
+  }
+
+  if (reservationClicks > 0) {
+    actions.push(
+      `Reservations are generating direct intent (${reservationClicks} clicks). Compare that traffic window to Toast covers to see whether the website push is converting.`
+    );
+  }
+
+  return actions.slice(0, 4);
+}
 
 function getGoogleAnalyticsConfig() {
   const propertyId = integrationEnv.googleAnalyticsPropertyId;
@@ -379,6 +463,14 @@ function buildSummaryFromConnection(
     events: totals?.events ?? 0,
     topSources: connection.setup?.topSources ?? [],
     topPages: connection.setup?.topPages ?? [],
+    keyEvents: connection.setup?.keyEvents ?? [],
+    sourceQuality:
+      connection.setup?.sourceQuality ?? {
+        hasNotSetTraffic: false,
+        notSetSessions: 0,
+        notSetShare: 0
+      },
+    actionItems: connection.setup?.actionItems ?? [],
     syncJob: syncJob
       ? {
           id: syncJob.id,
@@ -496,6 +588,28 @@ export async function getGoogleAnalyticsCampaignImpact(input: {
     orderBys: [{ metric: { metricName: "screenPageViews" }, desc: true }],
     limit: 3
   });
+  const keyEventsResponse = await runGoogleAnalyticsReport(accessToken, {
+    ...baseBody,
+    dimensions: [{ name: "eventName" }],
+    metrics: [{ name: "eventCount" }],
+    dimensionFilter: {
+      andGroup: {
+        expressions: [
+          ...(dimensionFilter ? [dimensionFilter] : []),
+          {
+            filter: {
+              fieldName: "eventName",
+              inListFilter: {
+                values: [...candidateKeyEvents]
+              }
+            }
+          }
+        ]
+      }
+    },
+    orderBys: [{ metric: { metricName: "eventCount" }, desc: true }],
+    limit: candidateKeyEvents.length
+  });
 
   const totalsRow = totalsResponse.rows?.[0];
   const sessions = Number(totalsRow?.metricValues?.[0]?.value ?? 0);
@@ -503,13 +617,14 @@ export async function getGoogleAnalyticsCampaignImpact(input: {
   const views = Number(totalsRow?.metricValues?.[2]?.value ?? 0);
   const events = Number(totalsRow?.metricValues?.[3]?.value ?? 0);
   const topSources = (topSourcesResponse.rows ?? []).map((row) => ({
-    label: row.dimensionValues?.[0]?.value || "Direct / unknown",
+    label: normalizeSourceLabel(row.dimensionValues?.[0]?.value),
     sessions: Number(row.metricValues?.[0]?.value ?? 0)
   }));
   const topPages = (topPagesResponse.rows ?? []).map((row) => ({
     path: row.dimensionValues?.[0]?.value || "/",
     views: Number(row.metricValues?.[0]?.value ?? 0)
   }));
+  void keyEventsResponse;
 
   const summaryText =
     sessions > 0
@@ -566,6 +681,21 @@ export async function syncGoogleAnalytics(clientId: string): Promise<GoogleAnaly
     orderBys: [{ metric: { metricName: "screenPageViews" }, desc: true }],
     limit: 3
   });
+  const keyEventsResponse = await runGoogleAnalyticsReport(accessToken, {
+    dateRanges: [{ startDate: "30daysAgo", endDate: "today" }],
+    dimensions: [{ name: "eventName" }],
+    metrics: [{ name: "eventCount" }],
+    dimensionFilter: {
+      filter: {
+        fieldName: "eventName",
+        inListFilter: {
+          values: [...candidateKeyEvents]
+        }
+      }
+    },
+    orderBys: [{ metric: { metricName: "eventCount" }, desc: true }],
+    limit: candidateKeyEvents.length
+  });
 
   const totalsRow = totalsResponse.rows?.[0];
   const sessions = Number(totalsRow?.metricValues?.[0]?.value ?? 0);
@@ -573,13 +703,30 @@ export async function syncGoogleAnalytics(clientId: string): Promise<GoogleAnaly
   const views = Number(totalsRow?.metricValues?.[2]?.value ?? 0);
   const events = Number(totalsRow?.metricValues?.[3]?.value ?? 0);
   const topSources = (topSourcesResponse.rows ?? []).map((row) => ({
-    label: row.dimensionValues?.[0]?.value || "Direct / unknown",
+    label: normalizeSourceLabel(row.dimensionValues?.[0]?.value),
     sessions: Number(row.metricValues?.[0]?.value ?? 0)
   }));
   const topPages = (topPagesResponse.rows ?? []).map((row) => ({
     path: row.dimensionValues?.[0]?.value || "/",
     views: Number(row.metricValues?.[0]?.value ?? 0)
   }));
+  const keyEvents = (keyEventsResponse.rows ?? []).map((row) => ({
+    label:
+      {
+        reservation_click: "Reservation clicks",
+        order_click: "Order clicks",
+        call_click: "Call clicks",
+        menu_view: "Menu views"
+      }[row.dimensionValues?.[0]?.value ?? ""] ?? (row.dimensionValues?.[0]?.value || "Event"),
+    count: Number(row.metricValues?.[0]?.value ?? 0)
+  }));
+  const sourceQuality = buildSourceQuality(topSources, sessions);
+  const actionItems = buildActionItems({
+    sessions,
+    topSources,
+    topPages,
+    keyEvents
+  });
   const syncedAt = new Date().toISOString();
 
   const snapshot = await persistGoogleAnalyticsSnapshot({
@@ -618,6 +765,9 @@ export async function syncGoogleAnalytics(clientId: string): Promise<GoogleAnaly
       },
       topSources,
       topPages,
+      keyEvents,
+      sourceQuality,
+      actionItems,
       lastCheckedAt: syncedAt,
       nextAction:
         topPages[0]?.path && topSources[0]?.label
@@ -654,6 +804,7 @@ export async function syncGoogleAnalytics(clientId: string): Promise<GoogleAnaly
     propertyId: getGoogleAnalyticsConfig().propertyId,
     snapshot,
     topSources,
-    topPages
+    topPages,
+    keyEvents
   };
 }

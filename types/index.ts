@@ -360,6 +360,18 @@ export type IntegrationSetup = {
     path: string;
     views: number;
   }>;
+  keyEvents?: Array<{
+    label: string;
+    count: number;
+  }>;
+  sourceQuality?: {
+    topSourceLabel?: string;
+    topSourceSessions?: number;
+    hasNotSetTraffic: boolean;
+    notSetSessions: number;
+    notSetShare: number;
+  };
+  actionItems?: string[];
 };
 
 export type MetaBusinessSuiteConfigCheck = {
@@ -448,6 +460,18 @@ export type GoogleAnalyticsSummary = {
     path: string;
     views: number;
   }>;
+  keyEvents: Array<{
+    label: string;
+    count: number;
+  }>;
+  sourceQuality: {
+    topSourceLabel?: string;
+    topSourceSessions?: number;
+    hasNotSetTraffic: boolean;
+    notSetSessions: number;
+    notSetShare: number;
+  };
+  actionItems: string[];
   syncJob?: {
     id: string;
     schedule: string;
