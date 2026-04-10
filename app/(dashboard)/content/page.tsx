@@ -230,7 +230,19 @@ export default function ContentPage() {
     }))
   ].sort((left, right) => (left.dateKey ?? "9999-12-31").localeCompare(right.dateKey ?? "9999-12-31"));
   const todayTasks = mobileTasks.filter((task) => task.dateKey === todayKey);
-  const upcomingTasks = mobileTasks.filter((task) => task.dateKey && task.dateKey > todayKey).slice(0, 8);
+  const waitingTasks = mobileTasks.filter(
+    (task) =>
+      task.eyebrow === "Approval" ||
+      task.eyebrow === "Publishing" ||
+      task.status === "Waiting" ||
+      task.status === "Pending" ||
+      task.status === "Blocked" ||
+      task.status === "Processing"
+  ).slice(0, 8);
+  const waitingTaskIds = new Set(waitingTasks.map((task) => task.id));
+  const upcomingTasks = mobileTasks
+    .filter((task) => task.dateKey && task.dateKey > todayKey && !waitingTaskIds.has(task.id))
+    .slice(0, 8);
   const unscheduledTasks = mobileTasks.filter((task) => !task.dateKey).slice(0, 8);
 
   const handleCreateContent = async () => {
@@ -401,6 +413,7 @@ export default function ContentPage() {
           <div className="mt-7 space-y-7">
             {[
               ["Today", todayTasks],
+              ["Waiting on", waitingTasks],
               ["Upcoming", upcomingTasks],
               ["Unscheduled", unscheduledTasks]
             ].map(([section, sectionTasks]) => (
@@ -422,8 +435,9 @@ export default function ContentPage() {
                             <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-white/42 text-xs text-white/62">
                               ✓
                             </span>
-                            <div className="min-w-0 flex-1">
+                          <div className="min-w-0 flex-1">
                               <p className="truncate text-base font-semibold text-white">{task.title}</p>
+                              <p className="mt-1 line-clamp-2 text-sm text-white/55">{task.detail}</p>
                               <div className="mt-1 flex flex-wrap gap-2 text-xs text-white/45">
                                 <span>{task.eyebrow}</span>
                                 {task.dateKey ? <DatePill className="border-white/12 bg-white/[0.06] text-white/58" value={task.dateKey} /> : null}

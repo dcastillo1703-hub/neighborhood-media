@@ -114,6 +114,35 @@ export default function WebAnalyticsPage() {
         </div>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <div>
+            <CardDescription>Campaign pipeline</CardDescription>
+            <CardTitle className="mt-3">How to turn website traffic into business insight</CardTitle>
+          </div>
+        </CardHeader>
+        <div className="grid gap-3 md:grid-cols-3">
+          <ListCard>
+            <p className="font-medium text-foreground">1. Launch with a tagged link</p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Use the campaign website handoff so traffic arrives with UTMs instead of falling into unattributed visits.
+            </p>
+          </ListCard>
+          <ListCard>
+            <p className="font-medium text-foreground">2. Watch intent, not just sessions</p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Reservation clicks, calls, orders, and menu views are more useful than raw traffic alone.
+            </p>
+          </ListCard>
+          <ListCard>
+            <p className="font-medium text-foreground">3. Compare it to Toast</p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              The real question is whether the traffic lined up with stronger covers, orders, and revenue after the campaign went live.
+            </p>
+          </ListCard>
+        </div>
+      </Card>
+
       <StatGrid>
         <MetricCard href="/web-analytics" label="Sessions" value={number(summary?.sessions ?? 0)} detail="Overall website sessions in the latest synced window." />
         <MetricCard href="/web-analytics" label="Users" value={number(summary?.users ?? 0)} detail="Individual visitors seen by GA4." />

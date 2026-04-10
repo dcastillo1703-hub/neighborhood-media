@@ -363,6 +363,9 @@ export default function CampaignDetailPage() {
     ["Queued", "Processing", "Blocked"].includes(job.status)
   ).length;
   const openCampaignTasks = campaignTasks.filter((task) => task.status !== "Done").length;
+  const completedCampaignGoals = campaignGoals.filter((goal) => goal.done).length;
+  const openCampaignGoals = campaignGoals.filter((goal) => !goal.done).length;
+  const nextScheduledPost = scheduledPosts[0] ?? null;
   const websitePreviewPath = websiteDraft.landingPath.startsWith("/")
     ? websiteDraft.landingPath
     : websiteDraft.landingPath
@@ -384,6 +387,25 @@ export default function CampaignDetailPage() {
   const websiteActionMessage = websiteReady
     ? "This campaign has a tagged link ready to copy into posts, ads, stories, or QR codes."
     : "Finish the landing path and UTM fields so this campaign stops feeding unattributed traffic into GA.";
+  const pipelineRead = googleAnalyticsCampaignImpact?.ready
+    ? googleAnalyticsCampaignImpact.summary
+    : websiteReady
+      ? "The tagged link is ready. Sync Google Analytics to see whether this campaign is creating traffic and intent."
+      : "Set up the tagged link first so the website response can be tied back to this campaign.";
+  const campaignNextMoves = [
+    pendingReviews
+      ? `${pendingReviews} approval${pendingReviews === 1 ? "" : "s"} still need a decision.`
+      : null,
+    nextScheduledPost
+      ? `Next publish is ${nextScheduledPost.platform} on ${formatShortDate(nextScheduledPost.publishDate)}.`
+      : null,
+    openCampaignTasks
+      ? `${openCampaignTasks} campaign task${openCampaignTasks === 1 ? "" : "s"} are still open.`
+      : null,
+    openCampaignGoals
+      ? `${openCampaignGoals} goal${openCampaignGoals === 1 ? "" : "s"} still need to be completed.`
+      : null
+  ].filter(Boolean) as string[];
 
   const scrollToComposer = () => {
     window.setTimeout(() => {
@@ -1041,6 +1063,49 @@ export default function CampaignDetailPage() {
 
       {activeView === "overview" ? (
       <div className="grid gap-6 xl:grid-cols-[0.82fr_1.18fr]">
+        <Card className="hidden xl:col-span-2 sm:block">
+          <CardHeader>
+            <div>
+              <CardDescription>Effort to revenue pipeline</CardDescription>
+              <CardTitle className="mt-3">How this campaign moves the business forward</CardTitle>
+            </div>
+          </CardHeader>
+          <div className="grid gap-3 md:grid-cols-4">
+            <ListCard>
+              <p className="text-sm text-muted-foreground">Goals</p>
+              <p className="mt-2 text-2xl text-foreground">
+                {completedCampaignGoals}/{number(campaignGoals.length)}
+              </p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {openCampaignGoals ? `${openCampaignGoals} still open` : "All current goals are complete."}
+              </p>
+            </ListCard>
+            <ListCard>
+              <p className="text-sm text-muted-foreground">Execution</p>
+              <p className="mt-2 text-2xl text-foreground">{number(linkedPosts.length + campaignTasks.length)}</p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {pendingReviews} reviews · {openCampaignTasks} open tasks
+              </p>
+            </ListCard>
+            <ListCard>
+              <p className="text-sm text-muted-foreground">Website response</p>
+              <p className="mt-2 text-2xl text-foreground">{number(googleAnalyticsCampaignImpact?.sessions ?? 0)}</p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {websiteReady ? "Campaign sessions from tagged traffic." : "Save the tagged link to start reading website impact."}
+              </p>
+            </ListCard>
+            <ListCard>
+              <p className="text-sm text-muted-foreground">Revenue result</p>
+              <p className="mt-2 text-2xl text-foreground">
+                {currency(roiDraft.attributedRevenue || overview.attributedRevenue)}
+              </p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {number(roiDraft.attributedCovers || overview.attributedCovers)} covers tracked so far.
+              </p>
+            </ListCard>
+          </div>
+        </Card>
+
         <Card className="border-[#3a3a40]/70 bg-[#202024] text-white shadow-none sm:hidden">
           <div className="rounded-[1.5rem] border border-white/15 p-5">
             <div className="flex items-center justify-between">
@@ -1216,7 +1281,7 @@ export default function CampaignDetailPage() {
         <Card id="campaign-brief">
           <CardHeader>
             <div>
-              <CardDescription>Campaign Brief</CardDescription>
+              <CardDescription>Campaign Plan</CardDescription>
               <CardTitle className="mt-3">What this campaign is trying to change</CardTitle>
             </div>
           </CardHeader>
@@ -1253,6 +1318,22 @@ export default function CampaignDetailPage() {
               <p className="mt-2 text-sm text-foreground">
                 {campaignMetadata?.plainNotes || "No campaign notes yet."}
               </p>
+            </ListCard>
+            <ListCard>
+              <p className="text-sm text-muted-foreground">Next moves</p>
+              <div className="mt-3 space-y-2">
+                {campaignNextMoves.length ? (
+                  campaignNextMoves.map((item) => (
+                    <p className="text-sm text-foreground" key={item}>
+                      {item}
+                    </p>
+                  ))
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    The campaign is clear of current blockers. Add the next task or publish step when you are ready.
+                  </p>
+                )}
+              </div>
             </ListCard>
           </div>
         </Card>
@@ -1790,6 +1871,50 @@ export default function CampaignDetailPage() {
 
       {activeView === "performance" ? (
       <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
+        <Card className="xl:col-span-2">
+          <CardHeader>
+            <div>
+              <CardDescription>Pipeline read</CardDescription>
+              <CardTitle className="mt-3">From campaign work to business result</CardTitle>
+            </div>
+          </CardHeader>
+          <div className="grid gap-3 md:grid-cols-4">
+            <ListCard>
+              <p className="text-sm text-muted-foreground">Work in motion</p>
+              <p className="mt-2 text-2xl text-foreground">{number(linkedPosts.length + campaignTasks.length)}</p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {pendingReviews} reviews and {queuedPublishJobs} publish jobs are still in flight.
+              </p>
+            </ListCard>
+            <ListCard>
+              <p className="text-sm text-muted-foreground">Website traffic</p>
+              <p className="mt-2 text-2xl text-foreground">{number(googleAnalyticsCampaignImpact?.sessions ?? 0)}</p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {googleAnalyticsCampaignImpact?.topSources[0]?.label
+                  ? `${googleAnalyticsCampaignImpact.topSources[0].label} is the strongest source.`
+                  : "No campaign-attributed source yet."}
+              </p>
+            </ListCard>
+            <ListCard>
+              <p className="text-sm text-muted-foreground">Intent</p>
+              <p className="mt-2 text-2xl text-foreground">{number(googleAnalyticsCampaignImpact?.events ?? 0)}</p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Website actions tied to this campaign window and tagged path.
+              </p>
+            </ListCard>
+            <ListCard>
+              <p className="text-sm text-muted-foreground">Revenue</p>
+              <p className="mt-2 text-2xl text-foreground">{currency(roiDraft.attributedRevenue || overview.attributedRevenue)}</p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {number(roiDraft.attributedCovers || overview.attributedCovers)} covers and {number(overview.attributedTables, 1)} tables linked so far.
+              </p>
+            </ListCard>
+          </div>
+          <div className="mt-4 rounded-[1rem] border border-border/70 bg-muted/25 p-4">
+            <p className="text-sm leading-6 text-muted-foreground">{pipelineRead}</p>
+          </div>
+        </Card>
+
         <Card id="roi-story" className="xl:col-span-2">
           <CardHeader>
             <div>

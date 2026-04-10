@@ -739,7 +739,17 @@ export default function PerformancePage() {
             {campaignRecaps.length ? (
               campaignRecaps.map((campaign) => (
                 <ListCard key={campaign.id}>
-                  <p className="font-medium text-foreground">{campaign.name}</p>
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="font-medium text-foreground">{campaign.name}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Track whether campaign work created traffic, then compare it to covers and revenue movement.
+                      </p>
+                    </div>
+                    <Link className="text-sm font-medium text-primary" href={`/campaigns/${campaign.id}`}>
+                      Open
+                    </Link>
+                  </div>
                   <div className="mt-3 grid gap-2 md:grid-cols-3">
                     <p className="text-sm text-muted-foreground">
                       Revenue: <span className="text-foreground">{currency(campaign.revenue)}</span>

@@ -12,7 +12,6 @@ import { ListCard } from "@/components/dashboard/list-card";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { DatePill } from "@/components/ui/date-pill";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -25,7 +24,7 @@ import { useBlogPosts } from "@/lib/repositories/use-blog-posts";
 import { useCampaigns } from "@/lib/repositories/use-campaigns";
 import { usePosts } from "@/lib/repositories/use-posts";
 import { useWeeklyMetrics } from "@/lib/repositories/use-weekly-metrics";
-import { currency, number } from "@/lib/utils";
+import { currency, formatShortDate, number } from "@/lib/utils";
 import { validateCampaign } from "@/lib/validation";
 import { Campaign, CampaignStatus } from "@/types";
 
@@ -338,6 +337,17 @@ export default function CampaignsPage() {
                     <div className="min-w-0 flex-1 text-left">
                       <p className="truncate text-xl font-medium text-white">{overview.campaign.name}</p>
                       <p className="mt-1 truncate text-sm text-white/45">{overview.campaign.objective}</p>
+                      <div className="mt-2 flex flex-wrap gap-2 text-xs text-white/52">
+                        <span className="rounded-full bg-white/[0.06] px-2.5 py-1">{overview.campaign.status}</span>
+                        <span className="rounded-full bg-white/[0.06] px-2.5 py-1">
+                          {overview.linkedPosts.length
+                            ? `${overview.linkedPosts.length} posts`
+                            : "No posts yet"}
+                        </span>
+                        <span className="rounded-full bg-white/[0.06] px-2.5 py-1">
+                          {currency(overview.attributedRevenue)}
+                        </span>
+                      </div>
                     </div>
                     {starredCampaignIds.includes(overview.campaign.id) ? (
                       <Star className="h-4 w-4 shrink-0 text-white/55" fill="currentColor" />
@@ -564,19 +574,24 @@ export default function CampaignsPage() {
           </div>
           <p className="text-sm text-muted-foreground">{number(campaigns.length)} total</p>
         </CardHeader>
-        <div className="hidden border-b border-border/70 bg-muted/30 px-5 py-2 text-[0.68rem] uppercase tracking-[0.14em] text-muted-foreground lg:grid lg:grid-cols-[minmax(0,1.2fr)_8rem_10rem_6rem_8rem_7rem]">
+        <div className="hidden border-b border-border/70 bg-muted/30 px-5 py-2 text-[0.68rem] uppercase tracking-[0.14em] text-muted-foreground lg:grid lg:grid-cols-[minmax(0,1.25fr)_8rem_11rem_8rem_8rem_7rem]">
           <span>Name</span>
           <span>Status</span>
-          <span>Dates</span>
+          <span>Next move</span>
           <span>Posts</span>
           <span>Revenue</span>
           <span />
         </div>
         <div className="divide-y divide-border/70">
           {campaignOverviews.length ? (
-            campaignOverviews.map((overview) => (
+            campaignOverviews.map((overview) => {
+              const nextScheduledPost = overview.linkedPosts
+                .filter((post) => post.status === "Scheduled" && Boolean(post.publishDate))
+                .sort((left, right) => left.publishDate.localeCompare(right.publishDate))[0];
+
+              return (
               <ListCard key={overview.campaign.id} className="rounded-none border-0 bg-transparent px-5 py-4 hover:bg-primary/5">
-                <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_9rem_10rem_8rem_8rem_8rem] lg:items-center">
+                <div className="grid gap-4 lg:grid-cols-[minmax(0,1.25fr)_9rem_11rem_8rem_8rem_8rem] lg:items-center">
                   <div className="min-w-0">
                     <Link
                       className="text-balance font-display text-xl text-foreground transition hover:text-primary"
@@ -603,11 +618,16 @@ export default function CampaignsPage() {
                     </p>
                   </div>
                   <div>
-                    <p className="text-[0.65rem] uppercase tracking-[0.16em] text-muted-foreground lg:hidden">Dates</p>
-                    <div className="mt-1 flex flex-wrap items-center gap-1.5 lg:mt-0">
-                      <DatePill value={overview.campaign.startDate} />
-                      <span className="text-xs text-muted-foreground">to</span>
-                      <DatePill value={overview.campaign.endDate} />
+                    <p className="text-[0.65rem] uppercase tracking-[0.16em] text-muted-foreground lg:hidden">Next move</p>
+                    <div className="mt-1 lg:mt-0">
+                      <p className="text-sm text-foreground">
+                        {nextScheduledPost ? `Publish ${nextScheduledPost.platform}` : "Add first task"}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {nextScheduledPost
+                          ? formatShortDate(nextScheduledPost.publishDate)
+                          : `${formatShortDate(overview.campaign.startDate)} to ${formatShortDate(overview.campaign.endDate)}`}
+                      </p>
                     </div>
                   </div>
                   <div>
@@ -639,7 +659,8 @@ export default function CampaignsPage() {
                   </div>
                 </div>
               </ListCard>
-            ))
+            );
+            })
           ) : (
             <EmptyState
               title="No campaigns yet"
