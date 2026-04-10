@@ -77,7 +77,7 @@ function normalizeConfig(config: ClientHomeConfig, fallback: ClientHomeConfig): 
     ...config,
     headline: config.headline ?? fallback.headline,
     note: config.note ?? fallback.note,
-    cards: config.cards.length ? config.cards.slice(0, 3) : fallback.cards,
+    cards: config.cards.length ? config.cards.slice(0, 4) : fallback.cards,
     sections: [...orderedSections, ...missingSections]
   };
 }

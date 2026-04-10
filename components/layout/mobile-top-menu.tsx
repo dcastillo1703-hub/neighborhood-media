@@ -50,12 +50,12 @@ export function MobileTopMenu() {
   }
 
   return (
-    <div className="sticky top-2 z-40 mb-4 flex justify-end lg:hidden">
+    <div className="sticky top-3 z-40 -mb-10 flex h-0 justify-end px-1 lg:hidden">
       <div className="relative">
         <Button
           aria-expanded={open}
           aria-label="Open more pages"
-          className="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-card/95 text-foreground shadow-sm backdrop-blur"
+          className="pointer-events-auto flex h-11 w-11 items-center justify-center rounded-full border border-border bg-card text-foreground shadow-sm"
           size="sm"
           type="button"
           variant="outline"
@@ -73,11 +73,11 @@ export function MobileTopMenu() {
           <>
             <button
               aria-label="Close more pages menu"
-              className="fixed inset-0 z-[68] bg-black/20"
+              className="fixed inset-0 z-[68] bg-black/45"
               type="button"
               onClick={() => setOpen(false)}
             />
-            <div className="fixed inset-x-3 top-16 z-[69] rounded-[1.5rem] border border-border bg-card/98 p-3 shadow-[0_24px_60px_rgba(0,0,0,0.22)] backdrop-blur">
+            <div className="fixed inset-x-3 top-16 z-[69] rounded-[1.5rem] border border-border bg-card p-3 shadow-[0_24px_60px_rgba(0,0,0,0.28)]">
               <div className="mb-2 flex items-center justify-between px-1">
                 <div>
                   <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">

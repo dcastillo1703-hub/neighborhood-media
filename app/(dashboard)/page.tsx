@@ -48,6 +48,7 @@ import { useActivityEvents } from "@/lib/repositories/use-activity-events";
 import { useOperationalTasks } from "@/lib/repositories/use-operational-tasks";
 import { useWeeklyMetrics } from "@/lib/repositories/use-weekly-metrics";
 import { useApprovalsApi } from "@/lib/use-approvals-api";
+import { useGoogleAnalytics } from "@/lib/use-google-analytics";
 import { useManualMetaPerformance } from "@/lib/use-manual-meta-performance";
 import { useMetaBusinessSuite } from "@/lib/use-meta-business-suite";
 import { cn, currency, number } from "@/lib/utils";
@@ -102,14 +103,17 @@ function decodeOverviewSummary(value: string): {
               if (!card || typeof card !== "object") return false;
               const item = card as Partial<ClientHomeCard>;
               return (
-                (item.id === "primary" || item.id === "review" || item.id === "publish") &&
+                (item.id === "traffic" ||
+                  item.id === "covers" ||
+                  item.id === "growth" ||
+                  item.id === "attention") &&
                 typeof item.label === "string" &&
                 typeof item.value === "string" &&
                 typeof item.detail === "string" &&
                 typeof item.href === "string"
               );
             })
-            .slice(0, 3)
+            .slice(0, 4)
         : undefined
     };
   } catch {
@@ -202,6 +206,7 @@ export default function DashboardPage() {
   const { tasks } = useOperationalTasks(workspace.id);
   const { events } = useActivityEvents(workspace.id);
   const { approvals, ready: approvalsReady, reviewApproval, deleteApproval } = useApprovalsApi(activeClient.id);
+  const { summary: googleAnalyticsSummary } = useGoogleAnalytics(activeClient.id);
   const { summary: metaSummary } = useMetaBusinessSuite(activeClient.id);
   const { enabledChannels: manualMetaChannels } = useManualMetaPerformance(activeClient.id);
   const [isEditingOverview, setIsEditingOverview] = useState(false);
@@ -259,9 +264,6 @@ export default function DashboardPage() {
     campaigns.find((campaign) => campaign.status === "Active") ??
     campaigns[0] ??
     null;
-  const leadCampaign = pinnedCampaign
-    ? getCampaignOverview(pinnedCampaign, posts, blogPosts, assets, metrics, analyticsSnapshots)
-    : null;
   const toastOpportunities = useMemo(
     () => buildToastOpportunitySummary(metrics, settings.averageCheck),
     [metrics, settings.averageCheck]
@@ -349,66 +351,43 @@ export default function DashboardPage() {
     return actions.slice(0, 4);
   }, [nextScheduledItem, nextTask, pendingApprovals]);
 
-  const featuredMetric = useMemo(() => {
-    switch (settings.overviewFeaturedMetric) {
-      case "weekly-revenue":
-        return {
-          label: "Weekly Revenue",
-          value: currency(model.weeklyRevenue),
-          href: "/performance#business-snapshot" as Route
-        };
-      case "tracked-revenue":
-        return {
-          label: "Tracked Revenue",
-          value: currency(analyticsSnapshots.reduce((total, snapshot) => total + snapshot.attributedRevenue, 0)),
-          href: "/performance#campaign-impact" as Route
-        };
-      case "open-tasks":
-        return {
-          label: "Open Items",
-          value: number(openTasks.length),
-          href: "/approvals#open-tasks" as Route
-        };
-      case "weekly-covers":
-      default:
-        return {
-          label: "Weekly Covers",
-          value: number(model.weeklyCovers),
-          href: "/performance#business-snapshot" as Route
-        };
-    }
-  }, [analyticsSnapshots, model.weeklyCovers, model.weeklyRevenue, openTasks.length, settings.overviewFeaturedMetric]);
-
   const defaultHomeCards = useMemo<OverviewCardDraft[]>(() => [
     {
-      id: "primary",
-      label: featuredMetric.label,
-      value: featuredMetric.value,
-      detail: "The one number to keep in view this week.",
-      href: featuredMetric.href
+      id: "traffic",
+      label: "Website visitors",
+      value: number(googleAnalyticsSummary?.sessions ?? 0),
+      detail: "Latest synced website sessions from Google Analytics.",
+      href: "/web-analytics" as Route
     },
     {
-      id: "review",
-      label: "Waiting on Review",
-      value: approvalsReady ? number(pendingApprovals.length) : "...",
-      detail: "Content or requests that need a client decision.",
+      id: "covers",
+      label: "Weekly covers",
+      value: number(model.weeklyCovers),
+      detail: "Toast-backed weekly covers baseline.",
+      href: "/performance#business-snapshot" as Route
+    },
+    {
+      id: "growth",
+      label: "Growth target",
+      value: `${number(settings.defaultGrowthTarget, 1)}%`,
+      detail: "Current growth target for the restaurant.",
+      href: "/revenue-modeling" as Route
+    },
+    {
+      id: "attention",
+      label: "Needs attention",
+      value: number(pendingApprovals.length + openTasks.length),
+      detail: "Open approvals and tasks that still need action.",
       href: "/approvals" as Route
-    },
-    {
-      id: "publish",
-      label: "Next Publish",
-      value: nextScheduledItem ? nextScheduledItem.platform : "None",
-      detail: nextScheduledItem?.content ?? "No scheduled content is on the calendar yet.",
-      href: "/calendar" as Route
     }
-  ], [approvalsReady, featuredMetric, nextScheduledItem, pendingApprovals.length]);
+  ], [googleAnalyticsSummary?.sessions, model.weeklyCovers, openTasks.length, pendingApprovals.length, settings.defaultGrowthTarget]);
 
   const fallbackClientHomeConfig = useMemo(
     () =>
       createDefaultClientHomeConfig(activeClient.id, {
         headline: settings.overviewHeadline,
         note: decodedOverview.summary,
-        cards: decodedOverview.cards?.length === 3 ? decodedOverview.cards : defaultHomeCards
+        cards: decodedOverview.cards?.length === 4 ? decodedOverview.cards : defaultHomeCards
       }),
     [activeClient.id, decodedOverview.cards, decodedOverview.summary, defaultHomeCards, settings.overviewHeadline]
   );
@@ -417,7 +396,7 @@ export default function DashboardPage() {
     error: clientHomeConfigError,
     saveConfig: saveClientHomeConfig
   } = useClientHomeConfig(activeClient.id, fallbackClientHomeConfig);
-  const clientHomeCards = clientHomeConfig.cards.length === 3 ? clientHomeConfig.cards : defaultHomeCards;
+  const clientHomeCards = defaultHomeCards;
   const orderedVisibleSections = useMemo(
     () => clientHomeConfig.sections.filter((section) => section.visible),
     [clientHomeConfig.sections]
@@ -435,7 +414,7 @@ export default function DashboardPage() {
   const overviewSummary = clientHomeConfig.note;
   const mobileOverviewTitle = overviewHeadline || getGreeting(clientFirstName);
   const mobileOverviewSummary =
-    overviewSummary || "Use Customize to control the headline, note, and the three client-home rows.";
+    overviewSummary || "Home keeps website visitors, weekly covers, growth target, and what needs attention in view automatically.";
 
   const openOverviewEditor = () => {
     setOverviewDraft(toOverviewDraft(settings, defaultHomeCards, clientHomeConfig));
@@ -447,7 +426,7 @@ export default function DashboardPage() {
       ...clientHomeConfig,
       headline: overviewDraft.overviewHeadline.trim(),
       note: overviewDraft.overviewSummary.trim(),
-      cards: overviewDraft.overviewCards,
+      cards: defaultHomeCards,
       sections: overviewDraft.overviewSections
     };
 
@@ -455,60 +434,16 @@ export default function DashboardPage() {
 
     setSettings((current) => ({
       ...current,
-      averageCheck: Number(overviewDraft.averageCheck) || 0,
-      weeklyCovers: Math.round(Number(overviewDraft.weeklyCovers) || 0),
-      monthlyCovers: Math.round(Number(overviewDraft.monthlyCovers) || 0),
       defaultGrowthTarget: Number(overviewDraft.growthTarget) || 0,
       overviewHeadline: nextConfig.headline,
-      overviewSummary: encodeOverviewSummary(nextConfig.note, nextConfig.cards),
+      overviewSummary: encodeOverviewSummary(nextConfig.note, defaultHomeCards),
       overviewPinnedCampaignId: overviewDraft.overviewPinnedCampaignId || undefined,
-      overviewFeaturedMetric: overviewDraft.overviewFeaturedMetric
+      overviewFeaturedMetric: current.overviewFeaturedMetric
     }));
     setIsEditingOverview(false);
   };
 
   const useBestOverviewSuggestions = () => {
-    const suggestedCards: OverviewCardDraft[] = [
-      pendingApprovals.length
-        ? {
-            id: "review",
-            label: "Needs review",
-            value: number(pendingApprovals.length),
-            detail: "Items waiting on a decision before the work can move forward.",
-            href: "/approvals"
-          }
-        : {
-            id: "review",
-            label: "Review queue",
-            value: "Clear",
-            detail: "No approvals are waiting right now.",
-            href: "/approvals"
-          },
-      nextScheduledItem
-        ? {
-            id: "publish",
-            label: "Next publish",
-            value: nextScheduledItem.platform,
-            detail: nextScheduledItem.content,
-            href: "/calendar"
-          }
-        : {
-            id: "publish",
-            label: "Next publish",
-            value: "None",
-            detail: "No scheduled content is on the calendar yet.",
-            href: "/calendar"
-          },
-      {
-        id: "primary",
-        label: leadCampaign ? "Current campaign" : featuredMetric.label,
-        value: leadCampaign ? leadCampaign.campaign.name : featuredMetric.value,
-        detail: leadCampaign
-          ? leadCampaign.campaign.objective || "Pinned campaign for this client home."
-          : "The best live metric to keep in view this week.",
-        href: leadCampaign ? `/campaigns/${leadCampaign.campaign.id}` : featuredMetric.href
-      }
-    ];
     const suggestedSectionOrder: ClientHomeSection["id"][] = [
       "attention",
       pendingApprovals.length ? "review" : "active-campaign",
@@ -535,7 +470,6 @@ export default function DashboardPage() {
       overviewSummary:
         current.overviewSummary ||
         "Here is what needs attention, what is coming next, and what campaign is driving growth.",
-      overviewCards: suggestedCards,
       overviewSections: orderedSectionIds.map((sectionId) => {
         const existing = current.overviewSections.find((section) => section.id === sectionId);
 
@@ -741,52 +675,33 @@ export default function DashboardPage() {
             </CardHeader>
             <div className="grid gap-6">
             <div className="rounded-[1.25rem] border border-primary/25 bg-[var(--app-accent-soft)] p-4">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <p className="flex items-center gap-2 text-sm font-medium text-foreground">
                     <Sparkles className="h-4 w-4 text-[var(--app-accent-bg)]" />
-                    Best suggestions
+                    Home highlights update automatically
                   </p>
                   <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                    Let the app pick the most useful Home setup from current approvals, scheduled content, active campaigns, and recent work.
+                    The top of Home now always shows website visitors, weekly covers, growth target, and what needs attention. You only need to set the message and the growth target.
                   </p>
                 </div>
                 <Button className="shrink-0" type="button" variant="outline" onClick={useBestOverviewSuggestions}>
-                  Use suggestions
+                  Use a cleaner layout
                 </Button>
-              </div>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <div>
-                <Label>Average Check</Label>
-                <Input value={overviewDraft.averageCheck} type="number" step="0.01" onChange={(event) => setOverviewDraft((current) => ({ ...current, averageCheck: event.target.value }))} />
-              </div>
-              <div>
-                <Label>Weekly Covers</Label>
-                <Input value={overviewDraft.weeklyCovers} type="number" step="0.01" onChange={(event) => setOverviewDraft((current) => ({ ...current, weeklyCovers: event.target.value }))} />
-              </div>
-              <div>
-                <Label>Monthly Covers</Label>
-                <Input value={overviewDraft.monthlyCovers} type="number" step="0.01" onChange={(event) => setOverviewDraft((current) => ({ ...current, monthlyCovers: event.target.value }))} />
-              </div>
-              <div>
-                <Label>Growth Target %</Label>
-                <Input value={overviewDraft.growthTarget} type="number" step="0.01" onChange={(event) => setOverviewDraft((current) => ({ ...current, growthTarget: event.target.value }))} />
               </div>
             </div>
 
             <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
               <div className="space-y-4">
                 <div>
-                  <Label>Headline</Label>
+                  <Label>Home headline</Label>
                   <Input value={overviewDraft.overviewHeadline} onChange={(event) => setOverviewDraft((current) => ({ ...current, overviewHeadline: event.target.value }))} placeholder="Example: Here is what matters most this week." />
                   <p className="mt-2 text-xs leading-5 text-muted-foreground">
                     This is the main line the client sees first on Home. Keep it short, clear, and focused on what matters right now.
                   </p>
                 </div>
                 <div>
-                  <Label>Client Note</Label>
+                  <Label>Home note</Label>
                   <Textarea value={overviewDraft.overviewSummary} onChange={(event) => setOverviewDraft((current) => ({ ...current, overviewSummary: event.target.value }))} placeholder="Example: Reviews are clear, Tuesday still needs help, and brunch traffic is strongest from Facebook." />
                   <p className="mt-2 text-xs leading-5 text-muted-foreground">
                     Use this for a plain-English summary of the week, not internal notes or setup instructions.
@@ -796,22 +711,8 @@ export default function DashboardPage() {
 
               <div className="space-y-4">
                 <div>
-                  <Label>Featured Metric</Label>
-                  <Select
-                    value={overviewDraft.overviewFeaturedMetric}
-                    onChange={(value) =>
-                      setOverviewDraft((current) => ({
-                        ...current,
-                        overviewFeaturedMetric: value as OverviewDraft["overviewFeaturedMetric"]
-                      }))
-                    }
-                    options={[
-                      { label: "Weekly Covers", value: "weekly-covers" },
-                      { label: "Weekly Revenue", value: "weekly-revenue" },
-                      { label: "Tracked Revenue", value: "tracked-revenue" },
-                      { label: "Open Items", value: "open-tasks" }
-                    ]}
-                  />
+                  <Label>Growth target %</Label>
+                  <Input value={overviewDraft.growthTarget} type="number" step="0.01" onChange={(event) => setOverviewDraft((current) => ({ ...current, growthTarget: event.target.value }))} />
                 </div>
                 <div>
                   <Label>Pinned Campaign</Label>
@@ -824,84 +725,6 @@ export default function DashboardPage() {
                     ]}
                   />
                 </div>
-              </div>
-            </div>
-
-            <div className="rounded-[1.25rem] border border-border/70 bg-card/55 p-4">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <p className="text-sm font-medium text-foreground">Top Home rows</p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    These are the three compact rows shown first on mobile and the three summary cards shown first on desktop.
-                  </p>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    `Use current numbers` pulls from the live app data, like your featured metric, open approvals, and next scheduled content.
-                  </p>
-                </div>
-                <Button
-                  onClick={() =>
-                    setOverviewDraft((current) => ({
-                      ...current,
-                      overviewCards: defaultHomeCards
-                    }))
-                  }
-                  type="button"
-                  variant="outline"
-                >
-                  Use current numbers
-                </Button>
-              </div>
-              <div className="mt-4 grid gap-4 lg:grid-cols-3">
-                {overviewDraft.overviewCards.map((card, index) => (
-                  <div className="rounded-[1rem] border border-border/70 bg-background/60 p-4" key={card.id}>
-                    <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Card {index + 1}</p>
-                    <div className="mt-4 space-y-3">
-                      <div>
-                        <Label>Label</Label>
-                        <Input
-                          value={card.label}
-                          onChange={(event) =>
-                            setOverviewDraft((current) => ({
-                              ...current,
-                              overviewCards: current.overviewCards.map((item) =>
-                                item.id === card.id ? { ...item, label: event.target.value } : item
-                              )
-                            }))
-                          }
-                        />
-                      </div>
-                      <div>
-                        <Label>Value</Label>
-                        <Input
-                          value={card.value}
-                          onChange={(event) =>
-                            setOverviewDraft((current) => ({
-                              ...current,
-                              overviewCards: current.overviewCards.map((item) =>
-                                item.id === card.id ? { ...item, value: event.target.value } : item
-                              )
-                            }))
-                          }
-                        />
-                      </div>
-                      <div>
-                        <Label>Detail</Label>
-                        <Textarea
-                          className="min-h-24"
-                          value={card.detail}
-                          onChange={(event) =>
-                            setOverviewDraft((current) => ({
-                              ...current,
-                              overviewCards: current.overviewCards.map((item) =>
-                                item.id === card.id ? { ...item, detail: event.target.value } : item
-                              )
-                            }))
-                          }
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ))}
               </div>
             </div>
 
@@ -1004,7 +827,7 @@ export default function DashboardPage() {
         </div>
       ) : null}
 
-      <motion.div animate={{ opacity: 1, y: 0 }} className="hidden gap-4 sm:grid md:grid-cols-3" initial={{ opacity: 0, y: 12 }}>
+      <motion.div animate={{ opacity: 1, y: 0 }} className="hidden gap-4 sm:grid md:grid-cols-2 xl:grid-cols-4" initial={{ opacity: 0, y: 12 }}>
         {clientHomeCards.map((card) => (
           <Link href={card.href as Route} key={card.id}>
             <Card className="h-full p-5">

@@ -58,7 +58,7 @@ export type ClientSettings = {
 };
 
 export type ClientHomeCard = {
-  id: "primary" | "review" | "publish";
+  id: "traffic" | "covers" | "growth" | "attention";
   label: string;
   value: string;
   detail: string;
