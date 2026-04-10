@@ -451,6 +451,26 @@ export type GoogleAnalyticsSummary = {
   nextAction: string;
 };
 
+export type GoogleAnalyticsCampaignImpact = {
+  ready: boolean;
+  periodLabel?: string;
+  landingPath?: string;
+  utmCampaign?: string;
+  sessions: number;
+  users: number;
+  views: number;
+  events: number;
+  topSources: Array<{
+    label: string;
+    sessions: number;
+  }>;
+  topPages: Array<{
+    path: string;
+    views: number;
+  }>;
+  summary: string;
+};
+
 export type IntegrationConnection = {
   id: string;
   clientId: string;

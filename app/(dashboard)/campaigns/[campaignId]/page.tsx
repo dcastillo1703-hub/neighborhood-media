@@ -198,7 +198,23 @@ export default function CampaignDetailPage() {
   const { assets } = useAssets(activeClient.id);
   const { metrics } = useWeeklyMetrics(activeClient.id);
   const { analyticsSnapshots } = useAnalyticsSnapshots(activeClient.id);
-  const { summary: googleAnalyticsSummary } = useGoogleAnalytics(activeClient.id);
+  const [websiteDraft, setWebsiteDraft] = useState({
+    landingPath: "",
+    utmSource: "facebook",
+    utmMedium: "social",
+    utmCampaign: ""
+  });
+  const {
+    summary: googleAnalyticsSummary,
+    campaignImpact: googleAnalyticsCampaignImpact
+  } = useGoogleAnalytics(activeClient.id, {
+    landingPath: websiteDraft.landingPath.startsWith("/")
+      ? websiteDraft.landingPath
+      : websiteDraft.landingPath
+        ? `/${websiteDraft.landingPath}`
+        : "/",
+    utmCampaign: websiteDraft.utmCampaign || slugifyCampaignName(campaignId)
+  });
   const { approvals, ready: approvalsReady, reviewApproval, prependApproval } = useApprovalsApi(activeClient.id);
   const { jobs, ready: jobsReady, processJob } = usePublishingApi(activeClient.id);
   const {
@@ -252,12 +268,6 @@ export default function CampaignDetailPage() {
   const [goalDraft, setGoalDraft] = useState("");
   const [goalDueDateDraft, setGoalDueDateDraft] = useState("");
   const [goalAssigneeDraft, setGoalAssigneeDraft] = useState("");
-  const [websiteDraft, setWebsiteDraft] = useState({
-    landingPath: "",
-    utmSource: "facebook",
-    utmMedium: "social",
-    utmCampaign: ""
-  });
   const [savingWebsite, setSavingWebsite] = useState(false);
   const [websiteError, setWebsiteError] = useState<string | null>(null);
 
@@ -1945,9 +1955,11 @@ export default function CampaignDetailPage() {
             <ListCard>
               <p className="text-sm text-muted-foreground">Current website read</p>
               <p className="mt-2 text-sm text-foreground">
-                {googleAnalyticsSummary?.topPages[0]
-                  ? `${googleAnalyticsSummary.topPages[0].path} is the strongest landing page right now, and ${googleAnalyticsSummary.topSources[0]?.label ?? "Direct / unknown"} is the strongest traffic source.`
-                  : "Sync Google Analytics from the Web Analytics page to compare campaign handoff choices against live website behavior."}
+                {googleAnalyticsCampaignImpact?.ready
+                  ? googleAnalyticsCampaignImpact.summary
+                  : googleAnalyticsSummary?.topPages[0]
+                    ? `${googleAnalyticsSummary.topPages[0].path} is the strongest landing page right now, and ${googleAnalyticsSummary.topSources[0]?.label ?? "Direct / unknown"} is the strongest traffic source.`
+                    : "Sync Google Analytics from the Web Analytics page to compare campaign handoff choices against live website behavior."}
               </p>
             </ListCard>
 
@@ -1960,6 +1972,49 @@ export default function CampaignDetailPage() {
               </Link>
             </div>
             {websiteError ? <p className="text-xs text-primary">{websiteError}</p> : null}
+          </div>
+        </Card>
+
+        <Card id="website-impact">
+          <CardHeader>
+            <div>
+              <CardDescription>Website impact</CardDescription>
+              <CardTitle className="mt-3">What this campaign is doing on the site</CardTitle>
+            </div>
+          </CardHeader>
+          <div className="space-y-4">
+            <ListCard>
+              <p className="text-sm leading-6 text-muted-foreground">
+                {googleAnalyticsCampaignImpact?.summary ??
+                  "Save the website handoff and sync Google Analytics so this campaign can show its own website read here."}
+              </p>
+            </ListCard>
+            <div className="grid gap-3 md:grid-cols-2">
+              <ListCard>
+                <p className="text-sm text-muted-foreground">Campaign sessions</p>
+                <p className="mt-2 text-2xl text-foreground">
+                  {number(googleAnalyticsCampaignImpact?.sessions ?? 0)}
+                </p>
+              </ListCard>
+              <ListCard>
+                <p className="text-sm text-muted-foreground">Campaign views</p>
+                <p className="mt-2 text-2xl text-foreground">
+                  {number(googleAnalyticsCampaignImpact?.views ?? 0)}
+                </p>
+              </ListCard>
+              <ListCard>
+                <p className="text-sm text-muted-foreground">Strongest source</p>
+                <p className="mt-2 text-lg text-foreground">
+                  {googleAnalyticsCampaignImpact?.topSources[0]?.label ?? "No source yet"}
+                </p>
+              </ListCard>
+              <ListCard>
+                <p className="text-sm text-muted-foreground">Top campaign page</p>
+                <p className="mt-2 text-lg text-foreground">
+                  {googleAnalyticsCampaignImpact?.topPages[0]?.path ?? websitePreviewPath}
+                </p>
+              </ListCard>
+            </div>
           </div>
         </Card>
 

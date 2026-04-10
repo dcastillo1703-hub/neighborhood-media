@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import type { GoogleAnalyticsSummary } from "@/types";
+import type { GoogleAnalyticsCampaignImpact, GoogleAnalyticsSummary } from "@/types";
 
 async function readApiError(response: Response, fallback: string) {
   try {
@@ -13,8 +13,12 @@ async function readApiError(response: Response, fallback: string) {
   }
 }
 
-export function useGoogleAnalytics(clientId: string) {
+export function useGoogleAnalytics(
+  clientId: string,
+  options?: { landingPath?: string; utmCampaign?: string }
+) {
   const [summary, setSummary] = useState<GoogleAnalyticsSummary | null>(null);
+  const [campaignImpact, setCampaignImpact] = useState<GoogleAnalyticsCampaignImpact | null>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,8 +30,20 @@ export function useGoogleAnalytics(clientId: string) {
       setError(null);
 
       try {
+        const params = new URLSearchParams({
+          clientId
+        });
+
+        if (options?.landingPath) {
+          params.set("landingPath", options.landingPath);
+        }
+
+        if (options?.utmCampaign) {
+          params.set("utmCampaign", options.utmCampaign);
+        }
+
         const response = await fetch(
-          `/api/google-analytics?clientId=${encodeURIComponent(clientId)}`,
+          `/api/google-analytics?${params.toString()}`,
           {
             method: "GET",
             cache: "no-store"
@@ -38,10 +54,14 @@ export function useGoogleAnalytics(clientId: string) {
           throw new Error("Failed to load Google Analytics summary.");
         }
 
-        const payload = (await response.json()) as { summary: GoogleAnalyticsSummary };
+        const payload = (await response.json()) as {
+          summary: GoogleAnalyticsSummary;
+          campaignImpact?: GoogleAnalyticsCampaignImpact;
+        };
 
         if (active) {
           setSummary(payload.summary);
+          setCampaignImpact(payload.campaignImpact ?? null);
         }
       } catch (loadError) {
         if (active) {
@@ -51,6 +71,7 @@ export function useGoogleAnalytics(clientId: string) {
               : "Failed to load Google Analytics summary."
           );
           setSummary(null);
+          setCampaignImpact(null);
         }
       } finally {
         if (active) {
@@ -64,7 +85,7 @@ export function useGoogleAnalytics(clientId: string) {
     return () => {
       active = false;
     };
-  }, [clientId]);
+  }, [clientId, options?.landingPath, options?.utmCampaign]);
 
   async function sync() {
     const response = await fetch("/api/google-analytics/sync", {
@@ -95,6 +116,7 @@ export function useGoogleAnalytics(clientId: string) {
 
   return {
     summary,
+    campaignImpact,
     ready,
     error,
     sync

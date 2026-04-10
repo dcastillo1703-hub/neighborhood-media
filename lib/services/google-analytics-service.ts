@@ -9,7 +9,12 @@ import {
   mapIntegrationConnectionRow
 } from "@/lib/supabase/mappers";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
-import type { AnalyticsSnapshot, GoogleAnalyticsSummary, IntegrationConnection } from "@/types";
+import type {
+  AnalyticsSnapshot,
+  GoogleAnalyticsCampaignImpact,
+  GoogleAnalyticsSummary,
+  IntegrationConnection
+} from "@/types";
 
 type GoogleAnalyticsTokenResponse = {
   access_token: string;
@@ -301,6 +306,132 @@ function buildSummaryFromConnection(
 export async function getGoogleAnalyticsSummary(clientId: string) {
   const connection = await getOrCreateGoogleAnalyticsConnection(clientId);
   return buildSummaryFromConnection(clientId, connection);
+}
+
+export async function getGoogleAnalyticsCampaignImpact(input: {
+  clientId: string;
+  landingPath?: string;
+  utmCampaign?: string;
+}): Promise<GoogleAnalyticsCampaignImpact> {
+  const connection = await getOrCreateGoogleAnalyticsConnection(input.clientId);
+  const summary = buildSummaryFromConnection(input.clientId, connection);
+
+  if (!summary.readyToSync) {
+    return {
+      ready: false,
+      periodLabel: summary.periodLabel,
+      landingPath: input.landingPath,
+      utmCampaign: input.utmCampaign,
+      sessions: 0,
+      users: 0,
+      views: 0,
+      events: 0,
+      topSources: [],
+      topPages: [],
+      summary: "Finish Google Analytics setup first so campaign traffic can be read here."
+    };
+  }
+
+  const accessToken = await fetchGoogleAnalyticsAccessToken();
+  const dateRanges = [{ startDate: "30daysAgo", endDate: "today" }];
+  const filters: Record<string, unknown>[] = [];
+  const normalizedLandingPath = input.landingPath?.trim();
+  const normalizedCampaign = input.utmCampaign?.trim();
+
+  if (normalizedLandingPath) {
+    filters.push({
+      filter: {
+        fieldName: "landingPagePlusQueryString",
+        stringFilter: {
+          matchType: "BEGINS_WITH",
+          value: normalizedLandingPath
+        }
+      }
+    });
+  }
+
+  if (normalizedCampaign) {
+    filters.push({
+      filter: {
+        fieldName: "sessionCampaignName",
+        stringFilter: {
+          matchType: "EXACT",
+          value: normalizedCampaign
+        }
+      }
+    });
+  }
+
+  const dimensionFilter =
+    filters.length > 1
+      ? {
+          andGroup: {
+            expressions: filters
+          }
+        }
+      : filters[0] ?? undefined;
+
+  const baseBody = {
+    dateRanges,
+    dimensionFilter
+  };
+
+  const totalsResponse = await runGoogleAnalyticsReport(accessToken, {
+    ...baseBody,
+    metrics: [
+      { name: "sessions" },
+      { name: "totalUsers" },
+      { name: "screenPageViews" },
+      { name: "eventCount" }
+    ]
+  });
+  const topSourcesResponse = await runGoogleAnalyticsReport(accessToken, {
+    ...baseBody,
+    dimensions: [{ name: "sessionSourceMedium" }],
+    metrics: [{ name: "sessions" }],
+    orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
+    limit: 3
+  });
+  const topPagesResponse = await runGoogleAnalyticsReport(accessToken, {
+    ...baseBody,
+    dimensions: [{ name: "landingPagePlusQueryString" }],
+    metrics: [{ name: "screenPageViews" }],
+    orderBys: [{ metric: { metricName: "screenPageViews" }, desc: true }],
+    limit: 3
+  });
+
+  const totalsRow = totalsResponse.rows?.[0];
+  const sessions = Number(totalsRow?.metricValues?.[0]?.value ?? 0);
+  const users = Number(totalsRow?.metricValues?.[1]?.value ?? 0);
+  const views = Number(totalsRow?.metricValues?.[2]?.value ?? 0);
+  const events = Number(totalsRow?.metricValues?.[3]?.value ?? 0);
+  const topSources = (topSourcesResponse.rows ?? []).map((row) => ({
+    label: row.dimensionValues?.[0]?.value || "Direct / unknown",
+    sessions: Number(row.metricValues?.[0]?.value ?? 0)
+  }));
+  const topPages = (topPagesResponse.rows ?? []).map((row) => ({
+    path: row.dimensionValues?.[0]?.value || "/",
+    views: Number(row.metricValues?.[0]?.value ?? 0)
+  }));
+
+  const summaryText =
+    sessions > 0
+      ? `${normalizedCampaign || "This campaign"} brought in ${sessions} sessions and ${views} views in the last 30 days${topSources[0] ? `, led by ${topSources[0].label}` : ""}.`
+      : "No campaign-specific website traffic has shown up yet for this landing path and UTM combination.";
+
+  return {
+    ready: true,
+    periodLabel: "Last 30 days",
+    landingPath: normalizedLandingPath,
+    utmCampaign: normalizedCampaign,
+    sessions,
+    users,
+    views,
+    events,
+    topSources,
+    topPages,
+    summary: summaryText
+  };
 }
 
 export async function syncGoogleAnalytics(clientId: string): Promise<GoogleAnalyticsSyncResult> {

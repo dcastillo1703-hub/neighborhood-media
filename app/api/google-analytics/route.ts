@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireClientRole } from "@/lib/auth/permissions";
-import { getGoogleAnalyticsSummary } from "@/lib/services/google-analytics-service";
+import {
+  getGoogleAnalyticsCampaignImpact,
+  getGoogleAnalyticsSummary
+} from "@/lib/services/google-analytics-service";
 
 export async function GET(request: NextRequest) {
   const clientId = request.nextUrl.searchParams.get("clientId");
@@ -18,6 +21,19 @@ export async function GET(request: NextRequest) {
 
   try {
     const summary = await getGoogleAnalyticsSummary(clientId);
+    const landingPath = request.nextUrl.searchParams.get("landingPath") ?? undefined;
+    const utmCampaign = request.nextUrl.searchParams.get("utmCampaign") ?? undefined;
+
+    if (landingPath || utmCampaign) {
+      const campaignImpact = await getGoogleAnalyticsCampaignImpact({
+        clientId,
+        landingPath,
+        utmCampaign
+      });
+
+      return NextResponse.json({ summary, campaignImpact });
+    }
+
     return NextResponse.json({ summary });
   } catch (error) {
     return NextResponse.json(
