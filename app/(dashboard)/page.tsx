@@ -319,6 +319,33 @@ export default function DashboardPage() {
 
     return actions.slice(0, 4);
   }, [nextScheduledItem, nextTask, pendingApprovals]);
+  const homeNextAction = pendingApprovals[0]
+    ? {
+        title: "Review pending approvals",
+        detail: `${number(pendingApprovals.length)} approval${pendingApprovals.length === 1 ? "" : "s"} are waiting before content can move forward.`,
+        href: "/approvals" as Route,
+        actionLabel: "Open approvals"
+      }
+    : openTasks.find((task) => task.dueDate && new Date(task.dueDate) < new Date())
+      ? {
+          title: "Resolve overdue work",
+          detail: "An overdue task is blocking execution. Clear it first so the schedule stays realistic.",
+          href: "/approvals#open-tasks" as Route,
+          actionLabel: "Open tasks"
+        }
+      : nextScheduledItem
+        ? {
+            title: "Prepare the next scheduled publish",
+            detail: `${nextScheduledItem.platform} is coming up ${nextScheduledItem.date ? `on ${formatShortDate(nextScheduledItem.date)}` : "soon"}.`,
+            href: "/calendar" as Route,
+            actionLabel: "Open calendar"
+          }
+        : {
+            title: "Start the next campaign move",
+            detail: "If nothing is blocked right now, add the next task or content item to keep growth moving.",
+            href: "/campaigns" as Route,
+            actionLabel: "Open campaigns"
+          };
 
   const defaultHomeCards = useMemo<OverviewCardDraft[]>(() => [
     {
@@ -521,6 +548,18 @@ export default function DashboardPage() {
               <span className="shrink-0 text-right text-lg font-semibold tracking-[-0.03em] text-white">{card.value}</span>
             </Link>
           ))}
+        </div>
+
+        <div className="mt-3 rounded-[1.35rem] border border-white/10 bg-[#1b1c1f] p-4">
+          <p className="text-sm text-white/45">Next action</p>
+          <p className="mt-1 text-lg font-semibold text-white">{homeNextAction.title}</p>
+          <p className="mt-2 text-sm leading-6 text-white/58">{homeNextAction.detail}</p>
+          <Link
+            className="mt-4 inline-flex rounded-full bg-white px-4 py-2 text-sm font-semibold text-[#202124]"
+            href={homeNextAction.href}
+          >
+            {homeNextAction.actionLabel}
+          </Link>
         </div>
 
         {visibleSectionIds.has("attention") ? (
@@ -795,6 +834,21 @@ export default function DashboardPage() {
         ))}
       </motion.div>
 
+      <Card className="hidden sm:block">
+        <CardHeader>
+          <div>
+            <CardDescription>Next Action</CardDescription>
+            <CardTitle className="mt-3">{homeNextAction.title}</CardTitle>
+          </div>
+          <Link className="hidden items-center gap-1 text-sm font-medium text-primary sm:flex" href={homeNextAction.href}>
+            {homeNextAction.actionLabel} <ChevronRight className="h-4 w-4" />
+          </Link>
+        </CardHeader>
+        <div className="px-6 pb-6">
+          <p className="text-sm leading-6 text-muted-foreground">{homeNextAction.detail}</p>
+        </div>
+      </Card>
+
       {visibleSectionIds.has("attention") || visibleSectionIds.has("active-campaign") ? (
         <div
           className="grid gap-5 xl:grid-cols-[0.92fr_1.08fr]"
@@ -915,6 +969,12 @@ export default function DashboardPage() {
                     const nextCampaignPost = [...campaignOverview.linkedPosts]
                       .filter((post) => post.status === "Scheduled" && Boolean(post.publishDate))
                       .sort((left, right) => left.publishDate.localeCompare(right.publishDate))[0];
+                    const campaignHealth =
+                      nextCampaignPost
+                        ? "On Track"
+                        : campaignOverview.linkedPosts.length > 0
+                        ? "Needs Attention"
+                        : "At Risk";
 
                     return (
                       <Link
@@ -930,6 +990,7 @@ export default function DashboardPage() {
                             </p>
                             <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
                               <span className="rounded-full bg-muted/60 px-2.5 py-1">{campaign.status}</span>
+                              <span className="rounded-full bg-muted/60 px-2.5 py-1">{campaignHealth}</span>
                               <span className="rounded-full bg-muted/60 px-2.5 py-1">
                                 {nextCampaignPost ? `Next publish ${formatShortDate(nextCampaignPost.publishDate)}` : "No publish scheduled"}
                               </span>

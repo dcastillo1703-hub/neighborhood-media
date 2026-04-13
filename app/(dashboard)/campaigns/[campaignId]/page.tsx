@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type DragEvent } from "react";
 import { useParams } from "next/navigation";
 import {
   ArrowRight,
@@ -397,6 +397,7 @@ export default function CampaignDetailPage() {
   const [savingWebsite, setSavingWebsite] = useState(false);
   const [websiteError, setWebsiteError] = useState<string | null>(null);
   const [websiteNotice, setWebsiteNotice] = useState<string | null>(null);
+  const [draggedReadyPostId, setDraggedReadyPostId] = useState<string | null>(null);
 
   useEffect(() => {
     setRoiDraft(roiSnapshot);
@@ -527,6 +528,19 @@ export default function CampaignDetailPage() {
         item: goal
       }))
   ].sort((left, right) => left.date.localeCompare(right.date));
+  const schedulingDays = Array.from({ length: 7 }, (_, index) => {
+    const nextDate = new Date();
+    nextDate.setDate(nextDate.getDate() + index);
+    const isoDate = nextDate.toISOString().slice(0, 10);
+    const itemCount = scheduledPosts.filter((post) => post.publishDate === isoDate).length;
+
+    return {
+      date: isoDate,
+      label: formatShortDate(isoDate),
+      itemCount
+    };
+  });
+  const scheduleGaps = schedulingDays.filter((day) => day.itemCount === 0);
   const websitePreviewPath = websiteDraft.landingPath.startsWith("/")
     ? websiteDraft.landingPath
     : websiteDraft.landingPath
@@ -567,6 +581,68 @@ export default function CampaignDetailPage() {
       ? `${openCampaignGoals} goal${openCampaignGoals === 1 ? "" : "s"} still need to be completed.`
       : null
   ].filter(Boolean) as string[];
+  const overdueTaskCount = campaignTasks.filter(
+    (task) => task.status !== "Done" && task.dueDate && new Date(task.dueDate) < new Date()
+  ).length;
+  const blockedTaskCount = campaignTasks.filter((task) => task.blockedByTaskIds?.length).length;
+  const missingContentCount = linkedPosts.filter((post) => !post.content.trim() || (post.assetState ?? "Missing") !== "Ready").length;
+  const unscheduledReadyCount = readyToSchedulePosts.length;
+  const campaignHealth: {
+    label: "At Risk" | "On Track" | "Needs Attention";
+    detail: string;
+    tone: string;
+  } =
+    overdueTaskCount || pendingReviews > 1
+      ? {
+          label: "At Risk",
+          detail: `${number(overdueTaskCount + pendingReviews)} blocker${overdueTaskCount + pendingReviews === 1 ? "" : "s"} need attention.`,
+          tone: "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300"
+        }
+      : missingContentCount || unscheduledReadyCount || blockedTaskCount
+        ? {
+            label: "Needs Attention",
+            detail: `${number(missingContentCount + unscheduledReadyCount + blockedTaskCount)} execution gaps are still open.`,
+            tone: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+          }
+        : {
+            label: "On Track",
+            detail: "Current work is moving through the pipeline cleanly.",
+            tone: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+          };
+  const nextAction = overdueTaskCount
+    ? {
+        label: "Resolve overdue work",
+        detail: `${number(overdueTaskCount)} task${overdueTaskCount === 1 ? "" : "s"} are overdue and blocking the campaign.`,
+        actionLabel: "Open tasks",
+        onClick: () => setActiveView("list")
+      }
+    : pendingReviews
+      ? {
+          label: "Review pending approvals",
+          detail: `${number(pendingReviews)} content item${pendingReviews === 1 ? "" : "s"} are waiting on approval before they can move forward.`,
+          actionLabel: "Review approvals",
+          onClick: () => setActiveView("list")
+        }
+      : unscheduledReadyCount
+        ? {
+            label: "Schedule ready content",
+            detail: `${number(unscheduledReadyCount)} approved item${unscheduledReadyCount === 1 ? "" : "s"} are ready to place on the calendar.`,
+            actionLabel: "Open calendar",
+            onClick: () => setActiveView("calendar")
+          }
+        : missingContentCount
+          ? {
+              label: "Finish campaign content",
+              detail: `${number(missingContentCount)} content item${missingContentCount === 1 ? "" : "s"} still need copy or assets.`,
+              actionLabel: "Open content",
+              onClick: () => setActiveView("overview")
+            }
+          : {
+              label: "Capture results",
+              detail: "Execution is moving. The next step is keeping website and revenue signals updated.",
+              actionLabel: "Open results",
+              onClick: () => setActiveView("performance")
+            };
   const pipelineStages: Array<{
     id: CampaignPipelineStageId;
     label: string;
@@ -812,6 +888,63 @@ export default function CampaignDetailPage() {
       setSelectedPostDraft(null);
     } catch (error) {
       setSelectedSaveError(error instanceof Error ? error.message : "Unable to update post.");
+    } finally {
+      setSavingSelectedTask(false);
+    }
+  };
+
+  const sendSelectedPostToApproval = async () => {
+    if (!selectedPostDraft) {
+      return;
+    }
+
+    const scheduledDate = selectedPostDraft.publishDate || new Date().toISOString().slice(0, 10);
+    setSelectedPostDraft((current) =>
+      current
+        ? {
+            ...current,
+            publishDate: scheduledDate,
+            status: "Scheduled"
+          }
+        : current
+    );
+
+    const result = validatePost({
+      ...selectedPostDraft,
+      publishDate: scheduledDate,
+      status: "Scheduled"
+    });
+
+    if (!result.success) {
+      setSelectedSaveError(Object.values(result.errors)[0] ?? "Review the content details before requesting approval.");
+      return;
+    }
+
+    setSavingSelectedTask(true);
+    setSelectedSaveError(null);
+
+    try {
+      const payload = await updatePost(selectedPostDraft.id, {
+        platform: result.data.platform,
+        content: result.data.content,
+        format: selectedPostDraft.format,
+        cta: result.data.cta,
+        destinationUrl: selectedPostDraft.destinationUrl,
+        publishDate: scheduledDate,
+        goal: result.data.goal,
+        status: "Scheduled",
+        assetState: selectedPostDraft.assetState,
+        linkedTaskId: selectedPostDraft.linkedTaskId,
+        plannerItemId: selectedPostDraft.plannerItemId,
+        campaignId,
+        assetIds: selectedPostDraft.assetIds
+      });
+
+      if (payload.approval && !getPostApproval(payload.approval.entityId)) {
+        prependApproval(payload.approval);
+      }
+    } catch (error) {
+      setSelectedSaveError(error instanceof Error ? error.message : "Unable to send content to approval.");
     } finally {
       setSavingSelectedTask(false);
     }
@@ -1160,6 +1293,38 @@ export default function CampaignDetailPage() {
     }
   };
 
+  const schedulePostFromQueue = async (postId: string, publishDate: string) => {
+    const post = linkedPosts.find((entry) => entry.id === postId);
+
+    if (!post) {
+      return;
+    }
+
+    try {
+      const payload = await updatePost(postId, {
+        platform: post.platform,
+        content: post.content,
+        format: post.format,
+        cta: post.cta,
+        destinationUrl: post.destinationUrl,
+        publishDate,
+        goal: post.goal,
+        status: "Scheduled",
+        assetState: post.assetState,
+        linkedTaskId: post.linkedTaskId,
+        plannerItemId: post.plannerItemId,
+        campaignId,
+        assetIds: post.assetIds
+      });
+
+      if (payload.approval && !getPostApproval(payload.approval.entityId)) {
+        prependApproval(payload.approval);
+      }
+    } catch (error) {
+      setSelectedSaveError(error instanceof Error ? error.message : "Unable to schedule content.");
+    }
+  };
+
   return (
     <div className="space-y-6 pb-28 sm:space-y-7 sm:pb-0">
       <div
@@ -1279,6 +1444,9 @@ export default function CampaignDetailPage() {
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge className="normal-case tracking-[0.1em]">{campaign.status}</Badge>
+                <span className={["inline-flex rounded-full border px-2.5 py-1 text-xs font-medium", campaignHealth.tone].join(" ")}>
+                  {campaignHealth.label}
+                </span>
                 <DatePill value={campaign.startDate} />
                 <span className="text-xs text-muted-foreground">to</span>
                 <DatePill value={campaign.endDate} />
@@ -1353,21 +1521,18 @@ export default function CampaignDetailPage() {
         </div>
       </Card>
 
-      {activeView === "overview" ? (
-      <div className="grid gap-6 xl:grid-cols-[0.82fr_1.18fr]">
-        <Card className="xl:col-span-2">
-          <CardHeader>
-            <div>
-              <CardDescription>Execution pipeline</CardDescription>
-              <CardTitle className="mt-3">Goal to result</CardTitle>
-            </div>
-          </CardHeader>
-          <div className="grid gap-3 md:grid-cols-6">
+      <div className="grid gap-3 sm:gap-4 xl:grid-cols-[1.35fr_0.65fr]">
+        <Card className="overflow-hidden p-0">
+          <div className="border-b border-border/70 px-4 py-4 sm:px-5">
+            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Campaign pipeline</p>
+            <p className="mt-2 text-lg font-semibold tracking-[-0.03em] text-foreground">Goal to result</p>
+          </div>
+          <div className="flex gap-3 overflow-x-auto px-4 py-4 sm:grid sm:grid-cols-6 sm:px-5">
             {pipelineStages.map((stage) => (
               <button
                 key={stage.id}
                 className={[
-                  "rounded-[1rem] border p-4 text-left transition",
+                  "min-w-[8rem] rounded-[1rem] border px-3 py-3 text-left transition sm:min-w-0",
                   stage.state === "complete"
                     ? "border-emerald-500/30 bg-emerald-500/10"
                     : stage.state === "ready"
@@ -1379,21 +1544,43 @@ export default function CampaignDetailPage() {
                 type="button"
                 onClick={stage.onClick}
               >
-                <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{stage.label}</p>
+                <p className="text-[0.65rem] uppercase tracking-[0.16em] text-muted-foreground">{stage.label}</p>
                 <p className="mt-2 text-xl font-semibold text-foreground">{stage.value}</p>
-                <p className="mt-2 text-xs uppercase tracking-[0.14em] text-muted-foreground">
+                <p className="mt-2 text-[0.65rem] uppercase tracking-[0.14em] text-muted-foreground">
                   {stage.state === "complete"
                     ? "Complete"
                     : stage.state === "ready"
                       ? "Ready"
                       : stage.state === "in-progress"
-                        ? "In progress"
+                        ? "Active"
                         : "Blocked"}
                 </p>
               </button>
             ))}
           </div>
         </Card>
+
+        <Card className="p-0">
+          <div className="border-b border-border/70 px-4 py-4 sm:px-5">
+            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Next action</p>
+            <p className="mt-2 text-lg font-semibold tracking-[-0.03em] text-foreground">{nextAction.label}</p>
+          </div>
+          <div className="space-y-4 px-4 py-4 sm:px-5">
+            <p className="text-sm leading-6 text-muted-foreground">{nextAction.detail}</p>
+            <div className="flex items-center justify-between gap-3">
+              <span className={["inline-flex rounded-full border px-2.5 py-1 text-xs font-medium", campaignHealth.tone].join(" ")}>
+                {campaignHealth.label}
+              </span>
+              <Button size="sm" type="button" onClick={nextAction.onClick}>
+                {nextAction.actionLabel}
+              </Button>
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      {activeView === "overview" ? (
+      <div className="grid gap-6 xl:grid-cols-[0.82fr_1.18fr]">
         <Card className="hidden xl:col-span-2 sm:block">
           <CardHeader>
             <div>
@@ -1497,41 +1684,20 @@ export default function CampaignDetailPage() {
           </div>
 
           <div className="mt-10 divide-y divide-white/10 overflow-hidden rounded-[1.35rem] border border-white/10 text-white">
-            <div className="border-b border-white/10 px-4 py-4">
-              <div className="mb-3 flex items-center justify-between">
-                <p className="text-sm font-medium text-white">Execution pipeline</p>
-                <span className="text-xs uppercase tracking-[0.16em] text-white/45">Tap a stage</span>
-              </div>
-              <div className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                {pipelineStages.map((stage) => (
-                  <button
-                    key={stage.id}
-                    className={[
-                      "min-w-[7.25rem] rounded-[1rem] border px-3 py-3 text-left",
-                      stage.state === "complete"
-                        ? "border-emerald-400/25 bg-emerald-400/10"
-                        : stage.state === "ready"
-                          ? "border-white/15 bg-white/[0.07]"
-                          : stage.state === "in-progress"
-                            ? "border-white/10 bg-white/[0.04]"
-                            : "border-amber-400/20 bg-amber-400/10"
-                    ].join(" ")}
-                    type="button"
-                    onClick={stage.onClick}
-                  >
-                    <span className="block text-[0.68rem] uppercase tracking-[0.16em] text-white/45">{stage.label}</span>
-                    <span className="mt-2 block text-lg font-semibold text-white">{stage.value}</span>
-                    <span className="mt-1 block text-[0.68rem] uppercase tracking-[0.16em] text-white/45">
-                      {stage.state === "complete"
-                        ? "Complete"
-                        : stage.state === "ready"
-                          ? "Ready"
-                          : stage.state === "in-progress"
-                            ? "Moving"
-                            : "Blocked"}
-                    </span>
-                  </button>
-                ))}
+            <div className="px-4 py-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm text-white/45">Next action</p>
+                  <p className="mt-1 text-lg font-semibold text-white">{nextAction.label}</p>
+                  <p className="mt-2 text-sm leading-6 text-white/58">{nextAction.detail}</p>
+                </div>
+                <button
+                  className="rounded-full border border-white/10 px-3 py-2 text-xs uppercase tracking-[0.14em] text-white/70"
+                  type="button"
+                  onClick={nextAction.onClick}
+                >
+                  {nextAction.actionLabel}
+                </button>
               </div>
             </div>
             {[
@@ -2372,7 +2538,47 @@ export default function CampaignDetailPage() {
               <CardTitle className="mt-3">Every scheduled and dated item in one place</CardTitle>
             </div>
           </CardHeader>
-          <div className="space-y-3">
+          <div className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {schedulingDays.map((day) => (
+                <div
+                  key={day.date}
+                  className={[
+                    "rounded-[1rem] border p-4 transition",
+                    draggedReadyPostId ? "border-primary/30 bg-primary/5" : "border-border/70 bg-card/70"
+                  ].join(" ")}
+                  onDragOver={(event) => {
+                    if (draggedReadyPostId) {
+                      event.preventDefault();
+                    }
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const postId = event.dataTransfer.getData("text/plain") || draggedReadyPostId;
+                    if (postId) {
+                      void schedulePostFromQueue(postId, day.date);
+                    }
+                    setDraggedReadyPostId(null);
+                  }}
+                >
+                  <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{day.label}</p>
+                  <p className="mt-2 text-lg font-semibold text-foreground">
+                    {day.itemCount ? `${day.itemCount} scheduled` : "Gap"}
+                  </p>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    {day.itemCount ? "Content is already planned for this day." : "Drop a ready item here to schedule it."}
+                  </p>
+                </div>
+              ))}
+            </div>
+            {scheduleGaps.length ? (
+              <div className="rounded-[1rem] border border-amber-500/25 bg-amber-500/10 p-4">
+                <p className="text-sm font-medium text-foreground">Schedule gaps</p>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  Nothing is scheduled for {scheduleGaps.map((day) => day.label).join(", ")}. Use the ready queue to fill those gaps.
+                </p>
+              </div>
+            ) : null}
             {unifiedCalendarItems.length ? (
               unifiedCalendarItems.map((entry) => (
                 <ListCard key={entry.id}>
@@ -2424,6 +2630,14 @@ export default function CampaignDetailPage() {
                   type="button"
                   onClick={() => setSelectedItem({ type: "post", item: post })}
                 >
+                  <div
+                    draggable
+                    onDragStart={(event: DragEvent<HTMLDivElement>) => {
+                      event.dataTransfer.setData("text/plain", post.id);
+                      setDraggedReadyPostId(post.id);
+                    }}
+                    onDragEnd={() => setDraggedReadyPostId(null)}
+                  >
                   <ListCard>
                     <div className="flex items-start justify-between gap-4">
                       <div>
@@ -2437,6 +2651,7 @@ export default function CampaignDetailPage() {
                       </span>
                     </div>
                   </ListCard>
+                  </div>
                 </button>
               ))
             ) : (
@@ -3488,6 +3703,15 @@ export default function CampaignDetailPage() {
                     placeholder="Add an approval note or request-change comment..."
                   />
                   <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                    <Button
+                      disabled={savingSelectedTask}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                      onClick={() => void sendSelectedPostToApproval()}
+                    >
+                      Send to approval
+                    </Button>
                     <Button
                       disabled={savingSelectedTask}
                       size="sm"
