@@ -138,16 +138,27 @@ export function mapClientSettingsRow(row: TableRow<"client_settings">): ClientSe
     weeksPerMonth: row.weeks_per_month,
     guestsPerTable: row.guests_per_table,
     defaultGrowthTarget: row.default_growth_target,
-    overviewHeadline: row.overview_headline ?? "",
-    overviewSummary: row.overview_summary ?? "",
-    overviewPinnedCampaignId: row.overview_pinned_campaign_id ?? undefined,
-    overviewFeaturedMetric: (row.overview_featured_metric ?? "weekly-covers") as ClientSettings["overviewFeaturedMetric"],
-    overviewShowSchedule: row.overview_show_schedule ?? true,
-    overviewShowTrafficTrend: row.overview_show_traffic_trend ?? true,
-    overviewShowChannelContribution: row.overview_show_channel_contribution ?? true,
-    overviewShowQuickLinks: row.overview_show_quick_links ?? true,
-    overviewShowCampaignRecaps: row.overview_show_campaign_recaps ?? true,
-    overviewShowRecentActivity: row.overview_show_recent_activity ?? true
+    overviewHeadline: "overview_headline" in row ? row.overview_headline ?? "" : "",
+    overviewSummary: "overview_summary" in row ? row.overview_summary ?? "" : "",
+    overviewPinnedCampaignId:
+      "overview_pinned_campaign_id" in row ? row.overview_pinned_campaign_id ?? undefined : undefined,
+    overviewFeaturedMetric:
+      ("overview_featured_metric" in row
+        ? row.overview_featured_metric ?? "weekly-covers"
+        : "weekly-covers") as ClientSettings["overviewFeaturedMetric"],
+    overviewShowSchedule: "overview_show_schedule" in row ? row.overview_show_schedule ?? true : true,
+    overviewShowTrafficTrend:
+      "overview_show_traffic_trend" in row ? row.overview_show_traffic_trend ?? true : true,
+    overviewShowChannelContribution:
+      "overview_show_channel_contribution" in row
+        ? row.overview_show_channel_contribution ?? true
+        : true,
+    overviewShowQuickLinks:
+      "overview_show_quick_links" in row ? row.overview_show_quick_links ?? true : true,
+    overviewShowCampaignRecaps:
+      "overview_show_campaign_recaps" in row ? row.overview_show_campaign_recaps ?? true : true,
+    overviewShowRecentActivity:
+      "overview_show_recent_activity" in row ? row.overview_show_recent_activity ?? true : true
   };
 }
 
@@ -161,27 +172,15 @@ export function mapClientSettingsInsert(settings: ClientSettings): TableInsert<"
     days_open_per_week: settings.daysOpenPerWeek,
     weeks_per_month: settings.weeksPerMonth,
     guests_per_table: settings.guestsPerTable,
-    default_growth_target: settings.defaultGrowthTarget,
-    overview_headline: settings.overviewHeadline,
-    overview_summary: settings.overviewSummary,
-    overview_pinned_campaign_id: settings.overviewPinnedCampaignId ?? null,
-    overview_featured_metric: settings.overviewFeaturedMetric,
-    overview_show_schedule: settings.overviewShowSchedule,
-    overview_show_traffic_trend: settings.overviewShowTrafficTrend,
-    overview_show_channel_contribution: settings.overviewShowChannelContribution,
-    overview_show_quick_links: settings.overviewShowQuickLinks,
-    overview_show_campaign_recaps: settings.overviewShowCampaignRecaps,
-    overview_show_recent_activity: settings.overviewShowRecentActivity
+    default_growth_target: settings.defaultGrowthTarget
   };
 }
 
-const clientHomeCardIds = new Set(["primary", "review", "publish"]);
+const clientHomeCardIds = new Set(["traffic", "covers", "growth", "attention"]);
 const clientHomeSectionIds = new Set([
   "attention",
-  "review",
   "active-campaign",
-  "upcoming-content",
-  "recent-activity"
+  "business-read"
 ]);
 
 function normalizeClientHomeCards(value: unknown): ClientHomeCard[] {
@@ -199,7 +198,7 @@ function normalizeClientHomeCards(value: unknown): ClientHomeCard[] {
       detail: typeof entry.detail === "string" ? entry.detail : "",
       href: typeof entry.href === "string" ? entry.href : "/"
     }))
-    .slice(0, 3);
+    .slice(0, 4);
 }
 
 function normalizeClientHomeSections(value: unknown): ClientHomeSection[] {

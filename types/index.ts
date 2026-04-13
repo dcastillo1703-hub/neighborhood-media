@@ -67,10 +67,8 @@ export type ClientHomeCard = {
 
 export type ClientHomeSectionId =
   | "attention"
-  | "review"
   | "active-campaign"
-  | "upcoming-content"
-  | "recent-activity";
+  | "business-read";
 
 export type ClientHomeSection = {
   id: ClientHomeSectionId;

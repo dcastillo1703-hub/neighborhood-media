@@ -75,6 +75,7 @@ type CampaignOverviewSection =
   | "approvals"
   | "publishing"
   | "metrics";
+type MobileComposerStep = 1 | 2 | 3 | 4;
 type SelectedCampaignItem =
   | { type: "post"; item: Post }
   | { type: "task"; item: OperationalTask };
@@ -247,6 +248,9 @@ export default function CampaignDetailPage() {
   );
   const [taskKind, setTaskKind] = useState<CampaignTaskKind | null>(null);
   const [addTaskOpen, setAddTaskOpen] = useState(false);
+  const [mobileComposerStep, setMobileComposerStep] = useState<MobileComposerStep>(1);
+  const [composerTitleDraft, setComposerTitleDraft] = useState("");
+  const [mobilePostStatus, setMobilePostStatus] = useState<PostStatus>("Draft");
   const [roiDraft, setRoiDraft] = useState(roiSnapshot);
   const [roiNumberDraft, setRoiNumberDraft] = useState<CampaignRoiNumberDraft>(() =>
     toNumberDraft(roiSnapshot)
@@ -416,6 +420,22 @@ export default function CampaignDetailPage() {
     }, 80);
   };
 
+  const resetComposer = () => {
+    setTaskKind(null);
+    setMobileComposerStep(1);
+    setComposerTitleDraft("");
+    setMobilePostStatus("Draft");
+    setDraft(createCampaignPost(activeClient.id, campaignId));
+    setTaskDraft(createCampaignTask(workspace.id, activeClient.id, campaignId));
+    setErrors({});
+    setTaskError(null);
+  };
+
+  const closeAddTaskFlow = () => {
+    setAddTaskOpen(false);
+    resetComposer();
+  };
+
   const addCampaignGoal = () => {
     const trimmedGoal = goalDraft.trim();
 
@@ -496,9 +516,8 @@ export default function CampaignDetailPage() {
         campaignId,
         status
       });
-      setDraft(createCampaignPost(activeClient.id, campaignId));
-      setTaskKind(null);
-      setErrors({});
+      resetComposer();
+      setAddTaskOpen(false);
     } catch (error) {
       setErrors({
         form: error instanceof Error ? error.message : "Unable to create post for campaign."
@@ -714,13 +733,48 @@ export default function CampaignDetailPage() {
     if (kind === "meeting") {
       setTaskDraft((current) => ({
         ...current,
-        title: current.title || "Schedule campaign check-in",
+        title: composerTitleDraft || current.title || "Schedule campaign check-in",
         detail: current.detail || "Meeting for this campaign."
+      }));
+    }
+
+    if (kind === "task") {
+      setTaskDraft((current) => ({
+        ...current,
+        title: composerTitleDraft || current.title
+      }));
+    }
+
+    if (kind === "content") {
+      setDraft((current) => ({
+        ...current,
+        goal: composerTitleDraft || current.goal
       }));
     }
 
     scrollToComposer();
   };
+
+  const chooseMobileTaskKind = (kind: CampaignTaskKind) => {
+    setTaskKind(kind);
+    if (kind === "content") {
+      setDraft((current) => ({
+        ...current,
+        goal: composerTitleDraft || current.goal
+      }));
+    } else {
+      setTaskDraft((current) => ({
+        ...current,
+        title: composerTitleDraft || current.title,
+        detail: kind === "meeting" && !current.detail ? "Meeting for this campaign." : current.detail
+      }));
+    }
+    setMobileComposerStep(3);
+  };
+
+  const canAdvanceComposerTitle = composerTitleDraft.trim().length > 0;
+  const canAdvanceComposerDetails =
+    taskKind === "content" ? draft.content.trim().length > 0 : taskDraft.detail.trim().length > 0;
 
   const saveOperationalTask = async () => {
     if (!taskDraft.title.trim()) {
@@ -746,8 +800,8 @@ export default function CampaignDetailPage() {
         assigneeName: taskDraft.assigneeName || profile?.fullName || profile?.email || undefined,
         dueDate: taskDraft.dueDate || undefined
       });
-      setTaskDraft(createCampaignTask(workspace.id, activeClient.id, campaignId));
-      setTaskKind(null);
+      resetComposer();
+      setAddTaskOpen(false);
     } catch (error) {
       setTaskError(error instanceof Error ? error.message : "Unable to create campaign task.");
     } finally {
@@ -888,7 +942,15 @@ export default function CampaignDetailPage() {
             Projects
           </Link>
           <div className="flex items-center gap-3">
-            <button className="inline-flex h-9 items-center rounded-full px-2.5" style={{ backgroundColor: accent.panel }} type="button" onClick={() => setAddTaskOpen(true)}>
+            <button
+              className="inline-flex h-9 items-center rounded-full px-2.5"
+              style={{ backgroundColor: accent.panel }}
+              type="button"
+              onClick={() => {
+                resetComposer();
+                setAddTaskOpen(true);
+              }}
+            >
               <span className="flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold" style={{ backgroundColor: accent.soft }}>
                 DC
               </span>
@@ -1423,7 +1485,7 @@ export default function CampaignDetailPage() {
           </div>
         </Card>
 
-        <Card id={contentComposerId}>
+        <Card id={contentComposerId} className="hidden sm:block">
           <CardHeader>
             <div>
               <CardDescription>Add Task</CardDescription>
@@ -2343,46 +2405,296 @@ export default function CampaignDetailPage() {
       ) : null}
 
       {addTaskOpen ? (
-        <div className="fixed inset-0 z-50 bg-black/30 backdrop-blur-[2px] sm:hidden" onClick={() => setAddTaskOpen(false)}>
+        <div className="fixed inset-0 z-50 bg-black/35 sm:hidden" onClick={closeAddTaskFlow}>
           <div
-            className="absolute inset-x-3 bottom-[5.25rem] max-h-[70vh] overflow-y-auto overscroll-contain rounded-[1.5rem] border border-white/12 bg-[#202024] p-3 text-white shadow-[0_24px_80px_rgba(0,0,0,0.36)] [-webkit-overflow-scrolling:touch]"
+            className="absolute inset-x-3 bottom-[5.25rem] flex max-h-[78vh] flex-col overflow-hidden rounded-[1.5rem] border border-white/12 bg-[#202024] text-white shadow-[0_24px_80px_rgba(0,0,0,0.36)]"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-2 pb-2">
-              <div>
-                <p className="text-xs uppercase tracking-[0.18em] text-white/45">Add to campaign</p>
-                <p className="mt-1 text-xl font-semibold">What kind of task?</p>
+            <div className="sticky top-0 z-10 border-b border-white/10 bg-[#202024] px-4 pb-3 pt-4">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.18em] text-white/45">
+                    Add to campaign · Step {mobileComposerStep} of 4
+                  </p>
+                  <p className="mt-1 text-xl font-semibold">
+                    {mobileComposerStep === 1
+                      ? "Start with the title"
+                      : mobileComposerStep === 2
+                        ? "Choose the work type"
+                        : mobileComposerStep === 3
+                          ? "Add details"
+                          : "Set timing and status"}
+                  </p>
+                </div>
+                <button
+                  aria-label="Close add task"
+                  className="rounded-full border border-white/12 p-2 text-white/60"
+                  type="button"
+                  onClick={closeAddTaskFlow}
+                >
+                  <X className="h-4 w-4" />
+                </button>
               </div>
-              <button
-                aria-label="Close add task"
-                className="rounded-full border border-white/12 p-2 text-white/60"
-                type="button"
-                onClick={() => setAddTaskOpen(false)}
-              >
-                <X className="h-4 w-4" />
-              </button>
             </div>
-            <div className="mt-2 grid gap-2">
-              {taskKindOptions.map((option) => {
-                const Icon = option.icon;
+            <div className="flex-1 overflow-y-auto px-4 py-4 [-webkit-overflow-scrolling:touch]">
+              {mobileComposerStep === 1 ? (
+                <div className="space-y-4">
+                  <div className="rounded-[1.15rem] bg-white/[0.04] p-4">
+                    <Label className="text-white">Title</Label>
+                    <Input
+                      className="mt-3 border-white/10 bg-white/[0.04] text-white placeholder:text-white/35"
+                      value={composerTitleDraft}
+                      placeholder="Ex. Push Thursday reservations"
+                      onChange={(event) => setComposerTitleDraft(event.target.value)}
+                    />
+                    <p className="mt-3 text-sm leading-6 text-white/50">
+                      Name the work first so the rest of the setup stays focused.
+                    </p>
+                  </div>
+                </div>
+              ) : null}
 
-                return (
-                  <button
-                    key={option.id}
-                    className="grid grid-cols-[2.75rem_1fr] gap-3 rounded-[1.15rem] bg-white/[0.04] px-3 py-3 text-left transition hover:bg-white/[0.08]"
-                    type="button"
-                    onClick={() => chooseTaskKind(option.id)}
-                  >
-                    <span className="flex h-11 w-11 items-center justify-center rounded-2xl" style={{ backgroundColor: accent.soft, color: accent.bg }}>
-                      <Icon className="h-5 w-5" />
-                    </span>
-                    <span>
-                      <span className="block text-base font-semibold text-white">{option.label}</span>
-                      <span className="mt-1 block text-sm leading-5 text-white/55">{option.description}</span>
-                    </span>
-                  </button>
-                );
-              })}
+              {mobileComposerStep === 2 ? (
+                <div className="space-y-4">
+                  <div className="rounded-[1.15rem] bg-white/[0.04] p-4">
+                    <p className="text-xs uppercase tracking-[0.16em] text-white/45">Campaign</p>
+                    <p className="mt-2 text-lg font-semibold text-white">{campaign.name}</p>
+                    <p className="mt-1 text-sm text-white/55">{campaign.objective}</p>
+                  </div>
+                  <div className="grid gap-2">
+                    {taskKindOptions.map((option) => {
+                      const Icon = option.icon;
+                      const selected = taskKind === option.id;
+
+                      return (
+                        <button
+                          key={option.id}
+                          className={[
+                            "grid grid-cols-[2.75rem_1fr] gap-3 rounded-[1.15rem] px-3 py-3 text-left transition",
+                            selected ? "bg-white/[0.12]" : "bg-white/[0.04] hover:bg-white/[0.08]"
+                          ].join(" ")}
+                          type="button"
+                          onClick={() => chooseMobileTaskKind(option.id)}
+                        >
+                          <span className="flex h-11 w-11 items-center justify-center rounded-2xl" style={{ backgroundColor: accent.soft, color: accent.bg }}>
+                            <Icon className="h-5 w-5" />
+                          </span>
+                          <span>
+                            <span className="block text-base font-semibold text-white">{option.label}</span>
+                            <span className="mt-1 block text-sm leading-5 text-white/55">{option.description}</span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+
+              {mobileComposerStep === 3 && taskKind === "content" ? (
+                <div className="space-y-4">
+                  <div className="rounded-[1.15rem] bg-white/[0.04] p-4">
+                    <Label className="text-white">Content</Label>
+                    <Textarea
+                      className="mt-3 border-white/10 bg-white/[0.04] text-white placeholder:text-white/35"
+                      value={draft.content}
+                      onChange={(event) =>
+                        setDraft((current) => ({ ...current, content: event.target.value }))
+                      }
+                      placeholder="Write the caption, offer, or message."
+                    />
+                  </div>
+                  <div className="rounded-[1.15rem] bg-white/[0.04] p-4">
+                    <Label className="text-white">Call to action</Label>
+                    <Input
+                      className="mt-3 border-white/10 bg-white/[0.04] text-white placeholder:text-white/35"
+                      value={draft.cta}
+                      onChange={(event) => setDraft((current) => ({ ...current, cta: event.target.value }))}
+                      placeholder="Reserve tonight"
+                    />
+                  </div>
+                </div>
+              ) : null}
+
+              {mobileComposerStep === 3 && (taskKind === "meeting" || taskKind === "task") ? (
+                <div className="space-y-4">
+                  <div className="rounded-[1.15rem] bg-white/[0.04] p-4">
+                    <Label className="text-white">Details</Label>
+                    <Textarea
+                      className="mt-3 border-white/10 bg-white/[0.04] text-white placeholder:text-white/35"
+                      value={taskDraft.detail}
+                      onChange={(event) => setTaskDraft((current) => ({ ...current, detail: event.target.value }))}
+                      placeholder={taskKind === "meeting" ? "What should this meeting cover?" : "What needs to happen?"}
+                    />
+                  </div>
+                  <div className="rounded-[1.15rem] bg-white/[0.04] p-4">
+                    <Label className="text-white">Assignee</Label>
+                    <Input
+                      className="mt-3 border-white/10 bg-white/[0.04] text-white placeholder:text-white/35"
+                      value={taskDraft.assigneeName ?? ""}
+                      onChange={(event) => setTaskDraft((current) => ({ ...current, assigneeName: event.target.value }))}
+                      placeholder={profile?.fullName ?? "Name"}
+                    />
+                  </div>
+                </div>
+              ) : null}
+
+              {mobileComposerStep === 4 && taskKind === "content" ? (
+                <div className="space-y-4">
+                  <div className="rounded-[1.15rem] bg-white/[0.04] p-4">
+                    <Label className="text-white">Platform</Label>
+                    <Select
+                      value={draft.platform}
+                      onChange={(value) =>
+                        setDraft((current) => ({ ...current, platform: value as Post["platform"] }))
+                      }
+                      options={platformOptions.map((value) => ({ label: value, value }))}
+                    />
+                  </div>
+                  <div className="rounded-[1.15rem] bg-white/[0.04] p-4">
+                    <Label className="text-white">Publish date</Label>
+                    <Input
+                      className="mt-3 h-10 min-w-0 border-white/10 bg-white/[0.04] px-3 text-[0.84rem] text-white [color-scheme:dark] [&::-webkit-date-and-time-value]:min-w-0 [&::-webkit-date-and-time-value]:text-left"
+                      type="date"
+                      value={draft.publishDate}
+                      onChange={(event) =>
+                        setDraft((current) => ({ ...current, publishDate: event.target.value }))
+                      }
+                    />
+                  </div>
+                  <div className="rounded-[1.15rem] bg-white/[0.04] p-4">
+                    <Label className="text-white">Status</Label>
+                    <div className="mt-3 flex gap-2">
+                      {postStatuses.map((status) => (
+                        <button
+                          key={status}
+                          className={[
+                            "rounded-full border px-3 py-2 text-sm transition",
+                            mobilePostStatus === status
+                              ? "border-white/20 bg-white text-[#202024]"
+                              : "border-white/12 bg-white/[0.04] text-white/70"
+                          ].join(" ")}
+                          type="button"
+                          onClick={() => setMobilePostStatus(status)}
+                        >
+                          {status}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {mobileComposerStep === 4 && (taskKind === "meeting" || taskKind === "task") ? (
+                <div className="space-y-4">
+                  <div className="rounded-[1.15rem] bg-white/[0.04] p-4">
+                    <Label className="text-white">Due date</Label>
+                    <Input
+                      className="mt-3 h-10 min-w-0 border-white/10 bg-white/[0.04] px-3 text-[0.84rem] text-white [color-scheme:dark] [&::-webkit-date-and-time-value]:min-w-0 [&::-webkit-date-and-time-value]:text-left"
+                      type="date"
+                      value={taskDraft.dueDate ?? ""}
+                      onChange={(event) => setTaskDraft((current) => ({ ...current, dueDate: event.target.value }))}
+                    />
+                  </div>
+                  <div className="rounded-[1.15rem] bg-white/[0.04] p-4">
+                    <Label className="text-white">Status</Label>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {taskStatuses.map((status) => (
+                        <button
+                          key={status}
+                          className={[
+                            "rounded-full border px-3 py-2 text-sm transition",
+                            taskDraft.status === status
+                              ? "border-white/20 bg-white text-[#202024]"
+                              : "border-white/12 bg-white/[0.04] text-white/70"
+                          ].join(" ")}
+                          type="button"
+                          onClick={() => setTaskDraft((current) => ({ ...current, status }))}
+                        >
+                          {status}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="rounded-[1.15rem] bg-white/[0.04] p-4">
+                    <Label className="text-white">Priority</Label>
+                    <div className="mt-3 flex gap-2">
+                      {taskPriorities.map((priority) => (
+                        <button
+                          key={priority}
+                          className={[
+                            "rounded-full border px-3 py-2 text-sm transition",
+                            taskDraft.priority === priority
+                              ? "border-white/20 bg-white text-[#202024]"
+                              : "border-white/12 bg-white/[0.04] text-white/70"
+                          ].join(" ")}
+                          type="button"
+                          onClick={() => setTaskDraft((current) => ({ ...current, priority }))}
+                        >
+                          {priority}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {errors.form ? <p className="mt-3 text-xs text-[#ffb4aa]">{errors.form}</p> : null}
+              {taskError ? <p className="mt-3 text-xs text-[#ffb4aa]">{taskError}</p> : null}
+            </div>
+            <div className="sticky bottom-0 z-10 grid grid-cols-[auto_1fr] gap-2 border-t border-white/10 bg-[#202024] px-4 py-3">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  if (mobileComposerStep === 1) {
+                    closeAddTaskFlow();
+                    return;
+                  }
+                  if (mobileComposerStep === 2) {
+                    setMobileComposerStep(1);
+                    return;
+                  }
+                  if (mobileComposerStep === 3) {
+                    setMobileComposerStep(2);
+                    return;
+                  }
+                  setMobileComposerStep(3);
+                }}
+              >
+                Back
+              </Button>
+              {mobileComposerStep < 4 ? (
+                <Button
+                  className="w-full"
+                  type="button"
+                  disabled={
+                    (mobileComposerStep === 1 && !canAdvanceComposerTitle) ||
+                    (mobileComposerStep === 2 && !taskKind) ||
+                    (mobileComposerStep === 3 && !canAdvanceComposerDetails)
+                  }
+                  onClick={() => {
+                    if (mobileComposerStep === 1) {
+                      setMobileComposerStep(2);
+                      return;
+                    }
+                    if (mobileComposerStep === 2 && taskKind) {
+                      setMobileComposerStep(3);
+                      return;
+                    }
+                    setMobileComposerStep(4);
+                  }}
+                >
+                  Continue
+                </Button>
+              ) : taskKind === "content" ? (
+                <Button className="w-full" disabled={saving} onClick={() => void savePost(mobilePostStatus)}>
+                  {saving ? "Saving..." : mobilePostStatus === "Scheduled" ? "Save scheduled content" : "Save content task"}
+                </Button>
+              ) : (
+                <Button className="w-full" disabled={savingTask} onClick={() => void saveOperationalTask()}>
+                  {savingTask ? "Saving..." : taskKind === "meeting" ? "Add meeting" : "Add task"}
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -2745,7 +3057,10 @@ export default function CampaignDetailPage() {
             className="rounded-[1rem] p-3"
             style={{ backgroundColor: accent.bg, color: accent.text }}
             type="button"
-            onClick={() => setAddTaskOpen(true)}
+            onClick={() => {
+              resetComposer();
+              setAddTaskOpen(true);
+            }}
           >
             <Plus className="h-6 w-6" />
           </button>

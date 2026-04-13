@@ -7,11 +7,9 @@ import { motion } from "framer-motion";
 import {
   ArrowDown,
   ArrowUp,
-  CalendarDays,
   CheckCircle2,
   ChevronRight,
   Circle,
-  Clock3,
   MessageSquare,
   Pencil,
   Sparkles,
@@ -195,14 +193,14 @@ export default function DashboardPage() {
   const { workspace } = useWorkspaceContext();
   const { settings, setSettings, revenueModelDefaults } = useClientSettings(activeClient.id);
   const { metrics } = useWeeklyMetrics(activeClient.id);
-  const { items, deleteItem } = usePlannerItems(activeClient.id);
-  const { posts, deletePost } = usePosts(activeClient.id);
+  const { items } = usePlannerItems(activeClient.id);
+  const { posts } = usePosts(activeClient.id);
   const { campaigns } = useCampaigns(activeClient.id);
   const { blogPosts } = useBlogPosts(activeClient.id);
   const { assets } = useAssets(activeClient.id);
   const { analyticsSnapshots } = useAnalyticsSnapshots(activeClient.id);
   const { tasks } = useOperationalTasks(workspace.id);
-  const { events } = useActivityEvents(workspace.id);
+  useActivityEvents(workspace.id);
   const { approvals, ready: approvalsReady, reviewApproval, deleteApproval } = useApprovalsApi(activeClient.id);
   const { summary: googleAnalyticsSummary } = useGoogleAnalytics(activeClient.id);
   const [isEditingOverview, setIsEditingOverview] = useState(false);
@@ -238,6 +236,7 @@ export default function DashboardPage() {
 
     return [...postItems, ...plannerItems].slice(0, 5);
   }, [items, posts]);
+  const nextScheduledItem = scheduledContent[0] ?? null;
   const workspaceTasks = tasks.filter((task) => !task.clientId || task.clientId === activeClient.id);
   const openTasks = workspaceTasks
     .filter((task) => task.status !== "Done")
@@ -246,9 +245,7 @@ export default function DashboardPage() {
       if (!right.dueDate) return -1;
       return new Date(left.dueDate).getTime() - new Date(right.dueDate).getTime();
     });
-  const recentActivity = events.filter((item) => !item.clientId || item.clientId === activeClient.id).slice(0, 3);
   const pendingApprovals = approvals.filter((approval) => approval.status === "Pending");
-  const nextScheduledItem = scheduledContent[0] ?? null;
   const nextTask = openTasks[0] ?? null;
   const decodedOverview = useMemo(() => decodeOverviewSummary(settings.overviewSummary), [settings.overviewSummary]);
   const clientFirstName =
@@ -419,9 +416,7 @@ export default function DashboardPage() {
     const suggestedSectionOrder: ClientHomeSection["id"][] = [
       "attention",
       "active-campaign",
-      "upcoming-content",
-      "review",
-      "recent-activity"
+      "business-read"
     ];
     const seenSectionIds = new Set<ClientHomeSection["id"]>();
     const orderedSectionIds = [
@@ -454,7 +449,7 @@ export default function DashboardPage() {
           visible:
             sectionId === "attention" ||
             sectionId === "active-campaign" ||
-            (sectionId === "upcoming-content" && Boolean(nextScheduledItem))
+            sectionId === "business-read"
         };
       })
     }));
@@ -479,20 +474,6 @@ export default function DashboardPage() {
 
     try {
       await deleteApproval(approvalId);
-    } finally {
-      setDeletingId(null);
-    }
-  };
-
-  const handleDeleteScheduledContent = async (item: (typeof scheduledContent)[number]) => {
-    setDeletingId(`${item.sourceType}-${item.id}`);
-
-    try {
-      if (item.sourceType === "post") {
-        await deletePost(item.id);
-      } else {
-        await deleteItem(item.id);
-      }
     } finally {
       setDeletingId(null);
     }
@@ -636,7 +617,7 @@ export default function DashboardPage() {
                   <CardDescription>Client Home Settings</CardDescription>
                   <CardTitle className="mt-3">Edit Home</CardTitle>
                   <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-                    This changes the Overview/Home page on both mobile and desktop. Use it to choose the headline, top rows, section order, and what should be hidden.
+                    This changes Home on both mobile and desktop. Set the headline, note, growth target, and decide which core sections stay visible.
                   </p>
                   {clientHomeConfigError ? (
                     <p className="mt-2 text-sm text-muted-foreground">
@@ -673,14 +654,14 @@ export default function DashboardPage() {
                   <Label>Home headline</Label>
                   <Input value={overviewDraft.overviewHeadline} onChange={(event) => setOverviewDraft((current) => ({ ...current, overviewHeadline: event.target.value }))} placeholder="Example: Here is what matters most this week." />
                   <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                    This is the main line the client sees first on Home. Keep it short, clear, and focused on what matters right now.
+                    This is the main line shown first on Home. Keep it short, clear, and operator-friendly.
                   </p>
                 </div>
                 <div>
                   <Label>Home note</Label>
                   <Textarea value={overviewDraft.overviewSummary} onChange={(event) => setOverviewDraft((current) => ({ ...current, overviewSummary: event.target.value }))} placeholder="Example: Reviews are clear, Tuesday still needs help, and brunch traffic is strongest from Facebook." />
                   <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                    Use this for a plain-English summary of the week, not internal notes or setup instructions.
+                    Use this for a plain-English read of the week, not internal notes or setup instructions.
                   </p>
                 </div>
               </div>
@@ -691,15 +672,15 @@ export default function DashboardPage() {
                   <Input value={overviewDraft.growthTarget} type="number" step="0.01" onChange={(event) => setOverviewDraft((current) => ({ ...current, growthTarget: event.target.value }))} />
                 </div>
                 <div>
-                  <Label>Pinned Campaign</Label>
-                  <Select
-                    value={overviewDraft.overviewPinnedCampaignId}
-                    onChange={(value) => setOverviewDraft((current) => ({ ...current, overviewPinnedCampaignId: value }))}
-                    options={[
-                      { label: "No pinned campaign", value: "" },
-                      ...campaigns.map((campaign) => ({ label: campaign.name, value: campaign.id }))
-                    ]}
-                  />
+                <Label>Pinned Campaign</Label>
+                <Select
+                  value={overviewDraft.overviewPinnedCampaignId}
+                  onChange={(value) => setOverviewDraft((current) => ({ ...current, overviewPinnedCampaignId: value }))}
+                  options={[
+                    { label: "No pinned campaign", value: "" },
+                    ...campaigns.map((campaign) => ({ label: campaign.name, value: campaign.id }))
+                  ]}
+                />
                 </div>
               </div>
             </div>
@@ -707,7 +688,7 @@ export default function DashboardPage() {
             <div className="rounded-[1.25rem] border border-border/70 bg-card/55 p-4">
               <p className="text-sm font-medium text-foreground">Home sections</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Turn sections on or off, then move the most important ones higher. Hidden sections are removed from Home until you turn them back on.
+                Keep Home focused. These are the only operating sections below the top metrics.
               </p>
               <div className="mt-4 space-y-2">
                 {overviewDraft.overviewSections.map((section, index) => (
@@ -971,138 +952,63 @@ export default function DashboardPage() {
         </div>
       ) : null}
 
-      {visibleSectionIds.has("review") ? (
-        <Card id="client-review" style={{ order: getSectionOrder("review") }}>
+      {visibleSectionIds.has("business-read") ? (
+        <Card className="hidden sm:block" style={{ order: getSectionOrder("business-read") }}>
           <CardHeader>
             <div>
-              <CardDescription>Client Review</CardDescription>
-              <CardTitle className="mt-3">Approval queue</CardTitle>
+              <CardDescription>Business Read</CardDescription>
+              <CardTitle className="mt-3">Biggest opportunity</CardTitle>
             </div>
-            <Link className="hidden items-center gap-1 text-sm font-medium text-primary sm:flex" href="/approvals">
-              Open inbox <ChevronRight className="h-4 w-4" />
+            <Link className="hidden items-center gap-1 text-sm font-medium text-primary sm:flex" href="/performance#opportunity-flags">
+              Open performance <ChevronRight className="h-4 w-4" />
             </Link>
           </CardHeader>
-          <div className="space-y-3">
-            {pendingApprovals.length ? (
-              pendingApprovals.slice(0, 3).map((approval) => (
-                <div className="rounded-3xl border border-border/70 bg-card/60 p-4" key={approval.id}>
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="font-medium text-foreground">{approval.summary}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">{approval.note ?? `Requested by ${approval.requesterName}`}</p>
-                    </div>
-                    <p className="shrink-0 rounded-full bg-[var(--app-accent-soft)] px-3 py-1 text-xs font-medium text-[var(--app-accent-bg)]">
-                      Review
-                    </p>
-                  </div>
-                  <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                    <Button
-                      className="sm:w-auto"
-                      disabled={reviewingId === approval.id}
-                      onClick={() => void handleReview(approval.id, "Approved")}
-                    >
-                      Approve
-                    </Button>
-                    <Button
-                      className="sm:w-auto"
-                      disabled={reviewingId === approval.id}
-                      variant="outline"
-                      onClick={() => void handleReview(approval.id, "Changes Requested")}
-                    >
-                      Request changes
-                    </Button>
-                    <Button
-                      className="sm:w-auto"
-                      disabled={deletingId === approval.id}
-                      variant="ghost"
-                      onClick={() => void handleDeleteApproval(approval.id)}
-                    >
-                      Delete
-                    </Button>
-                  </div>
+          <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+            <div className="rounded-3xl border border-border/70 bg-card/60 p-4">
+              <p className="font-medium text-foreground">What the numbers are saying</p>
+              <p className="mt-3 text-sm leading-6 text-muted-foreground">{toastOpportunities.recommendation}</p>
+              <div className="mt-4 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                <span className="rounded-full bg-muted/60 px-2.5 py-1">
+                  Softest night: {toastOpportunities.weakestDay.day}
+                </span>
+                <span className="rounded-full bg-muted/60 px-2.5 py-1">
+                  Weekly visitors: {number(googleAnalyticsSummary?.sessions ?? 0)}
+                </span>
+                <span className="rounded-full bg-muted/60 px-2.5 py-1">
+                  Growth target: {number(settings.defaultGrowthTarget, 1)}%
+                </span>
+              </div>
+            </div>
+            <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-1">
+              {toastOpportunities.flags.slice(0, 3).map((flag) => (
+                <div className="rounded-3xl border border-border/70 bg-card/60 p-4" key={flag.id}>
+                  <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{flag.title}</p>
+                  <p className="mt-2 text-lg font-semibold text-foreground">{flag.value}</p>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">{flag.detail}</p>
                 </div>
-              ))
-            ) : (
-              <EmptyState
-                title={approvalsReady ? "Nothing waiting on you" : "Loading reviews"}
-                description={approvalsReady ? "Approvals and requested changes will show up here when content needs a decision." : "Checking the client review inbox."}
-              />
-            )}
+              ))}
+            </div>
           </div>
         </Card>
       ) : null}
 
-      {visibleSectionIds.has("upcoming-content") ? (
-      <div style={{ order: getSectionOrder("upcoming-content") }}>
-        <Card id="upcoming-content">
+      {visibleSectionIds.has("business-read") ? (
+        <Card className="sm:hidden" style={{ order: getSectionOrder("business-read") }}>
           <CardHeader>
             <div>
-              <CardDescription>This Week</CardDescription>
-              <CardTitle className="mt-3">Upcoming content</CardTitle>
+              <CardDescription>Business Read</CardDescription>
+              <CardTitle className="mt-3">Biggest opportunity</CardTitle>
             </div>
-            <Link className="hidden items-center gap-1 text-sm font-medium text-primary sm:flex" href="/calendar">
-              Calendar <ChevronRight className="h-4 w-4" />
-            </Link>
           </CardHeader>
           <div className="space-y-3">
-            {scheduledContent.length ? (
-              scheduledContent.slice(0, 3).map((item) => (
-                <div
-                  className="grid gap-3 rounded-3xl border border-border/70 bg-card/60 p-4 transition hover:border-primary/40 sm:grid-cols-[auto_1fr_auto] sm:items-center"
-                  key={item.id}
-                >
-                  <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--app-accent-soft)] text-[var(--app-accent-bg)]">
-                    <CalendarDays className="h-5 w-5" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block truncate font-medium text-foreground">{item.content}</span>
-                    <span className="mt-1 block text-sm text-muted-foreground">
-                      {item.platform} · {item.cta || "Scheduled content"}
-                    </span>
-                  </span>
-                  <span className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Clock3 className="h-4 w-4" />
-                    <DatePill value={item.date} />
-                  </span>
-                  <div className="flex gap-2 sm:col-span-3 sm:justify-end">
-                    <Link className="text-sm font-medium text-primary" href="/content">
-                      Open content
-                    </Link>
-                    <button
-                      className="text-sm font-medium text-muted-foreground hover:text-destructive"
-                      disabled={deletingId === `${item.sourceType}-${item.id}`}
-                      type="button"
-                      onClick={() => void handleDeleteScheduledContent(item)}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <EmptyState title="No content scheduled" description="Scheduled posts will show up here once the campaign calendar is populated." />
-            )}
-          </div>
-        </Card>
-      </div>
-      ) : null}
-
-      {visibleSectionIds.has("recent-activity") && recentActivity.length ? (
-        <Card className="hidden sm:block" style={{ order: getSectionOrder("recent-activity") }}>
-          <CardHeader>
-            <div>
-              <CardDescription>Recent Updates</CardDescription>
-              <CardTitle className="mt-3">Recent updates</CardTitle>
+            <div className="rounded-3xl border border-border/70 bg-card/60 p-4">
+              <p className="text-sm leading-6 text-muted-foreground">{toastOpportunities.recommendation}</p>
             </div>
-          </CardHeader>
-          <div className="grid gap-3 md:grid-cols-2">
-            {recentActivity.slice(0, 2).map((item) => (
-              <div className="rounded-3xl border border-border/70 bg-card/60 p-4" key={item.id}>
-                <p className="font-medium text-foreground">{item.subjectName}</p>
-                <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{item.detail}</p>
-                <p className="mt-4 text-xs uppercase tracking-[0.16em] text-primary">
-                  {item.actorName} {item.actionLabel}
-                </p>
+            {toastOpportunities.flags.slice(0, 2).map((flag) => (
+              <div className="rounded-3xl border border-border/70 bg-card/60 p-4" key={flag.id}>
+                <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{flag.title}</p>
+                <p className="mt-2 text-lg font-semibold text-foreground">{flag.value}</p>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">{flag.detail}</p>
               </div>
             ))}
           </div>
