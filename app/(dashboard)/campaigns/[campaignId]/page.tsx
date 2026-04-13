@@ -69,6 +69,7 @@ import {
 type CampaignWorkspaceView = "overview" | "list" | "board" | "calendar" | "performance";
 type CampaignBoardLane = "Draft" | "Review" | "Scheduled" | "Published";
 type CampaignTaskKind = "content" | "meeting" | "task";
+type CampaignPipelineStageId = "goal" | "tasks" | "content" | "approvals" | "scheduled" | "results";
 type CampaignOverviewSection =
   | "content"
   | "tasks"
@@ -130,6 +131,112 @@ const utmSourcePresets = [
   { label: "QR Code", source: "qr", medium: "offline" }
 ] as const;
 
+const contentFormatOptions: NonNullable<Post["format"]>[] = [
+  "Static",
+  "Carousel",
+  "Reel",
+  "Story",
+  "Email",
+  "Offer"
+];
+
+function getTaskStateLabel(task: OperationalTask) {
+  if (task.status === "Waiting" && task.blockedByTaskIds?.length) {
+    return "Blocked";
+  }
+
+  if (task.status !== "Done" && task.dueDate && new Date(task.dueDate) < new Date()) {
+    return "Overdue";
+  }
+
+  if (task.isMilestone) {
+    return "Milestone";
+  }
+
+  return task.status;
+}
+
+function getTaskVisualState(task: OperationalTask) {
+  const state = getTaskStateLabel(task);
+
+  if (state === "Blocked") {
+    return {
+      label: "Blocked",
+      tone: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+    };
+  }
+
+  if (state === "Overdue") {
+    return {
+      label: "Overdue",
+      tone: "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300"
+    };
+  }
+
+  if (state === "Milestone") {
+    return {
+      label: "Milestone",
+      tone: "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300"
+    };
+  }
+
+  return {
+    label: task.status,
+    tone: "border-border bg-muted/40 text-muted-foreground"
+  };
+}
+
+function getPostNextStep(post: Post, approvalStatus?: string, publishStatus?: string) {
+  if (!post.content.trim()) {
+    return "Add copy";
+  }
+  if ((post.assetState ?? "Missing") !== "Ready") {
+    return "Finish assets";
+  }
+  if (approvalStatus === "Changes Requested") {
+    return "Revise for approval";
+  }
+  if (approvalStatus !== "Approved") {
+    return "Send for approval";
+  }
+  if (!post.publishDate) {
+    return "Pick publish time";
+  }
+  if (post.status !== "Scheduled") {
+    return "Schedule";
+  }
+  if (publishStatus && publishStatus !== "Published") {
+    return "Ready to publish";
+  }
+  return "Complete";
+}
+
+function getPostReadiness(post: Post, approvalStatus?: string, publishStatus?: string) {
+  const nextStep = getPostNextStep(post, approvalStatus, publishStatus);
+
+  if (nextStep === "Complete") {
+    return {
+      label: "Ready",
+      tone: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+      nextStep
+    };
+  }
+
+  if (nextStep === "Revise for approval") {
+    return {
+      label: "Blocked",
+      tone: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+      nextStep
+    };
+  }
+
+  return {
+    label: "In progress",
+    tone: "border-border bg-muted/40 text-muted-foreground",
+    nextStep
+  };
+}
+
 function normalizeCampaignView(value: string | null | undefined): CampaignWorkspaceView {
   const normalizedValue = value?.toLowerCase();
   return campaignViews.some((view) => view.id === normalizedValue)
@@ -148,11 +255,14 @@ function createCampaignPost(clientId: string, campaignId: string): Post {
     clientId,
     campaignId,
     platform: "Instagram",
+    format: "Static",
     content: "",
     cta: "",
+    destinationUrl: "",
     publishDate: "",
     goal: "",
     status: "Draft",
+    assetState: "Missing",
     assetIds: []
   };
 }
@@ -164,9 +274,14 @@ function createCampaignTask(workspaceId: string, clientId: string, campaignId: s
     clientId,
     title: "",
     detail: "",
+    taskType: "General",
     status: "Backlog",
     priority: "Medium",
+    startDate: "",
     dueDate: "",
+    isMilestone: false,
+    blockedByTaskIds: [],
+    notes: [],
     linkedEntityType: "campaign",
     linkedEntityId: campaignId
   };
@@ -344,6 +459,10 @@ export default function CampaignDetailPage() {
     () => jobs.filter((job) => linkedPostIds.has(job.postId)),
     [jobs, linkedPostIds]
   );
+  const getPostApproval = (postId: string) =>
+    campaignApprovals.find((item) => item.entityId === postId);
+  const getPostPublishJob = (postId: string) =>
+    campaignPublishJobs.find((item) => item.postId === postId);
   const scheduledPosts = useMemo(
     () =>
       (overview?.linkedPosts ?? [])
@@ -370,6 +489,44 @@ export default function CampaignDetailPage() {
   const completedCampaignGoals = campaignGoals.filter((goal) => goal.done).length;
   const openCampaignGoals = campaignGoals.filter((goal) => !goal.done).length;
   const nextScheduledPost = scheduledPosts[0] ?? null;
+  const readyToSchedulePosts = linkedPosts.filter(
+    (post) =>
+      post.status === "Draft" &&
+      (getPostApproval(post.id)?.status === "Approved" || post.approvalState === "Approved")
+  );
+  const unifiedCalendarItems = [
+    ...campaignTasks
+      .filter((task) => task.startDate || task.dueDate)
+      .map((task) => ({
+        id: `task-${task.id}`,
+        kind: task.isMilestone ? "milestone" : "task",
+        title: task.title,
+        date: task.dueDate || task.startDate || "",
+        status: getTaskStateLabel(task),
+        detail: task.detail,
+        item: task
+      })),
+    ...scheduledPosts.map((post) => ({
+      id: `post-${post.id}`,
+      kind: "content" as const,
+      title: post.goal,
+      date: post.publishDate,
+      status: getPostApproval(post.id)?.status ?? post.status,
+      detail: `${post.platform} · ${post.format ?? "Content"}`,
+      item: post
+    })),
+    ...campaignGoals
+      .filter((goal) => goal.dueDate)
+      .map((goal) => ({
+        id: `goal-${goal.id}`,
+        kind: "milestone" as const,
+        title: goal.label,
+        date: goal.dueDate ?? "",
+        status: goal.done ? "Complete" : "Open",
+        detail: goal.assigneeName ?? "Campaign goal",
+        item: goal
+      }))
+  ].sort((left, right) => left.date.localeCompare(right.date));
   const websitePreviewPath = websiteDraft.landingPath.startsWith("/")
     ? websiteDraft.landingPath
     : websiteDraft.landingPath
@@ -410,6 +567,67 @@ export default function CampaignDetailPage() {
       ? `${openCampaignGoals} goal${openCampaignGoals === 1 ? "" : "s"} still need to be completed.`
       : null
   ].filter(Boolean) as string[];
+  const pipelineStages: Array<{
+    id: CampaignPipelineStageId;
+    label: string;
+    value: string;
+    state: "blocked" | "in-progress" | "ready" | "complete";
+    onClick: () => void;
+  }> = [
+    {
+      id: "goal",
+      label: "Goal",
+      value: `${completedCampaignGoals}/${number(campaignGoals.length || 0)}`,
+      state: campaignGoals.length && openCampaignGoals === 0 ? "complete" : campaignGoals.length ? "in-progress" : "blocked",
+      onClick: () => {
+        setActiveView("overview");
+        window.setTimeout(() => document.getElementById("campaign-goals")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+      }
+    },
+    {
+      id: "tasks",
+      label: "Tasks",
+      value: number(campaignTasks.length),
+      state: campaignTasks.length ? (openCampaignTasks ? "in-progress" : "complete") : "blocked",
+      onClick: () => setActiveView("list")
+    },
+    {
+      id: "content",
+      label: "Content",
+      value: number(linkedPosts.length),
+      state: linkedPosts.length ? "in-progress" : "blocked",
+      onClick: () => {
+        setActiveView("overview");
+        window.setTimeout(() => document.getElementById(contentComposerId)?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+      }
+    },
+    {
+      id: "approvals",
+      label: "Approvals",
+      value: number(campaignApprovals.length),
+      state: pendingReviews ? "blocked" : campaignApprovals.length ? "complete" : "ready",
+      onClick: () => setActiveView("list")
+    },
+    {
+      id: "scheduled",
+      label: "Scheduled",
+      value: number(scheduledPosts.length),
+      state: scheduledPosts.length ? "ready" : readyToSchedulePosts.length ? "in-progress" : "blocked",
+      onClick: () => setActiveView("calendar")
+    },
+    {
+      id: "results",
+      label: "Results",
+      value: currency(roiDraft.attributedRevenue || overview?.attributedRevenue || 0),
+      state:
+        (roiDraft.attributedRevenue || overview?.attributedRevenue || 0) > 0
+          ? "complete"
+          : googleAnalyticsCampaignImpact?.sessions
+            ? "in-progress"
+            : "blocked",
+      onClick: () => setActiveView("performance")
+    }
+  ];
 
   const scrollToComposer = () => {
     window.setTimeout(() => {
@@ -483,10 +701,6 @@ export default function CampaignDetailPage() {
     setMobileMoreOpen(false);
   };
 
-  const getPostApproval = (postId: string) =>
-    campaignApprovals.find((item) => item.entityId === postId);
-  const getPostPublishJob = (postId: string) =>
-    campaignPublishJobs.find((item) => item.postId === postId);
   const getBoardLanePosts = (lane: CampaignBoardLane) =>
     linkedPosts.filter((post) => {
       const approval = getPostApproval(post.id);
@@ -577,10 +791,14 @@ export default function CampaignDetailPage() {
       const payload = await updatePost(selectedPostDraft.id, {
         platform: result.data.platform,
         content: result.data.content,
+        format: selectedPostDraft.format,
         cta: result.data.cta,
+        destinationUrl: selectedPostDraft.destinationUrl,
         publishDate: result.data.publishDate,
         goal: result.data.goal,
         status: result.data.status,
+        assetState: selectedPostDraft.assetState,
+        linkedTaskId: selectedPostDraft.linkedTaskId,
         plannerItemId: selectedPostDraft.plannerItemId,
         campaignId,
         assetIds: selectedPostDraft.assetIds
@@ -645,16 +863,22 @@ export default function CampaignDetailPage() {
     setSelectedSaveError(null);
 
     try {
-      const detailWithNote = selectedNote.trim()
-        ? `${selectedTaskDraft.detail.trim()}\n\nNote: ${selectedNote.trim()}`.trim()
-        : selectedTaskDraft.detail;
+      const nextNotes = selectedNote.trim()
+        ? [...(selectedTaskDraft.notes ?? []), selectedNote.trim()]
+        : selectedTaskDraft.notes;
       await updateTask(selectedTaskDraft.id, {
         clientId: activeClient.id,
         title: selectedTaskDraft.title,
-        detail: detailWithNote,
+        detail: selectedTaskDraft.detail,
+        taskType: selectedTaskDraft.taskType,
         status: selectedTaskDraft.status,
         priority: selectedTaskDraft.priority,
+        startDate: selectedTaskDraft.startDate || undefined,
         dueDate: selectedTaskDraft.dueDate || undefined,
+        isMilestone: selectedTaskDraft.isMilestone,
+        blockedByTaskIds: selectedTaskDraft.blockedByTaskIds,
+        linkedPostId: selectedTaskDraft.linkedPostId,
+        notes: nextNotes,
         assigneeUserId: selectedTaskDraft.assigneeUserId,
         assigneeName: selectedTaskDraft.assigneeName,
         linkedEntityType: "campaign",
@@ -733,6 +957,7 @@ export default function CampaignDetailPage() {
     if (kind === "meeting") {
       setTaskDraft((current) => ({
         ...current,
+        taskType: "Meeting",
         title: composerTitleDraft || current.title || "Schedule campaign check-in",
         detail: current.detail || "Meeting for this campaign."
       }));
@@ -741,6 +966,7 @@ export default function CampaignDetailPage() {
     if (kind === "task") {
       setTaskDraft((current) => ({
         ...current,
+        taskType: "General",
         title: composerTitleDraft || current.title
       }));
     }
@@ -765,6 +991,7 @@ export default function CampaignDetailPage() {
     } else {
       setTaskDraft((current) => ({
         ...current,
+        taskType: kind === "meeting" ? "Meeting" : "General",
         title: composerTitleDraft || current.title,
         detail: kind === "meeting" && !current.detail ? "Meeting for this campaign." : current.detail
       }));
@@ -795,6 +1022,9 @@ export default function CampaignDetailPage() {
         ...taskDraft,
         workspaceId: workspace.id,
         clientId: activeClient.id,
+        taskType:
+          taskDraft.taskType ??
+          (taskKind === "meeting" ? "Meeting" : taskKind === "content" ? "Content" : "General"),
         linkedEntityType: "campaign",
         linkedEntityId: campaignId,
         assigneeName: taskDraft.assigneeName || profile?.fullName || profile?.email || undefined,
@@ -1125,6 +1355,45 @@ export default function CampaignDetailPage() {
 
       {activeView === "overview" ? (
       <div className="grid gap-6 xl:grid-cols-[0.82fr_1.18fr]">
+        <Card className="xl:col-span-2">
+          <CardHeader>
+            <div>
+              <CardDescription>Execution pipeline</CardDescription>
+              <CardTitle className="mt-3">Goal to result</CardTitle>
+            </div>
+          </CardHeader>
+          <div className="grid gap-3 md:grid-cols-6">
+            {pipelineStages.map((stage) => (
+              <button
+                key={stage.id}
+                className={[
+                  "rounded-[1rem] border p-4 text-left transition",
+                  stage.state === "complete"
+                    ? "border-emerald-500/30 bg-emerald-500/10"
+                    : stage.state === "ready"
+                      ? "border-[var(--app-accent-bg)]/30 bg-[var(--app-accent-soft)]"
+                      : stage.state === "in-progress"
+                        ? "border-border bg-card/70"
+                        : "border-amber-500/25 bg-amber-500/10"
+                ].join(" ")}
+                type="button"
+                onClick={stage.onClick}
+              >
+                <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{stage.label}</p>
+                <p className="mt-2 text-xl font-semibold text-foreground">{stage.value}</p>
+                <p className="mt-2 text-xs uppercase tracking-[0.14em] text-muted-foreground">
+                  {stage.state === "complete"
+                    ? "Complete"
+                    : stage.state === "ready"
+                      ? "Ready"
+                      : stage.state === "in-progress"
+                        ? "In progress"
+                        : "Blocked"}
+                </p>
+              </button>
+            ))}
+          </div>
+        </Card>
         <Card className="hidden xl:col-span-2 sm:block">
           <CardHeader>
             <div>
@@ -1228,6 +1497,43 @@ export default function CampaignDetailPage() {
           </div>
 
           <div className="mt-10 divide-y divide-white/10 overflow-hidden rounded-[1.35rem] border border-white/10 text-white">
+            <div className="border-b border-white/10 px-4 py-4">
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-sm font-medium text-white">Execution pipeline</p>
+                <span className="text-xs uppercase tracking-[0.16em] text-white/45">Tap a stage</span>
+              </div>
+              <div className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {pipelineStages.map((stage) => (
+                  <button
+                    key={stage.id}
+                    className={[
+                      "min-w-[7.25rem] rounded-[1rem] border px-3 py-3 text-left",
+                      stage.state === "complete"
+                        ? "border-emerald-400/25 bg-emerald-400/10"
+                        : stage.state === "ready"
+                          ? "border-white/15 bg-white/[0.07]"
+                          : stage.state === "in-progress"
+                            ? "border-white/10 bg-white/[0.04]"
+                            : "border-amber-400/20 bg-amber-400/10"
+                    ].join(" ")}
+                    type="button"
+                    onClick={stage.onClick}
+                  >
+                    <span className="block text-[0.68rem] uppercase tracking-[0.16em] text-white/45">{stage.label}</span>
+                    <span className="mt-2 block text-lg font-semibold text-white">{stage.value}</span>
+                    <span className="mt-1 block text-[0.68rem] uppercase tracking-[0.16em] text-white/45">
+                      {stage.state === "complete"
+                        ? "Complete"
+                        : stage.state === "ready"
+                          ? "Ready"
+                          : stage.state === "in-progress"
+                            ? "Moving"
+                            : "Blocked"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
             {[
               { id: "content" as const, label: "Connected content", value: linkedPosts.length },
               { id: "tasks" as const, label: "Campaign tasks", value: campaignTasks.length },
@@ -1522,7 +1828,7 @@ export default function CampaignDetailPage() {
 
             {taskKind === "content" ? (
               <div className="grid gap-4 rounded-[1rem] border border-border/70 bg-muted/25 p-3 sm:p-4">
-                <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                   <div>
                     <Label>Platform</Label>
                     <Select
@@ -1531,6 +1837,19 @@ export default function CampaignDetailPage() {
                         setDraft((current) => ({ ...current, platform: value as Post["platform"] }))
                       }
                       options={["Instagram", "Facebook", "TikTok", "Email", "Stories"].map((value) => ({
+                        label: value,
+                        value
+                      }))}
+                    />
+                  </div>
+                  <div>
+                    <Label>Format</Label>
+                    <Select
+                      value={draft.format ?? "Static"}
+                      onChange={(value) =>
+                        setDraft((current) => ({ ...current, format: value as NonNullable<Post["format"]> }))
+                      }
+                      options={contentFormatOptions.map((value) => ({
                         label: value,
                         value
                       }))}
@@ -1547,6 +1866,22 @@ export default function CampaignDetailPage() {
                       }
                     />
                     {errors.publishDate ? <p className="mt-2 text-xs text-primary">{errors.publishDate}</p> : null}
+                  </div>
+                  <div>
+                    <Label>Asset state</Label>
+                    <Select
+                      value={draft.assetState ?? "Missing"}
+                      onChange={(value) =>
+                        setDraft((current) => ({
+                          ...current,
+                          assetState: value as NonNullable<Post["assetState"]>
+                        }))
+                      }
+                      options={["Missing", "In Progress", "Ready"].map((value) => ({
+                        label: value,
+                        value
+                      }))}
+                    />
                   </div>
                 </div>
                 <div>
@@ -1566,6 +1901,37 @@ export default function CampaignDetailPage() {
                     placeholder="Reserve tonight"
                   />
                   {errors.cta ? <p className="mt-2 text-xs text-primary">{errors.cta}</p> : null}
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <Label>Destination URL</Label>
+                    <Input
+                      value={draft.destinationUrl ?? ""}
+                      onChange={(event) =>
+                        setDraft((current) => ({ ...current, destinationUrl: event.target.value }))
+                      }
+                      placeholder="/reserve"
+                    />
+                  </div>
+                  <div>
+                    <Label>Linked task</Label>
+                    <Select
+                      value={draft.linkedTaskId ?? ""}
+                      onChange={(value) =>
+                        setDraft((current) => ({
+                          ...current,
+                          linkedTaskId: value || undefined
+                        }))
+                      }
+                      options={[
+                        { label: "No linked task", value: "" },
+                        ...campaignTasks.map((task) => ({
+                          label: task.title,
+                          value: task.id
+                        }))
+                      ]}
+                    />
+                  </div>
                 </div>
                 <div>
                   <Label>Post Content</Label>
@@ -1600,7 +1966,33 @@ export default function CampaignDetailPage() {
                     placeholder={taskKind === "meeting" ? "Ex. Campaign check-in with owner" : "Ex. Confirm brunch photo shot list"}
                   />
                 </div>
-                <div className="grid gap-4 md:grid-cols-3">
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  <div>
+                    <Label>Task type</Label>
+                    <Select
+                      value={taskDraft.taskType ?? (taskKind === "meeting" ? "Meeting" : "General")}
+                      onChange={(value) =>
+                        setTaskDraft((current) => ({
+                          ...current,
+                          taskType: value as NonNullable<OperationalTask["taskType"]>
+                        }))
+                      }
+                      options={[
+                        { label: "Content", value: "Content" },
+                        { label: "Meeting", value: "Meeting" },
+                        { label: "General", value: "General" }
+                      ]}
+                    />
+                  </div>
+                  <div>
+                    <Label>Start Date</Label>
+                    <Input
+                      className="h-10 min-w-0 px-3 text-[0.84rem] [color-scheme:light] [&::-webkit-date-and-time-value]:min-w-0 [&::-webkit-date-and-time-value]:text-left"
+                      type="date"
+                      value={taskDraft.startDate ?? ""}
+                      onChange={(event) => setTaskDraft((current) => ({ ...current, startDate: event.target.value }))}
+                    />
+                  </div>
                   <div>
                     <Label>Due Date</Label>
                     <Input
@@ -1639,6 +2031,59 @@ export default function CampaignDetailPage() {
                     </div>
                   </div>
                 </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <Label>Dependency</Label>
+                    <Select
+                      value={taskDraft.blockedByTaskIds?.[0] ?? ""}
+                      onChange={(value) =>
+                        setTaskDraft((current) => ({
+                          ...current,
+                          blockedByTaskIds: value ? [value] : []
+                        }))
+                      }
+                      options={[
+                        { label: "No dependency", value: "" },
+                        ...campaignTasks
+                          .filter((task) => task.id !== taskDraft.id)
+                          .map((task) => ({
+                            label: task.title,
+                            value: task.id
+                          }))
+                      ]}
+                    />
+                  </div>
+                  <div>
+                    <Label>Linked content</Label>
+                    <Select
+                      value={taskDraft.linkedPostId ?? ""}
+                      onChange={(value) =>
+                        setTaskDraft((current) => ({
+                          ...current,
+                          linkedPostId: value || undefined
+                        }))
+                      }
+                      options={[
+                        { label: "No linked content", value: "" },
+                        ...linkedPosts.map((post) => ({
+                          label: post.goal,
+                          value: post.id
+                        }))
+                      ]}
+                    />
+                  </div>
+                </div>
+                <label className="flex items-center gap-3 rounded-[0.95rem] border border-border/70 bg-card/70 px-4 py-3 text-sm text-foreground">
+                  <input
+                    checked={Boolean(taskDraft.isMilestone)}
+                    className="h-4 w-4"
+                    type="checkbox"
+                    onChange={(event) =>
+                      setTaskDraft((current) => ({ ...current, isMilestone: event.target.checked }))
+                    }
+                  />
+                  Treat this as a campaign milestone
+                </label>
                 <div>
                   <Label>Details</Label>
                   <Textarea
@@ -1668,7 +2113,7 @@ export default function CampaignDetailPage() {
         <CardHeader className="border-b border-border/70 px-4 py-4 sm:px-5">
           <div>
             <CardDescription>Campaign List</CardDescription>
-            <CardTitle className="mt-2">Every content item in this campaign</CardTitle>
+            <CardTitle className="mt-2">Every task and content item in this campaign</CardTitle>
           </div>
         </CardHeader>
         <div className="hidden border-b border-border/70 bg-muted/30 px-4 py-2 text-[0.68rem] uppercase tracking-[0.14em] text-muted-foreground sm:grid sm:grid-cols-[minmax(0,1fr)_8rem_9rem_9rem_9rem] sm:px-5">
@@ -1684,6 +2129,7 @@ export default function CampaignDetailPage() {
             {linkedPosts.map((post) => {
               const approval = getPostApproval(post.id);
               const publishJob = getPostPublishJob(post.id);
+              const readiness = getPostReadiness(post, approval?.status, publishJob?.status);
 
               return (
                 <div key={post.id}>
@@ -1695,8 +2141,10 @@ export default function CampaignDetailPage() {
                         <p className="truncate text-lg font-medium text-white">{post.goal}</p>
                         <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-white/55">
                           <span>{post.platform}</span>
+                          <span>{post.format ?? "Content"}</span>
                           <DatePill value={post.publishDate} fallback="No date" />
                         </div>
+                        <p className="mt-2 text-xs text-white/45">{readiness.nextStep}</p>
                       </div>
                       <MoreHorizontal className="h-5 w-5 text-white/55" />
                     </div>
@@ -1709,13 +2157,19 @@ export default function CampaignDetailPage() {
                         <p className="font-medium text-foreground">{post.goal}</p>
                         <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                           <span>{post.platform}</span>
+                          <span>{post.format ?? "Content"}</span>
                           <DatePill value={post.publishDate} fallback="No date" />
                         </div>
                         <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{post.content}</p>
+                        <p className="mt-2 text-xs uppercase tracking-[0.14em] text-muted-foreground">
+                          Next step · {readiness.nextStep}
+                        </p>
                       </div>
                       <div>
                         <p className="text-[0.65rem] uppercase tracking-[0.16em] text-muted-foreground lg:hidden">Status</p>
-                        <p className="mt-1 text-xs uppercase tracking-[0.16em] text-muted-foreground lg:mt-0">{post.status}</p>
+                        <span className={["mt-1 inline-flex rounded-full border px-2 py-1 text-[0.65rem] uppercase tracking-[0.16em] lg:mt-0", readiness.tone].join(" ")}>
+                          {readiness.label}
+                        </span>
                       </div>
                       <div>
                         <p className="text-[0.65rem] uppercase tracking-[0.16em] text-muted-foreground lg:hidden">Approval</p>
@@ -1737,39 +2191,54 @@ export default function CampaignDetailPage() {
             })}
             {campaignTasks.map((task) => (
               <div key={task.id}>
-                <button className="block w-full text-left" type="button" onClick={() => setSelectedItem({ type: "task", item: task })}>
-                <ListCard className="m-3 bg-[#202024] text-white sm:hidden">
-                  <div className="grid grid-cols-[2rem_1fr_auto] items-center gap-3">
-                    <CheckCircle2 className="h-6 w-6 text-white/55" />
-                    <div className="min-w-0">
-                      <p className="truncate text-lg font-medium text-white">{task.title}</p>
-                      <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-white/55">
-                        <span>{task.priority}</span>
-                        <DatePill value={task.dueDate} fallback="No date" />
-                      </div>
-                    </div>
-                    <MoreHorizontal className="h-5 w-5 text-white/55" />
-                  </div>
-                </ListCard>
-                </button>
-                <button className="hidden w-full text-left sm:block" type="button" onClick={() => setSelectedItem({ type: "task", item: task })}>
-                <ListCard className="hidden rounded-none border-0 bg-transparent px-4 py-3 hover:bg-primary/5 sm:block sm:px-5">
-                  <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_8rem_9rem_9rem_9rem] sm:items-center">
-                    <div>
-                      <p className="font-medium text-foreground">{task.title}</p>
-                      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                        <span>{task.priority}</span>
-                        <DatePill value={task.dueDate} fallback="No date" />
-                      </div>
-                      <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{task.detail}</p>
-                    </div>
-                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{task.status}</p>
-                    <p className="text-xs uppercase tracking-[0.16em] text-primary">Task</p>
-                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">No publish job</p>
-                    <p className="text-sm text-muted-foreground">No CTA</p>
-                  </div>
-                </ListCard>
-                </button>
+                {(() => {
+                  const taskState = getTaskVisualState(task);
+                  return (
+                    <>
+                      <button className="block w-full text-left" type="button" onClick={() => setSelectedItem({ type: "task", item: task })}>
+                        <ListCard className="m-3 bg-[#202024] text-white sm:hidden">
+                          <div className="grid grid-cols-[2rem_1fr_auto] items-center gap-3">
+                            <CheckCircle2 className="h-6 w-6 text-white/55" />
+                            <div className="min-w-0">
+                              <p className="truncate text-lg font-medium text-white">{task.title}</p>
+                              <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-white/55">
+                                <span>{task.taskType ?? "General"}</span>
+                                <span>{task.priority}</span>
+                                <DatePill value={task.dueDate} fallback="No date" />
+                              </div>
+                              <p className="mt-2 text-xs text-white/45">{taskState.label}</p>
+                            </div>
+                            <MoreHorizontal className="h-5 w-5 text-white/55" />
+                          </div>
+                        </ListCard>
+                      </button>
+                      <button className="hidden w-full text-left sm:block" type="button" onClick={() => setSelectedItem({ type: "task", item: task })}>
+                        <ListCard className="hidden rounded-none border-0 bg-transparent px-4 py-3 hover:bg-primary/5 sm:block sm:px-5">
+                          <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_8rem_9rem_9rem_9rem] sm:items-center">
+                            <div>
+                              <p className="font-medium text-foreground">{task.title}</p>
+                              <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                                <span>{task.taskType ?? "General"}</span>
+                                <span>{task.priority}</span>
+                                <DatePill value={task.dueDate} fallback="No date" />
+                              </div>
+                              <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{task.detail}</p>
+                              <p className="mt-2 text-xs uppercase tracking-[0.14em] text-muted-foreground">
+                                {task.blockedByTaskIds?.length ? "Waiting on dependency" : "Ready to move"}
+                              </p>
+                            </div>
+                            <span className={["inline-flex rounded-full border px-2 py-1 text-[0.65rem] uppercase tracking-[0.16em]", taskState.tone].join(" ")}>
+                              {taskState.label}
+                            </span>
+                            <p className="text-xs uppercase tracking-[0.16em] text-primary">{task.taskType ?? "Task"}</p>
+                            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">No publish job</p>
+                            <p className="text-sm text-muted-foreground">{task.assigneeName || "Unassigned"}</p>
+                          </div>
+                        </ListCard>
+                      </button>
+                    </>
+                  );
+                })()}
               </div>
             ))}
             </>
@@ -1818,6 +2287,7 @@ export default function CampaignDetailPage() {
                     {lanePosts.map((post) => {
                       const approval = getPostApproval(post.id);
                       const publishJob = getPostPublishJob(post.id);
+                      const readiness = getPostReadiness(post, approval?.status, publishJob?.status);
 
                       return (
                         <button className="block w-full text-left" key={post.id} type="button" onClick={() => setSelectedItem({ type: "post", item: post })}>
@@ -1833,20 +2303,25 @@ export default function CampaignDetailPage() {
                           </div>
                           <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">{post.content}</p>
                           <div className="mt-3 flex flex-wrap gap-2 text-[0.65rem] uppercase tracking-[0.14em] text-muted-foreground">
+                            <span>{post.format ?? "Content"}</span>
                             <span>{approval?.status ?? "No approval"}</span>
                             <span>{publishJob?.status ?? "No publish job"}</span>
+                            <span>{readiness.nextStep}</span>
                           </div>
                         </ListCard>
                         </button>
                       );
                     })}
                     {laneTasks.map((task) => (
+                      (() => {
+                        const taskState = getTaskVisualState(task);
+                        return (
                       <button className="block w-full text-left" key={task.id} type="button" onClick={() => setSelectedItem({ type: "task", item: task })}>
                       <ListCard className="bg-card">
                         <div className="flex items-start justify-between gap-3">
                           <p className="font-medium text-foreground">{task.title}</p>
                           <span className="rounded-full bg-primary/10 px-2 py-1 text-[0.65rem] uppercase tracking-[0.12em] text-primary">
-                            Task
+                            {task.taskType ?? "Task"}
                           </span>
                         </div>
                         <div className="mt-2">
@@ -1854,11 +2329,14 @@ export default function CampaignDetailPage() {
                         </div>
                         <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">{task.detail}</p>
                         <div className="mt-3 flex flex-wrap gap-2 text-[0.65rem] uppercase tracking-[0.14em] text-muted-foreground">
-                          <span>{task.status}</span>
+                          <span>{taskState.label}</span>
                           <span>{task.priority}</span>
+                          {task.blockedByTaskIds?.length ? <span>Dependency</span> : null}
                         </div>
                       </ListCard>
                       </button>
+                        );
+                      })()
                     ))}
                     </>
                   ) : (
@@ -1891,39 +2369,80 @@ export default function CampaignDetailPage() {
           <CardHeader>
             <div>
               <CardDescription>Scheduled Timeline</CardDescription>
-              <CardTitle className="mt-3">What is actually going live and when</CardTitle>
+              <CardTitle className="mt-3">Every scheduled and dated item in one place</CardTitle>
             </div>
           </CardHeader>
           <div className="space-y-3">
-            {scheduledPosts.length ? (
-              scheduledPosts.map((post) => {
-                const approval = getPostApproval(post.id);
-                const publishJob = getPostPublishJob(post.id);
-
-                return (
-                  <ListCard key={post.id}>
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="font-medium text-foreground">{post.platform}</p>
-                          <DatePill value={post.publishDate} fallback="No date" />
-                        </div>
-                        <p className="mt-2 text-sm text-muted-foreground">{post.goal}</p>
-                        <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{post.content}</p>
+            {unifiedCalendarItems.length ? (
+              unifiedCalendarItems.map((entry) => (
+                <ListCard key={entry.id}>
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={[
+                            "inline-flex rounded-full border px-2 py-1 text-[0.65rem] uppercase tracking-[0.14em]",
+                            entry.kind === "content"
+                              ? "border-primary/25 bg-primary/10 text-primary"
+                              : entry.kind === "milestone"
+                                ? "border-sky-500/25 bg-sky-500/10 text-sky-700 dark:text-sky-300"
+                                : "border-border bg-muted/30 text-muted-foreground"
+                          ].join(" ")}
+                        >
+                          {entry.kind}
+                        </span>
+                        <DatePill value={entry.date} fallback="No date" />
                       </div>
-                      <div className="text-right text-xs uppercase tracking-[0.16em] text-muted-foreground">
-                        <p>{post.status}</p>
-                        <p className="mt-2 text-primary">{approval?.status ?? "No approval"}</p>
-                        <p className="mt-2">{publishJob?.status ?? "No publish job"}</p>
-                      </div>
+                      <p className="mt-2 font-medium text-foreground">{entry.title}</p>
+                      <p className="mt-2 text-sm text-muted-foreground">{entry.detail}</p>
                     </div>
-                  </ListCard>
-                );
-              })
+                    <p className="text-right text-xs uppercase tracking-[0.16em] text-muted-foreground">{entry.status}</p>
+                  </div>
+                </ListCard>
+              ))
             ) : (
               <EmptyState
                 title="Nothing scheduled yet"
                 description="Add a scheduled post in this campaign and it will appear in the timeline and on the calendar."
+              />
+            )}
+          </div>
+        </Card>
+        <Card id="ready-to-schedule">
+          <CardHeader>
+            <div>
+              <CardDescription>Ready queue</CardDescription>
+              <CardTitle className="mt-3">Ready but still unscheduled</CardTitle>
+            </div>
+          </CardHeader>
+          <div className="space-y-3">
+            {readyToSchedulePosts.length ? (
+              readyToSchedulePosts.map((post) => (
+                <button
+                  className="block w-full text-left"
+                  key={post.id}
+                  type="button"
+                  onClick={() => setSelectedItem({ type: "post", item: post })}
+                >
+                  <ListCard>
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="font-medium text-foreground">{post.goal}</p>
+                        <p className="mt-2 text-sm text-muted-foreground">
+                          {post.platform} · {post.format ?? "Content"} · assets {post.assetState ?? "Missing"}
+                        </p>
+                      </div>
+                      <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[0.65rem] uppercase tracking-[0.14em] text-emerald-700 dark:text-emerald-300">
+                        Ready
+                      </span>
+                    </div>
+                  </ListCard>
+                </button>
+              ))
+            ) : (
+              <EmptyState
+                title="No ready items"
+                description="Approved content without a publish time will show up here so it can be scheduled quickly."
               />
             )}
           </div>
@@ -2364,10 +2883,17 @@ export default function CampaignDetailPage() {
                 <ListCard key={approval.id}>
                   <p className="font-medium text-foreground">{approval.summary}</p>
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                    <span>Requested by {approval.requesterName}</span>
+                    <span>Waiting on {approval.requesterName}</span>
                     <DatePill value={approval.requestedAt} />
                   </div>
                   {approval.note ? <p className="mt-2 text-sm text-muted-foreground">{approval.note}</p> : null}
+                  <p className="mt-2 text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                    {approval.status === "Pending"
+                      ? "Decision required"
+                      : approval.status === "Changes Requested"
+                        ? "Changes requested"
+                        : "Approved"}
+                  </p>
                   {approval.status === "Pending" ? (
                     <div className="mt-4 flex flex-col gap-3 sm:flex-row">
                       <Button
@@ -2504,12 +3030,33 @@ export default function CampaignDetailPage() {
                     />
                   </div>
                   <div className="rounded-[1.15rem] bg-white/[0.04] p-4">
+                    <Label className="text-white">Format</Label>
+                    <Select
+                      value={draft.format ?? "Static"}
+                      onChange={(value) =>
+                        setDraft((current) => ({ ...current, format: value as NonNullable<Post["format"]> }))
+                      }
+                      options={contentFormatOptions.map((value) => ({ label: value, value }))}
+                    />
+                  </div>
+                  <div className="rounded-[1.15rem] bg-white/[0.04] p-4">
                     <Label className="text-white">Call to action</Label>
                     <Input
                       className="mt-3 border-white/10 bg-white/[0.04] text-white placeholder:text-white/35"
                       value={draft.cta}
                       onChange={(event) => setDraft((current) => ({ ...current, cta: event.target.value }))}
                       placeholder="Reserve tonight"
+                    />
+                  </div>
+                  <div className="rounded-[1.15rem] bg-white/[0.04] p-4">
+                    <Label className="text-white">Destination URL</Label>
+                    <Input
+                      className="mt-3 border-white/10 bg-white/[0.04] text-white placeholder:text-white/35"
+                      value={draft.destinationUrl ?? ""}
+                      onChange={(event) =>
+                        setDraft((current) => ({ ...current, destinationUrl: event.target.value }))
+                      }
+                      placeholder="/reserve"
                     />
                   </div>
                 </div>
@@ -2535,6 +3082,17 @@ export default function CampaignDetailPage() {
                       placeholder={profile?.fullName ?? "Name"}
                     />
                   </div>
+                  <label className="flex items-center gap-3 rounded-[1.15rem] bg-white/[0.04] p-4 text-sm text-white">
+                    <input
+                      checked={Boolean(taskDraft.isMilestone)}
+                      className="h-4 w-4"
+                      type="checkbox"
+                      onChange={(event) =>
+                        setTaskDraft((current) => ({ ...current, isMilestone: event.target.checked }))
+                      }
+                    />
+                    Mark this as a milestone
+                  </label>
                 </div>
               ) : null}
 
@@ -2548,6 +3106,19 @@ export default function CampaignDetailPage() {
                         setDraft((current) => ({ ...current, platform: value as Post["platform"] }))
                       }
                       options={platformOptions.map((value) => ({ label: value, value }))}
+                    />
+                  </div>
+                  <div className="rounded-[1.15rem] bg-white/[0.04] p-4">
+                    <Label className="text-white">Asset state</Label>
+                    <Select
+                      value={draft.assetState ?? "Missing"}
+                      onChange={(value) =>
+                        setDraft((current) => ({
+                          ...current,
+                          assetState: value as NonNullable<Post["assetState"]>
+                        }))
+                      }
+                      options={["Missing", "In Progress", "Ready"].map((value) => ({ label: value, value }))}
                     />
                   </div>
                   <div className="rounded-[1.15rem] bg-white/[0.04] p-4">
@@ -2586,6 +3157,15 @@ export default function CampaignDetailPage() {
 
               {mobileComposerStep === 4 && (taskKind === "meeting" || taskKind === "task") ? (
                 <div className="space-y-4">
+                  <div className="rounded-[1.15rem] bg-white/[0.04] p-4">
+                    <Label className="text-white">Start date</Label>
+                    <Input
+                      className="mt-3 h-10 min-w-0 border-white/10 bg-white/[0.04] px-3 text-[0.84rem] text-white [color-scheme:dark] [&::-webkit-date-and-time-value]:min-w-0 [&::-webkit-date-and-time-value]:text-left"
+                      type="date"
+                      value={taskDraft.startDate ?? ""}
+                      onChange={(event) => setTaskDraft((current) => ({ ...current, startDate: event.target.value }))}
+                    />
+                  </div>
                   <div className="rounded-[1.15rem] bg-white/[0.04] p-4">
                     <Label className="text-white">Due date</Label>
                     <Input
@@ -2634,6 +3214,27 @@ export default function CampaignDetailPage() {
                         </button>
                       ))}
                     </div>
+                  </div>
+                  <div className="rounded-[1.15rem] bg-white/[0.04] p-4">
+                    <Label className="text-white">Dependency</Label>
+                    <Select
+                      value={taskDraft.blockedByTaskIds?.[0] ?? ""}
+                      onChange={(value) =>
+                        setTaskDraft((current) => ({
+                          ...current,
+                          blockedByTaskIds: value ? [value] : []
+                        }))
+                      }
+                      options={[
+                        { label: "No dependency", value: "" },
+                        ...campaignTasks
+                          .filter((task) => task.id !== taskDraft.id)
+                          .map((task) => ({
+                            label: task.title,
+                            value: task.id
+                          }))
+                      ]}
+                    />
                   </div>
                 </div>
               ) : null}
@@ -2753,6 +3354,18 @@ export default function CampaignDetailPage() {
                     />
                   </div>
                   <div>
+                    <Label>Format</Label>
+                    <Select
+                      value={selectedPostDraft.format ?? "Static"}
+                      onChange={(value) =>
+                        setSelectedPostDraft((current) =>
+                          current ? { ...current, format: value as NonNullable<Post["format"]> } : current
+                        )
+                      }
+                      options={contentFormatOptions.map((format) => ({ label: format, value: format }))}
+                    />
+                  </div>
+                  <div>
                     <Label>Publish date</Label>
                     <Input
                       className="h-10 min-w-0 px-3 text-[0.84rem] [color-scheme:light] [&::-webkit-date-and-time-value]:min-w-0 [&::-webkit-date-and-time-value]:text-left"
@@ -2763,6 +3376,18 @@ export default function CampaignDetailPage() {
                         )
                       }
                       type="date"
+                    />
+                  </div>
+                  <div>
+                    <Label>Asset state</Label>
+                    <Select
+                      value={selectedPostDraft.assetState ?? "Missing"}
+                      onChange={(value) =>
+                        setSelectedPostDraft((current) =>
+                          current ? { ...current, assetState: value as NonNullable<Post["assetState"]> } : current
+                        )
+                      }
+                      options={["Missing", "In Progress", "Ready"].map((value) => ({ label: value, value }))}
                     />
                   </div>
                 </div>
@@ -2814,12 +3439,44 @@ export default function CampaignDetailPage() {
                     placeholder="Reserve, order, call, DM, book now..."
                   />
                 </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>Destination URL</Label>
+                    <Input
+                      value={selectedPostDraft.destinationUrl ?? ""}
+                      onChange={(event) =>
+                        setSelectedPostDraft((current) =>
+                          current ? { ...current, destinationUrl: event.target.value } : current
+                        )
+                      }
+                      placeholder="/reserve"
+                    />
+                  </div>
+                  <div>
+                    <Label>Linked task</Label>
+                    <Select
+                      value={selectedPostDraft.linkedTaskId ?? ""}
+                      onChange={(value) =>
+                        setSelectedPostDraft((current) =>
+                          current ? { ...current, linkedTaskId: value || undefined } : current
+                        )
+                      }
+                      options={[
+                        { label: "No linked task", value: "" },
+                        ...campaignTasks.map((task) => ({ label: task.title, value: task.id }))
+                      ]}
+                    />
+                  </div>
+                </div>
                 <div className="rounded-[1rem] border border-border bg-muted/25 p-4">
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="text-sm font-medium text-foreground">Approval</p>
                       <p className="mt-1 text-sm text-muted-foreground">
                         {getPostApproval(selectedPostDraft.id)?.status ?? "No approval yet"}
+                      </p>
+                      <p className="mt-2 text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                        Next step · {getPostReadiness(selectedPostDraft, getPostApproval(selectedPostDraft.id)?.status, getPostPublishJob(selectedPostDraft.id)?.status).nextStep}
                       </p>
                     </div>
                     <DatePill value={selectedPostDraft.publishDate} fallback="No date" />
@@ -2882,6 +3539,19 @@ export default function CampaignDetailPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
+                    <Label>Start date</Label>
+                    <Input
+                      className="h-10 min-w-0 px-3 text-[0.84rem] [color-scheme:light] [&::-webkit-date-and-time-value]:min-w-0 [&::-webkit-date-and-time-value]:text-left"
+                      value={selectedTaskDraft.startDate ?? ""}
+                      onChange={(event) =>
+                        setSelectedTaskDraft((current) =>
+                          current ? { ...current, startDate: event.target.value } : current
+                        )
+                      }
+                      type="date"
+                    />
+                  </div>
+                  <div>
                     <Label>Due date</Label>
                     <Input
                       className="h-10 min-w-0 px-3 text-[0.84rem] [color-scheme:light] [&::-webkit-date-and-time-value]:min-w-0 [&::-webkit-date-and-time-value]:text-left"
@@ -2904,6 +3574,41 @@ export default function CampaignDetailPage() {
                         )
                       }
                       placeholder="Name"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>Task type</Label>
+                    <Select
+                      value={selectedTaskDraft.taskType ?? "General"}
+                      onChange={(value) =>
+                        setSelectedTaskDraft((current) =>
+                          current ? { ...current, taskType: value as NonNullable<OperationalTask["taskType"]> } : current
+                        )
+                      }
+                      options={[
+                        { label: "Content", value: "Content" },
+                        { label: "Meeting", value: "Meeting" },
+                        { label: "General", value: "General" }
+                      ]}
+                    />
+                  </div>
+                  <div>
+                    <Label>Dependency</Label>
+                    <Select
+                      value={selectedTaskDraft.blockedByTaskIds?.[0] ?? ""}
+                      onChange={(value) =>
+                        setSelectedTaskDraft((current) =>
+                          current ? { ...current, blockedByTaskIds: value ? [value] : [] } : current
+                        )
+                      }
+                      options={[
+                        { label: "No dependency", value: "" },
+                        ...campaignTasks
+                          .filter((task) => task.id !== selectedTaskDraft.id)
+                          .map((task) => ({ label: task.title, value: task.id }))
+                      ]}
                     />
                   </div>
                 </div>
@@ -2956,6 +3661,36 @@ export default function CampaignDetailPage() {
                     ))}
                   </div>
                 </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>Linked content</Label>
+                    <Select
+                      value={selectedTaskDraft.linkedPostId ?? ""}
+                      onChange={(value) =>
+                        setSelectedTaskDraft((current) =>
+                          current ? { ...current, linkedPostId: value || undefined } : current
+                        )
+                      }
+                      options={[
+                        { label: "No linked content", value: "" },
+                        ...linkedPosts.map((post) => ({ label: post.goal, value: post.id }))
+                      ]}
+                    />
+                  </div>
+                  <label className="flex items-center gap-3 rounded-[0.95rem] border border-border bg-muted/20 px-3 py-2 text-sm text-foreground">
+                    <input
+                      checked={Boolean(selectedTaskDraft.isMilestone)}
+                      className="h-4 w-4"
+                      type="checkbox"
+                      onChange={(event) =>
+                        setSelectedTaskDraft((current) =>
+                          current ? { ...current, isMilestone: event.target.checked } : current
+                        )
+                      }
+                    />
+                    Milestone
+                  </label>
+                </div>
                 <div>
                   <Label>Details</Label>
                   <Textarea
@@ -2974,9 +3709,21 @@ export default function CampaignDetailPage() {
                     className="mt-3"
                     value={selectedNote}
                     onChange={(event) => setSelectedNote(event.target.value)}
-                    placeholder="Add a quick note. It will be appended to the task details for now."
+                    placeholder="Add a quick note or handoff comment."
                   />
                 </div>
+                {selectedTaskDraft.notes?.length ? (
+                  <div className="rounded-[1rem] border border-border bg-muted/20 p-4">
+                    <p className="text-sm font-medium text-foreground">Notes</p>
+                    <div className="mt-3 space-y-2">
+                      {selectedTaskDraft.notes.map((note, index) => (
+                        <p className="text-sm text-muted-foreground" key={`${selectedTaskDraft.id}-note-${index}`}>
+                          {note}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 {selectedSaveError ? <p className="text-sm text-primary">{selectedSaveError}</p> : null}
                 <div className="sticky bottom-0 -mx-4 grid grid-cols-[auto_1fr] gap-2 border-t border-border bg-card/95 px-4 py-3 backdrop-blur sm:-mx-5 sm:px-5">
                   <Button

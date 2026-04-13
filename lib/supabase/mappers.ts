@@ -28,6 +28,7 @@ import type {
 } from "@/types";
 import type { Database } from "@/lib/supabase/database";
 import { composeIntegrationNotes, parseIntegrationNotes } from "@/lib/domain/integration-notes";
+import { decodePostContent, decodeTaskDetail, encodePostContent, encodeTaskDetail } from "@/lib/domain/execution-metadata";
 
 type TableRow<Name extends keyof Database["public"]["Tables"]> = Database["public"]["Tables"][Name]["Row"];
 type TableInsert<Name extends keyof Database["public"]["Tables"]> =
@@ -552,15 +553,20 @@ export function mapPlannerItemInsert(item: PlannerItem): TableInsert<"planner_it
 }
 
 export function mapPostRow(row: TableRow<"posts">, assetIds: string[] = []): Post {
+  const decoded = decodePostContent(row.content);
   return {
     id: row.id,
     clientId: row.client_id,
     platform: row.platform as Post["platform"],
-    content: row.content,
+    format: decoded.meta.format,
+    content: decoded.content,
     cta: row.cta,
+    destinationUrl: decoded.meta.destinationUrl,
     publishDate: row.publish_date,
     goal: row.goal,
     status: row.status as Post["status"],
+    assetState: decoded.meta.assetState,
+    linkedTaskId: decoded.meta.linkedTaskId,
     plannerItemId: row.planner_item_id ?? undefined,
     campaignId: row.campaign_id ?? undefined,
     assetIds,
@@ -573,7 +579,12 @@ export function mapPostInsert(post: Post): TableInsert<"posts"> {
     id: post.id,
     client_id: post.clientId,
     platform: post.platform,
-    content: post.content,
+    content: encodePostContent(post.content, {
+      format: post.format,
+      destinationUrl: post.destinationUrl,
+      assetState: post.assetState,
+      linkedTaskId: post.linkedTaskId
+    }),
     cta: post.cta,
     publish_date: post.publishDate,
     goal: post.goal,
@@ -757,15 +768,22 @@ export function mapPublishJobInsert(job: PublishJob): TableInsert<"publish_jobs"
 }
 
 export function mapOperationalTaskRow(row: TableRow<"operational_tasks">): OperationalTask {
+  const decoded = decodeTaskDetail(row.detail);
   return {
     id: row.id,
     workspaceId: row.workspace_id,
     clientId: row.client_id ?? undefined,
     title: row.title,
-    detail: row.detail,
+    detail: decoded.detail,
+    taskType: decoded.meta.taskType,
     status: row.status as OperationalTask["status"],
     priority: row.priority as OperationalTask["priority"],
+    startDate: decoded.meta.startDate,
     dueDate: row.due_date ?? undefined,
+    isMilestone: decoded.meta.isMilestone,
+    blockedByTaskIds: decoded.meta.blockedByTaskIds,
+    linkedPostId: decoded.meta.linkedPostId,
+    notes: decoded.meta.notes,
     assigneeUserId: row.assignee_user_id ?? undefined,
     assigneeName: row.assignee_name ?? undefined,
     linkedEntityType: row.linked_entity_type as OperationalTask["linkedEntityType"],
@@ -782,7 +800,14 @@ export function mapOperationalTaskInsert(
     workspace_id: task.workspaceId,
     client_id: task.clientId ?? null,
     title: task.title,
-    detail: task.detail,
+    detail: encodeTaskDetail(task.detail, {
+      taskType: task.taskType,
+      startDate: task.startDate,
+      isMilestone: task.isMilestone,
+      blockedByTaskIds: task.blockedByTaskIds,
+      linkedPostId: task.linkedPostId,
+      notes: task.notes
+    }),
     status: task.status,
     priority: task.priority,
     due_date: task.dueDate ?? null,

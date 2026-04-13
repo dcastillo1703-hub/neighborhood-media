@@ -248,11 +248,17 @@ export type Post = {
   id: string;
   clientId: string;
   platform: Platform;
+  format?: "Static" | "Carousel" | "Reel" | "Story" | "Email" | "Offer";
   content: string;
   cta: string;
+  destinationUrl?: string;
   publishDate: string;
   goal: string;
   status: PostStatus;
+  assetState?: "Missing" | "In Progress" | "Ready";
+  approvalState?: ApprovalStatus;
+  publishState?: PublishJobStatus;
+  linkedTaskId?: string;
   plannerItemId?: string;
   campaignId?: string;
   assetIds: string[];
@@ -574,6 +580,7 @@ export type ActivityItem = {
 
 export type TaskStatus = "Backlog" | "In Progress" | "Waiting" | "Done";
 export type TaskPriority = "Low" | "Medium" | "High";
+export type OperationalTaskType = "Content" | "Meeting" | "General";
 
 export type OperationalTask = {
   id: string;
@@ -581,9 +588,15 @@ export type OperationalTask = {
   clientId?: string;
   title: string;
   detail: string;
+  taskType?: OperationalTaskType;
   status: TaskStatus;
   priority: TaskPriority;
+  startDate?: string;
   dueDate?: string;
+  isMilestone?: boolean;
+  blockedByTaskIds?: string[];
+  linkedPostId?: string;
+  notes?: string[];
   assigneeUserId?: string;
   assigneeName?: string;
   linkedEntityType?: "campaign" | "post" | "integration" | "metric";

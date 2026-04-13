@@ -10,6 +10,10 @@ type PlannerDraft = Pick<
   "dayOfWeek" | "platform" | "contentType" | "campaignGoal" | "status" | "caption" | "campaignId"
 >;
 type PostDraft = Pick<Post, "platform" | "content" | "cta" | "publishDate" | "goal" | "status"> & {
+  format?: Post["format"];
+  destinationUrl?: string;
+  assetState?: Post["assetState"];
+  linkedTaskId?: string;
   plannerItemId?: string;
   campaignId?: string;
   assetIds?: string[];
