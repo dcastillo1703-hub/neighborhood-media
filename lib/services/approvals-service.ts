@@ -134,7 +134,9 @@ export async function getApprovalForPost(clientId: string, postId: string) {
 }
 
 export async function requestPostApproval(post: Post) {
-  if (post.status !== "Scheduled") {
+  const needsApproval = post.approvalState === "Pending" || post.status === "Scheduled";
+
+  if (!needsApproval) {
     return null;
   }
 
@@ -150,10 +152,15 @@ export async function requestPostApproval(post: Post) {
     clientId: post.clientId,
     entityType: "post",
     entityId: post.id,
-    summary: `${post.platform} post for ${post.publishDate}`,
+    summary: post.publishDate
+      ? `${post.platform} post for ${post.publishDate}`
+      : `${post.platform} content review`,
     requesterName: "Workspace operator",
     status: "Pending",
-    note: "Awaiting approval before publishing.",
+    note:
+      post.status === "Scheduled"
+        ? "Awaiting approval before publishing."
+        : "Awaiting approval before scheduling.",
     requestedAt: new Date().toISOString()
   };
 
@@ -181,7 +188,10 @@ export async function requestPostApproval(post: Post) {
       actionLabel: "requested",
       subjectType: "content",
       subjectName: post.goal,
-      detail: `Approval requested for scheduled ${post.platform.toLowerCase()} post.`,
+      detail:
+        post.status === "Scheduled"
+          ? `Approval requested for scheduled ${post.platform.toLowerCase()} post.`
+          : `Approval requested for ${post.platform.toLowerCase()} content before scheduling.`,
       createdAt: approval.requestedAt
     });
 
@@ -201,7 +211,10 @@ export async function requestPostApproval(post: Post) {
       actionLabel: "requested",
       subjectType: "content",
       subjectName: post.goal,
-      detail: `Approval requested for scheduled ${post.platform.toLowerCase()} post.`,
+      detail:
+        post.status === "Scheduled"
+          ? `Approval requested for scheduled ${post.platform.toLowerCase()} post.`
+          : `Approval requested for ${post.platform.toLowerCase()} content before scheduling.`,
       createdAt: approval.requestedAt
     } satisfies ActivityEvent
   };

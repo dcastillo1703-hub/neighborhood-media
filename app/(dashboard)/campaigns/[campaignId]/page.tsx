@@ -40,6 +40,12 @@ import {
   slugifyCampaignName
 } from "@/lib/domain/campaign-metadata";
 import { getCampaignOverview } from "@/lib/domain/campaigns";
+import {
+  getContentExecutionState,
+  getPipelineStateTone,
+  getTaskExecutionState,
+  type PipelineStageState
+} from "@/lib/domain/execution-state";
 import { useAnalyticsSnapshots } from "@/lib/repositories/use-analytics-snapshots";
 import { useAssets } from "@/lib/repositories/use-assets";
 import { useBlogPosts } from "@/lib/repositories/use-blog-posts";
@@ -141,19 +147,7 @@ const contentFormatOptions: NonNullable<Post["format"]>[] = [
 ];
 
 function getTaskStateLabel(task: OperationalTask) {
-  if (task.status === "Waiting" && task.blockedByTaskIds?.length) {
-    return "Blocked";
-  }
-
-  if (task.status !== "Done" && task.dueDate && new Date(task.dueDate) < new Date()) {
-    return "Overdue";
-  }
-
-  if (task.isMilestone) {
-    return "Milestone";
-  }
-
-  return task.status;
+  return getTaskExecutionState(task);
 }
 
 function getTaskVisualState(task: OperationalTask) {
@@ -180,6 +174,13 @@ function getTaskVisualState(task: OperationalTask) {
     };
   }
 
+  if (state === "Backlog") {
+    return {
+      label: "Ready",
+      tone: "border-border bg-muted/40 text-muted-foreground"
+    };
+  }
+
   return {
     label: task.status,
     tone: "border-border bg-muted/40 text-muted-foreground"
@@ -187,6 +188,8 @@ function getTaskVisualState(task: OperationalTask) {
 }
 
 function getPostNextStep(post: Post, approvalStatus?: string, publishStatus?: string) {
+  const executionState = getContentExecutionState(post, approvalStatus as Post["approvalState"], publishStatus as Post["publishState"]);
+
   if (!post.content.trim()) {
     return "Add copy";
   }
@@ -196,16 +199,22 @@ function getPostNextStep(post: Post, approvalStatus?: string, publishStatus?: st
   if (approvalStatus === "Changes Requested") {
     return "Revise for approval";
   }
-  if (approvalStatus !== "Approved") {
+  if (executionState === "Draft") {
     return "Send for approval";
+  }
+  if (executionState === "In Review") {
+    return "Waiting on approval";
+  }
+  if (executionState === "Approved" && !post.publishDate) {
+    return "Pick publish time";
   }
   if (!post.publishDate) {
     return "Pick publish time";
   }
-  if (post.status !== "Scheduled") {
+  if (executionState === "Approved") {
     return "Schedule";
   }
-  if (publishStatus && publishStatus !== "Published") {
+  if (executionState === "Scheduled") {
     return "Ready to publish";
   }
   return "Complete";
@@ -213,25 +222,42 @@ function getPostNextStep(post: Post, approvalStatus?: string, publishStatus?: st
 
 function getPostReadiness(post: Post, approvalStatus?: string, publishStatus?: string) {
   const nextStep = getPostNextStep(post, approvalStatus, publishStatus);
+  const executionState = getContentExecutionState(post, approvalStatus as Post["approvalState"], publishStatus as Post["publishState"]);
 
-  if (nextStep === "Complete") {
+  if (executionState === "Published") {
     return {
-      label: "Ready",
+      label: "Complete",
       tone: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+      nextStep
+    };
+  }
+
+  if (executionState === "Scheduled" || executionState === "Approved") {
+    return {
+      label: executionState,
+      tone: "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300",
       nextStep
     };
   }
 
   if (nextStep === "Revise for approval") {
     return {
-      label: "Blocked",
+      label: "Waiting",
+      tone: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+      nextStep
+    };
+  }
+
+  if (executionState === "In Review") {
+    return {
+      label: "Waiting",
       tone: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
       nextStep
     };
   }
 
   return {
-    label: "In progress",
+    label: "In Progress",
     tone: "border-border bg-muted/40 text-muted-foreground",
     nextStep
   };
@@ -460,16 +486,31 @@ export default function CampaignDetailPage() {
     () => jobs.filter((job) => linkedPostIds.has(job.postId)),
     [jobs, linkedPostIds]
   );
+  const postApprovalMap = useMemo(
+    () => new Map(campaignApprovals.map((approval) => [approval.entityId, approval])),
+    [campaignApprovals]
+  );
+  const postPublishJobMap = useMemo(
+    () => new Map(campaignPublishJobs.map((job) => [job.postId, job])),
+    [campaignPublishJobs]
+  );
   const getPostApproval = (postId: string) =>
-    campaignApprovals.find((item) => item.entityId === postId);
+    postApprovalMap.get(postId);
   const getPostPublishJob = (postId: string) =>
-    campaignPublishJobs.find((item) => item.postId === postId);
+    postPublishJobMap.get(postId);
   const scheduledPosts = useMemo(
     () =>
       (overview?.linkedPosts ?? [])
-        .filter((post) => post.publishDate)
+        .filter((post) => {
+          const executionState = getContentExecutionState(
+            post,
+            postApprovalMap.get(post.id)?.status,
+            postPublishJobMap.get(post.id)?.status
+          );
+          return post.publishDate && (executionState === "Scheduled" || executionState === "Published");
+        })
         .sort((left, right) => left.publishDate.localeCompare(right.publishDate)),
-    [overview]
+    [overview, postApprovalMap, postPublishJobMap]
   );
   const linkedPosts = overview?.linkedPosts ?? [];
   const campaignTasks = useMemo(
@@ -584,9 +625,19 @@ export default function CampaignDetailPage() {
   const overdueTaskCount = campaignTasks.filter(
     (task) => task.status !== "Done" && task.dueDate && new Date(task.dueDate) < new Date()
   ).length;
-  const blockedTaskCount = campaignTasks.filter((task) => task.blockedByTaskIds?.length).length;
+  const blockedTaskCount = campaignTasks.filter(
+    (task) => task.status === "Waiting" && task.blockedByTaskIds?.length
+  ).length;
   const missingContentCount = linkedPosts.filter((post) => !post.content.trim() || (post.assetState ?? "Missing") !== "Ready").length;
   const unscheduledReadyCount = readyToSchedulePosts.length;
+  const hasExecutionStarted =
+    Boolean(campaignTasks.length || linkedPosts.length || campaignApprovals.length || scheduledPosts.length || queuedPublishJobs) ||
+    (roiDraft.attributedRevenue || overview?.attributedRevenue || 0) > 0;
+  const hasMeaningfulResults =
+    scheduledPosts.length > 0 ||
+    queuedPublishJobs > 0 ||
+    Boolean(googleAnalyticsCampaignImpact?.sessions) ||
+    (roiDraft.attributedRevenue || overview?.attributedRevenue || 0) > 0;
   const campaignHealth: {
     label: "At Risk" | "On Track" | "Needs Attention";
     detail: string;
@@ -609,7 +660,25 @@ export default function CampaignDetailPage() {
             detail: "Current work is moving through the pipeline cleanly.",
             tone: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
           };
-  const nextAction = overdueTaskCount
+  const nextAction =
+    !campaignTasks.length && !linkedPosts.length
+      ? {
+          label: "Create the first campaign step",
+          detail: "Start with one task or one content item so this campaign has something concrete to execute.",
+          actionLabel: "Add first step",
+          onClick: () => {
+            setActiveView("overview");
+            setAddTaskOpen(true);
+          }
+        }
+      : blockedTaskCount
+        ? {
+            label: "Unblock waiting work",
+            detail: `${number(blockedTaskCount)} task${blockedTaskCount === 1 ? "" : "s"} are waiting on another dependency to move forward.`,
+            actionLabel: "Open tasks",
+            onClick: () => setActiveView("list")
+          }
+    : overdueTaskCount
     ? {
         label: "Resolve overdue work",
         detail: `${number(overdueTaskCount)} task${overdueTaskCount === 1 ? "" : "s"} are overdue and blocking the campaign.`,
@@ -631,30 +700,49 @@ export default function CampaignDetailPage() {
             onClick: () => setActiveView("calendar")
           }
         : missingContentCount
-          ? {
-              label: "Finish campaign content",
-              detail: `${number(missingContentCount)} content item${missingContentCount === 1 ? "" : "s"} still need copy or assets.`,
-              actionLabel: "Open content",
-              onClick: () => setActiveView("overview")
-            }
-          : {
+        ? {
+            label: "Finish campaign content",
+            detail: `${number(missingContentCount)} content item${missingContentCount === 1 ? "" : "s"} still need copy or assets.`,
+            actionLabel: "Open content",
+            onClick: () => setActiveView("overview")
+          }
+          : !websiteReady
+            ? {
+                label: "Finish campaign setup",
+                detail: "Add the tagged website handoff so this campaign can be measured once execution starts.",
+                actionLabel: "Open results",
+                onClick: () => setActiveView("performance")
+              }
+            : hasMeaningfulResults
+              ? {
               label: "Capture results",
               detail: "Execution is moving. The next step is keeping website and revenue signals updated.",
               actionLabel: "Open results",
               onClick: () => setActiveView("performance")
-            };
+              }
+              : {
+                  label: "Keep execution moving",
+                  detail: "The campaign is set up, but it still needs approved or scheduled work before there is anything meaningful to measure.",
+                  actionLabel: "Open plan",
+                  onClick: () => setActiveView("overview")
+                };
   const pipelineStages: Array<{
     id: CampaignPipelineStageId;
     label: string;
     value: string;
-    state: "blocked" | "in-progress" | "ready" | "complete";
+    state: PipelineStageState;
     onClick: () => void;
   }> = [
     {
       id: "goal",
       label: "Goal",
       value: `${completedCampaignGoals}/${number(campaignGoals.length || 0)}`,
-      state: campaignGoals.length && openCampaignGoals === 0 ? "complete" : campaignGoals.length ? "in-progress" : "blocked",
+      state:
+        campaignGoals.length === 0
+          ? "Empty"
+          : openCampaignGoals === 0
+            ? "Complete"
+            : "In Progress",
       onClick: () => {
         setActiveView("overview");
         window.setTimeout(() => document.getElementById("campaign-goals")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
@@ -664,14 +752,32 @@ export default function CampaignDetailPage() {
       id: "tasks",
       label: "Tasks",
       value: number(campaignTasks.length),
-      state: campaignTasks.length ? (openCampaignTasks ? "in-progress" : "complete") : "blocked",
+      state:
+        campaignTasks.length === 0
+          ? "Empty"
+          : blockedTaskCount
+            ? "Blocked"
+            : openCampaignTasks
+              ? "In Progress"
+              : "Complete",
       onClick: () => setActiveView("list")
     },
     {
       id: "content",
       label: "Content",
       value: number(linkedPosts.length),
-      state: linkedPosts.length ? "in-progress" : "blocked",
+      state:
+        linkedPosts.length === 0
+          ? "Empty"
+          : missingContentCount
+            ? "In Progress"
+            : pendingReviews
+              ? "Waiting"
+              : unscheduledReadyCount
+                ? "Ready"
+                : scheduledPosts.length
+                  ? "Scheduled"
+                  : "In Progress",
       onClick: () => {
         setActiveView("overview");
         window.setTimeout(() => document.getElementById(contentComposerId)?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
@@ -681,14 +787,28 @@ export default function CampaignDetailPage() {
       id: "approvals",
       label: "Approvals",
       value: number(campaignApprovals.length),
-      state: pendingReviews ? "blocked" : campaignApprovals.length ? "complete" : "ready",
+      state:
+        campaignApprovals.length === 0
+          ? linkedPosts.length
+            ? "Ready"
+            : "Empty"
+          : pendingReviews
+            ? "Waiting"
+            : "Complete",
       onClick: () => setActiveView("list")
     },
     {
       id: "scheduled",
       label: "Scheduled",
       value: number(scheduledPosts.length),
-      state: scheduledPosts.length ? "ready" : readyToSchedulePosts.length ? "in-progress" : "blocked",
+      state:
+        scheduledPosts.length
+          ? "Scheduled"
+          : readyToSchedulePosts.length
+            ? "Ready"
+            : linkedPosts.length
+              ? "In Progress"
+              : "Empty",
       onClick: () => setActiveView("calendar")
     },
     {
@@ -697,10 +817,12 @@ export default function CampaignDetailPage() {
       value: currency(roiDraft.attributedRevenue || overview?.attributedRevenue || 0),
       state:
         (roiDraft.attributedRevenue || overview?.attributedRevenue || 0) > 0
-          ? "complete"
+          ? "Complete"
           : googleAnalyticsCampaignImpact?.sessions
-            ? "in-progress"
-            : "blocked",
+            ? "Measuring"
+            : hasExecutionStarted
+              ? "Waiting"
+              : "Empty",
       onClick: () => setActiveView("performance")
     }
   ];
@@ -780,12 +902,21 @@ export default function CampaignDetailPage() {
   const getBoardLanePosts = (lane: CampaignBoardLane) =>
     linkedPosts.filter((post) => {
       const approval = getPostApproval(post.id);
+      const executionState = getContentExecutionState(post, approval?.status, getPostPublishJob(post.id)?.status);
 
       if (lane === "Review") {
-        return approval?.status === "Pending" || approval?.status === "Changes Requested";
+        return executionState === "In Review";
       }
 
-      return post.status === lane;
+      if (lane === "Scheduled") {
+        return executionState === "Scheduled";
+      }
+
+      if (lane === "Published") {
+        return executionState === "Published";
+      }
+
+      return executionState === "Draft" || executionState === "Approved";
     });
 
   const savePost = async (status: PostStatus) => {
@@ -873,6 +1004,8 @@ export default function CampaignDetailPage() {
         publishDate: result.data.publishDate,
         goal: result.data.goal,
         status: result.data.status,
+        approvalState: selectedPostDraft.approvalState,
+        publishState: selectedPostDraft.publishState,
         assetState: selectedPostDraft.assetState,
         linkedTaskId: selectedPostDraft.linkedTaskId,
         plannerItemId: selectedPostDraft.plannerItemId,
@@ -898,21 +1031,10 @@ export default function CampaignDetailPage() {
       return;
     }
 
-    const scheduledDate = selectedPostDraft.publishDate || new Date().toISOString().slice(0, 10);
-    setSelectedPostDraft((current) =>
-      current
-        ? {
-            ...current,
-            publishDate: scheduledDate,
-            status: "Scheduled"
-          }
-        : current
-    );
-
     const result = validatePost({
       ...selectedPostDraft,
-      publishDate: scheduledDate,
-      status: "Scheduled"
+      approvalState: "Pending",
+      status: selectedPostDraft.status ?? "Draft"
     });
 
     if (!result.success) {
@@ -930,9 +1052,11 @@ export default function CampaignDetailPage() {
         format: selectedPostDraft.format,
         cta: result.data.cta,
         destinationUrl: selectedPostDraft.destinationUrl,
-        publishDate: scheduledDate,
+        publishDate: selectedPostDraft.publishDate,
         goal: result.data.goal,
-        status: "Scheduled",
+        status: selectedPostDraft.status ?? "Draft",
+        approvalState: "Pending",
+        publishState: selectedPostDraft.publishState,
         assetState: selectedPostDraft.assetState,
         linkedTaskId: selectedPostDraft.linkedTaskId,
         plannerItemId: selectedPostDraft.plannerItemId,
@@ -960,7 +1084,7 @@ export default function CampaignDetailPage() {
     const approval = getPostApproval(selectedItem.item.id);
 
     if (!approval) {
-      setSelectedSaveError("Schedule the post first so an approval request can be created.");
+      setSelectedSaveError("Send the content to approval first so a review request exists.");
       return;
     }
 
@@ -1310,6 +1434,8 @@ export default function CampaignDetailPage() {
         publishDate,
         goal: post.goal,
         status: "Scheduled",
+        approvalState: post.approvalState,
+        publishState: post.publishState,
         assetState: post.assetState,
         linkedTaskId: post.linkedTaskId,
         plannerItemId: post.plannerItemId,
@@ -1533,28 +1659,14 @@ export default function CampaignDetailPage() {
                 key={stage.id}
                 className={[
                   "min-w-[8rem] rounded-[1rem] border px-3 py-3 text-left transition sm:min-w-0",
-                  stage.state === "complete"
-                    ? "border-emerald-500/30 bg-emerald-500/10"
-                    : stage.state === "ready"
-                      ? "border-[var(--app-accent-bg)]/30 bg-[var(--app-accent-soft)]"
-                      : stage.state === "in-progress"
-                        ? "border-border bg-card/70"
-                        : "border-amber-500/25 bg-amber-500/10"
+                  getPipelineStateTone(stage.state)
                 ].join(" ")}
                 type="button"
                 onClick={stage.onClick}
               >
                 <p className="text-[0.65rem] uppercase tracking-[0.16em] text-muted-foreground">{stage.label}</p>
                 <p className="mt-2 text-xl font-semibold text-foreground">{stage.value}</p>
-                <p className="mt-2 text-[0.65rem] uppercase tracking-[0.14em] text-muted-foreground">
-                  {stage.state === "complete"
-                    ? "Complete"
-                    : stage.state === "ready"
-                      ? "Ready"
-                      : stage.state === "in-progress"
-                        ? "Active"
-                        : "Blocked"}
-                </p>
+                <p className="mt-2 text-[0.65rem] uppercase tracking-[0.14em] text-muted-foreground">{stage.state}</p>
               </button>
             ))}
           </div>
@@ -1581,6 +1693,7 @@ export default function CampaignDetailPage() {
 
       {activeView === "overview" ? (
       <div className="grid gap-6 xl:grid-cols-[0.82fr_1.18fr]">
+        {hasExecutionStarted ? (
         <Card className="hidden xl:col-span-2 sm:block">
           <CardHeader>
             <div>
@@ -1623,6 +1736,7 @@ export default function CampaignDetailPage() {
             </ListCard>
           </div>
         </Card>
+        ) : null}
 
         <Card className="border-[#3a3a40]/70 bg-[#202024] text-white shadow-none sm:hidden">
           <div className="rounded-[1.5rem] border border-white/15 p-5">
@@ -1706,7 +1820,17 @@ export default function CampaignDetailPage() {
               { id: "approvals" as const, label: "Approvals", value: campaignApprovals.length },
               { id: "publishing" as const, label: "Publishing jobs", value: campaignPublishJobs.length },
               { id: "metrics" as const, label: "Weekly metrics", value: overview.linkedMetrics.length }
-            ].map((section) => {
+            ]
+              .filter((section) => {
+                if (section.id === "publishing") {
+                  return campaignPublishJobs.length > 0;
+                }
+                if (section.id === "metrics") {
+                  return overview.linkedMetrics.length > 0 || hasMeaningfulResults;
+                }
+                return true;
+              })
+              .map((section) => {
               const open = openOverviewSections.includes(section.id);
 
               return (
@@ -2409,7 +2533,22 @@ export default function CampaignDetailPage() {
             ))}
             </>
           ) : (
-            <EmptyState title="No campaign tasks yet" description="Use Overview to add content, meetings, or general tasks for this campaign." />
+            <EmptyState
+              title="No campaign tasks yet"
+              description="Create the first task for this campaign without leaving this view."
+              action={
+                <Button
+                  size="sm"
+                  type="button"
+                  onClick={() => {
+                    setActiveView("overview");
+                    setAddTaskOpen(true);
+                  }}
+                >
+                  Add first task
+                </Button>
+              }
+            />
           )}
         </div>
       </Card>
@@ -2609,7 +2748,19 @@ export default function CampaignDetailPage() {
             ) : (
               <EmptyState
                 title="Nothing scheduled yet"
-                description="Add a scheduled post in this campaign and it will appear in the timeline and on the calendar."
+                description="Create content or set a publish date here so the schedule can start taking shape."
+                action={
+                  <Button
+                    size="sm"
+                    type="button"
+                    onClick={() => {
+                      setActiveView("overview");
+                      setAddTaskOpen(true);
+                    }}
+                  >
+                    Add content
+                  </Button>
+                }
               />
             )}
           </div>
@@ -2657,7 +2808,19 @@ export default function CampaignDetailPage() {
             ) : (
               <EmptyState
                 title="No ready items"
-                description="Approved content without a publish time will show up here so it can be scheduled quickly."
+                description="Send content through approval first. Approved items without a publish date will appear here automatically."
+                action={
+                  <Button
+                    size="sm"
+                    type="button"
+                    onClick={() => {
+                      setActiveView("overview");
+                      setAddTaskOpen(true);
+                    }}
+                  >
+                    Create content
+                  </Button>
+                }
               />
             )}
           </div>
@@ -3137,7 +3300,19 @@ export default function CampaignDetailPage() {
             ) : (
               <EmptyState
                 title="No campaign approvals"
-                description="Approvals for posts created in this campaign will appear here automatically."
+                description="Create content and send it to approval from the campaign so review stays inside the execution flow."
+                action={
+                  <Button
+                    size="sm"
+                    type="button"
+                    onClick={() => {
+                      setActiveView("overview");
+                      setAddTaskOpen(true);
+                    }}
+                  >
+                    Create content
+                  </Button>
+                }
               />
             )}
           </div>

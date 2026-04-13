@@ -565,6 +565,8 @@ export function mapPostRow(row: TableRow<"posts">, assetIds: string[] = []): Pos
     publishDate: row.publish_date,
     goal: row.goal,
     status: row.status as Post["status"],
+    approvalState: decoded.meta.approvalState,
+    publishState: decoded.meta.publishState,
     assetState: decoded.meta.assetState,
     linkedTaskId: decoded.meta.linkedTaskId,
     plannerItemId: row.planner_item_id ?? undefined,
@@ -582,6 +584,8 @@ export function mapPostInsert(post: Post): TableInsert<"posts"> {
     content: encodePostContent(post.content, {
       format: post.format,
       destinationUrl: post.destinationUrl,
+      approvalState: post.approvalState,
+      publishState: post.publishState,
       assetState: post.assetState,
       linkedTaskId: post.linkedTaskId
     }),

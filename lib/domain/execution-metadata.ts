@@ -8,7 +8,10 @@ type TaskMeta = Pick<
   "taskType" | "startDate" | "isMilestone" | "blockedByTaskIds" | "linkedPostId" | "notes"
 >;
 
-type PostMeta = Pick<Post, "format" | "destinationUrl" | "assetState" | "linkedTaskId">;
+type PostMeta = Pick<
+  Post,
+  "format" | "destinationUrl" | "assetState" | "linkedTaskId" | "approvalState" | "publishState"
+>;
 
 function splitPayload(value: string, prefix: string) {
   const separatorIndex = value.indexOf(`\n${prefix}`);
@@ -78,7 +81,9 @@ export function decodePostContent(content: string): { content: string; meta: Pos
         format: parsed.format,
         destinationUrl: parsed.destinationUrl,
         assetState: parsed.assetState,
-        linkedTaskId: parsed.linkedTaskId
+        linkedTaskId: parsed.linkedTaskId,
+        approvalState: parsed.approvalState,
+        publishState: parsed.publishState
       }
     };
   } catch {
@@ -91,7 +96,9 @@ export function encodePostContent(content: string, meta: PostMeta) {
     format: meta.format,
     destinationUrl: meta.destinationUrl,
     assetState: meta.assetState,
-    linkedTaskId: meta.linkedTaskId
+    linkedTaskId: meta.linkedTaskId,
+    approvalState: meta.approvalState,
+    publishState: meta.publishState
   };
 
   return `${content.trim()}\n${POST_META_PREFIX}${JSON.stringify(payload)}`;

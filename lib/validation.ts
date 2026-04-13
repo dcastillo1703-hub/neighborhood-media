@@ -12,6 +12,8 @@ type PlannerDraft = Pick<
 type PostDraft = Pick<Post, "platform" | "content" | "cta" | "publishDate" | "goal" | "status"> & {
   format?: Post["format"];
   destinationUrl?: string;
+  approvalState?: Post["approvalState"];
+  publishState?: Post["publishState"];
   assetState?: Post["assetState"];
   linkedTaskId?: string;
   plannerItemId?: string;
@@ -80,7 +82,9 @@ export function validatePlannerItem(input: PlannerDraft): ValidationResult<Plann
 export function validatePost(input: PostDraft): ValidationResult<PostDraft> {
   const errors: Record<string, string> = {};
   if (!validPlatforms.includes(input.platform)) errors.platform = "Select a valid platform.";
-  if (!input.publishDate) errors.publishDate = "Publish date is required.";
+  if ((input.status === "Scheduled" || input.status === "Published") && !input.publishDate) {
+    errors.publishDate = "Publish date is required before scheduling.";
+  }
   if (!input.goal.trim()) errors.goal = "Goal is required.";
   if (!input.cta.trim()) errors.cta = "CTA is required.";
   if (!input.content.trim()) errors.content = "Post content is required.";

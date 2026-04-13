@@ -246,6 +246,16 @@ export default function DashboardPage() {
       return new Date(left.dueDate).getTime() - new Date(right.dueDate).getTime();
     });
   const pendingApprovals = approvals.filter((approval) => approval.status === "Pending");
+  const overdueWorkspaceTask = openTasks.find(
+    (task) => task.dueDate && new Date(task.dueDate) < new Date()
+  );
+  const blockedWorkspaceTask = openTasks.find(
+    (task) => task.status === "Waiting" && task.blockedByTaskIds?.length
+  );
+  const readyUnscheduledPost = posts.find(
+    (post) => post.approvalState === "Approved" && post.status !== "Scheduled"
+  );
+  const hasExecutionSetup = Boolean(openTasks.length || posts.length || items.length);
   const nextTask = openTasks[0] ?? null;
   const decodedOverview = useMemo(() => decodeOverviewSummary(settings.overviewSummary), [settings.overviewSummary]);
   const clientFirstName =
@@ -319,33 +329,54 @@ export default function DashboardPage() {
 
     return actions.slice(0, 4);
   }, [nextScheduledItem, nextTask, pendingApprovals]);
-  const homeNextAction = pendingApprovals[0]
+  const homeNextAction = !hasExecutionSetup
     ? {
-        title: "Review pending approvals",
-        detail: `${number(pendingApprovals.length)} approval${pendingApprovals.length === 1 ? "" : "s"} are waiting before content can move forward.`,
-        href: "/approvals" as Route,
-        actionLabel: "Open approvals"
+        title: "Create the first meaningful step",
+        detail: "Start with one campaign task or one content item so this workspace has something concrete to execute.",
+        href: "/campaigns" as Route,
+        actionLabel: "Open campaigns"
       }
-    : openTasks.find((task) => task.dueDate && new Date(task.dueDate) < new Date())
+    : blockedWorkspaceTask
       ? {
-          title: "Resolve overdue work",
-          detail: "An overdue task is blocking execution. Clear it first so the schedule stays realistic.",
+          title: "Unblock waiting work",
+          detail: `${blockedWorkspaceTask.title} is waiting on another dependency before the campaign can move forward.`,
           href: "/approvals#open-tasks" as Route,
           actionLabel: "Open tasks"
         }
-      : nextScheduledItem
+      : overdueWorkspaceTask
         ? {
-            title: "Prepare the next scheduled publish",
-            detail: `${nextScheduledItem.platform} is coming up ${nextScheduledItem.date ? `on ${formatShortDate(nextScheduledItem.date)}` : "soon"}.`,
-            href: "/calendar" as Route,
-            actionLabel: "Open calendar"
+            title: "Resolve overdue work",
+            detail: "An overdue task is blocking execution. Clear it first so the schedule stays realistic.",
+            href: "/approvals#open-tasks" as Route,
+            actionLabel: "Open tasks"
           }
-        : {
-            title: "Start the next campaign move",
-            detail: "If nothing is blocked right now, add the next task or content item to keep growth moving.",
-            href: "/campaigns" as Route,
-            actionLabel: "Open campaigns"
-          };
+        : pendingApprovals[0]
+          ? {
+              title: "Review pending approvals",
+              detail: `${number(pendingApprovals.length)} approval${pendingApprovals.length === 1 ? "" : "s"} are waiting before content can move forward.`,
+              href: "/approvals" as Route,
+              actionLabel: "Open approvals"
+            }
+          : readyUnscheduledPost
+            ? {
+                title: "Schedule approved content",
+                detail: `${readyUnscheduledPost.goal} is approved and ready for a publish date.`,
+                href: "/calendar" as Route,
+                actionLabel: "Open calendar"
+              }
+            : nextScheduledItem
+              ? {
+                  title: "Prepare the next scheduled publish",
+                  detail: `${nextScheduledItem.platform} is coming up ${nextScheduledItem.date ? `on ${formatShortDate(nextScheduledItem.date)}` : "soon"}.`,
+                  href: "/calendar" as Route,
+                  actionLabel: "Open calendar"
+                }
+              : {
+                  title: "Add the next execution step",
+                  detail: "The workspace is active, but it needs another task or content item to keep momentum moving.",
+                  href: "/campaigns" as Route,
+                  actionLabel: "Open campaigns"
+                };
 
   const defaultHomeCards = useMemo<OverviewCardDraft[]>(() => [
     {
