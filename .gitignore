@@ -11,3 +11,6 @@ yarn-error.log*
 
 .next
 .next.bak-*
+
+.next
+.next.bak-*
