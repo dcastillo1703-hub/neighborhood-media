@@ -64,9 +64,6 @@ export default function CampaignCalendarPage() {
       const date = new Date(gridStart);
       date.setDate(gridStart.getDate() + index);
       const dateKey = formatDateKey(date);
-      const activeCampaigns = campaigns.filter(
-        (campaign) => campaign.startDate <= dateKey && campaign.endDate >= dateKey
-      );
       const scheduledPosts = posts.filter(
         (post) => post.campaignId && post.publishDate === dateKey
       );
@@ -75,11 +72,10 @@ export default function CampaignCalendarPage() {
         date,
         dateKey,
         inCurrentMonth: date.getMonth() === monthCursor.getMonth(),
-        activeCampaigns,
         scheduledPosts
       };
     });
-  }, [campaigns, monthCursor, posts]);
+  }, [monthCursor, posts]);
 
   const visibleCampaigns = campaigns.filter((campaign) => {
     const monthStartKey = formatDateKey(startOfMonth(monthCursor));
@@ -126,9 +122,12 @@ export default function CampaignCalendarPage() {
     .filter((item) => item.date >= todayKey)
     .sort((left, right) => left.date.localeCompare(right.date))
     .slice(0, 4);
-  const agendaDays = calendarDays.filter(
-    (day) => day.inCurrentMonth && (day.activeCampaigns.length || day.scheduledPosts.length)
+  const scheduledDays = calendarDays.filter(
+    (day) => day.inCurrentMonth && day.scheduledPosts.length
   );
+  const openExecutionDays = calendarDays.filter(
+    (day) => day.inCurrentMonth && !day.scheduledPosts.length
+  ).length;
 
   if (!ready || !postsReady) {
     return <div className="text-sm text-muted-foreground">Loading campaign calendar...</div>;
@@ -195,6 +194,9 @@ export default function CampaignCalendarPage() {
           <div>
             <CardDescription>Monthly Calendar</CardDescription>
             <CardTitle className="mt-2">{monthLabel}</CardTitle>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Scheduled content stays on the grid. Campaign context stays lightweight above it.
+            </p>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row">
             <button
@@ -215,9 +217,38 @@ export default function CampaignCalendarPage() {
             </button>
           </div>
         </CardHeader>
+        <div className="border-b border-border/70 px-4 py-4 sm:px-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-sm font-medium text-foreground">Active campaigns</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Keep campaign context visible without covering the calendar.
+              </p>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              {number(openExecutionDays)} open day{openExecutionDays === 1 ? "" : "s"} this month
+            </p>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {visibleCampaigns.length ? (
+              visibleCampaigns.map((campaign) => (
+                <Link
+                  className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-card/70 px-3 py-1.5 text-sm text-foreground transition hover:border-primary/40 hover:text-primary"
+                  href={`/campaigns/${campaign.id}`}
+                  key={campaign.id}
+                >
+                  <span className="font-medium">{campaign.name}</span>
+                  <span className="text-xs text-muted-foreground">{campaign.status}</span>
+                </Link>
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground">No campaigns in view for this month.</p>
+            )}
+          </div>
+        </div>
         <div className="space-y-3 p-3 xl:hidden">
-          {agendaDays.length ? (
-            agendaDays.map((day) => (
+          {scheduledDays.length ? (
+            scheduledDays.map((day) => (
               <div
                 className="rounded-[1rem] border border-border bg-card/70 p-3.5"
                 key={day.dateKey}
@@ -230,18 +261,6 @@ export default function CampaignCalendarPage() {
                   })}
                 </p>
                 <div className="mt-3 space-y-2">
-                  {day.activeCampaigns.map((campaign) => (
-                    <Link
-                      className="block rounded-xl border border-border/60 bg-background/70 px-3 py-2 text-sm text-foreground transition hover:border-primary/40 hover:text-primary"
-                      href={`/campaigns/${campaign.id}`}
-                      key={`${day.dateKey}-${campaign.id}-campaign`}
-                    >
-                      <p className="font-medium">{campaign.name}</p>
-                      <p className="mt-1 text-xs uppercase tracking-[0.16em] text-muted-foreground">
-                        Campaign · {campaign.status}
-                      </p>
-                    </Link>
-                  ))}
                   {day.scheduledPosts.map((post) => (
                     <Link
                       className="block rounded-xl border border-border/60 bg-[rgba(189,156,87,0.08)] px-3 py-2 text-sm text-foreground transition hover:border-primary/40 hover:text-primary"
@@ -263,7 +282,7 @@ export default function CampaignCalendarPage() {
           ) : (
             <EmptyState
               title="Nothing scheduled in this month"
-              description="Campaigns and campaign-linked posts will appear here as soon as they are dated."
+              description="Schedule content and it will show here. The open days count above shows how much room is still available."
             />
           )}
         </div>
@@ -294,19 +313,7 @@ export default function CampaignCalendarPage() {
                 {day.date.getDate()}
               </p>
               <div className="mt-3 space-y-2">
-                {day.activeCampaigns.slice(0, 2).map((campaign) => (
-                  <Link
-                    className="block min-w-0 rounded-xl border border-border/60 bg-background/70 px-3 py-2 text-xs text-foreground transition hover:border-primary/40 hover:text-primary"
-                    href={`/campaigns/${campaign.id}`}
-                    key={`${day.dateKey}-${campaign.id}-campaign`}
-                  >
-                    <p className="truncate font-medium">{campaign.name}</p>
-                    <p className="mt-1 text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">
-                      Campaign
-                    </p>
-                  </Link>
-                ))}
-                {day.scheduledPosts.slice(0, 2).map((post) => (
+                {day.scheduledPosts.slice(0, 3).map((post) => (
                   <Link
                     className="block min-w-0 rounded-xl border border-border/60 bg-[rgba(189,156,87,0.08)] px-3 py-2 text-xs text-foreground transition hover:border-primary/40 hover:text-primary"
                     href={`/campaigns/${post.campaignId}`}
@@ -319,50 +326,19 @@ export default function CampaignCalendarPage() {
                     </p>
                   </Link>
                 ))}
-                {day.activeCampaigns.length + day.scheduledPosts.length > 4 ? (
+                {!day.scheduledPosts.length && day.inCurrentMonth ? (
+                  <p className="rounded-xl border border-dashed border-border/70 px-3 py-2 text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">
+                    Open
+                  </p>
+                ) : null}
+                {day.scheduledPosts.length > 3 ? (
                   <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">
-                    +{day.activeCampaigns.length + day.scheduledPosts.length - 4} more
+                    +{day.scheduledPosts.length - 3} more
                   </p>
                 ) : null}
               </div>
             </div>
           ))}
-        </div>
-      </Card>
-
-      <Card className="overflow-hidden p-0">
-        <CardHeader className="border-b border-border/70 px-4 py-4 sm:px-5">
-          <div>
-            <CardDescription>Campaigns In View</CardDescription>
-            <CardTitle className="mt-2">What is on the board this month</CardTitle>
-          </div>
-        </CardHeader>
-        <div className="divide-y divide-border/70">
-          {visibleCampaigns.length ? (
-            visibleCampaigns.map((campaign) => (
-              <Link
-                className="block px-4 py-4 transition hover:bg-primary/5 sm:px-5"
-                href={`/campaigns/${campaign.id}`}
-                key={campaign.id}
-              >
-                <p className="font-medium text-foreground">{campaign.name}</p>
-                <p className="mt-2 text-sm text-muted-foreground">{campaign.objective}</p>
-                <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                  <DatePill value={campaign.startDate} />
-                  <span className="text-xs text-muted-foreground">to</span>
-                  <DatePill value={campaign.endDate} />
-                </div>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  {visiblePosts.filter((post) => post.campaignId === campaign.id).length} scheduled posts this month
-                </p>
-              </Link>
-            ))
-          ) : (
-            <EmptyState
-              title="No campaigns in this month"
-              description="Create a campaign on the campaigns page and it will appear here on the calendar."
-            />
-          )}
         </div>
       </Card>
     </div>
