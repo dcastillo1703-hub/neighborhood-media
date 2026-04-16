@@ -13,7 +13,6 @@ import {
   MessageSquare,
   Pencil,
   Sparkles,
-  Trash2,
 } from "lucide-react";
 
 import { EmptyState } from "@/components/dashboard/empty-state";
@@ -30,6 +29,11 @@ import { useActiveClient } from "@/lib/client-context";
 import { calculateRevenueModel } from "@/lib/calculations";
 import { getCampaignOverview } from "@/lib/domain/campaigns";
 import { buildOperatorQueue } from "@/lib/domain/operator-queue";
+import {
+  getQueuePrimaryActionLabel,
+  getQueueSecondaryActionLabel,
+  isQueueUndoable,
+} from "@/lib/domain/operator-queue-actions";
 import { buildToastOpportunitySummary } from "@/lib/domain/performance";
 import { useAnalyticsSnapshots } from "@/lib/repositories/use-analytics-snapshots";
 import { useAssets } from "@/lib/repositories/use-assets";
@@ -193,12 +197,13 @@ export default function DashboardPage() {
   const { analyticsSnapshots } = useAnalyticsSnapshots(activeClient.id);
   const { tasks, updateTaskStatus } = useOperationalTasks(workspace.id);
   useActivityEvents(workspace.id);
-  const { approvals, ready: approvalsReady, reviewApproval, deleteApproval } = useApprovalsApi(activeClient.id);
+  const { approvals, ready: approvalsReady, reviewApproval } = useApprovalsApi(activeClient.id);
   const { summary: googleAnalyticsSummary } = useGoogleAnalytics(activeClient.id);
   const [isEditingOverview, setIsEditingOverview] = useState(false);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [queueActioningId, setQueueActioningId] = useState<string | null>(null);
+  const [queueConfirmingId, setQueueConfirmingId] = useState<string | null>(null);
+  const [lastQueueUndo, setLastQueueUndo] = useState<null | { label: string; undo: () => Promise<void> }>(null);
   const [mobileAttentionExpanded, setMobileAttentionExpanded] = useState(false);
   const [overviewDraft, setOverviewDraft] = useState<OverviewDraft>(() => toOverviewDraft(settings));
 
@@ -294,15 +299,9 @@ export default function DashboardPage() {
         jobs: [],
         tasks: openTasks,
         goals: [],
-<<<<<<< HEAD
-        todayKey: new Date().toISOString().slice(0, 10)
-      }),
-    [approvals, campaigns, openTasks, posts]
-=======
         todayKey: currentDateKey
       }),
     [approvals, campaigns, currentDateKey, openTasks, posts]
->>>>>>> b4d0d0d (Phase 6: actionable operator queue (inline execution))
   );
   const clientActions = operatorQueue.items.slice(0, 4);
   const homeNextAction = !hasExecutionSetup
@@ -503,22 +502,21 @@ export default function DashboardPage() {
     }
   };
 
-  const handleDeleteApproval = async (approvalId: string) => {
-    setDeletingId(approvalId);
-
-    try {
-      await deleteApproval(approvalId);
-    } finally {
-      setDeletingId(null);
-    }
-  };
-
   const handleQueuePrimaryAction = async (action: (typeof clientActions)[number]) => {
     setQueueActioningId(action.id);
 
     try {
       if (action.entityType === "task") {
+        const linkedTask = tasks.find((task) => task.id === action.entityId);
         await updateTaskStatus(action.entityId, "Done");
+        if (linkedTask && isQueueUndoable(action)) {
+          setLastQueueUndo({
+            label: `${action.title} marked done.`,
+            undo: async () => {
+              await updateTaskStatus(action.entityId, linkedTask.status);
+            }
+          });
+        }
         return;
       }
 
@@ -535,22 +533,44 @@ export default function DashboardPage() {
           status: "Scheduled",
           approvalState: linkedPost.approvalState ?? "Approved"
         });
+        if (isQueueUndoable(action)) {
+          setLastQueueUndo({
+            label: `${action.title} scheduled.`,
+            undo: async () => {
+              await updatePost(action.entityId, {
+                ...linkedPost
+              });
+            }
+          });
+        }
       }
     } finally {
       setQueueActioningId(null);
     }
   };
 
-  const getQueuePrimaryActionLabel = (action: (typeof clientActions)[number]) => {
-    if (action.entityType === "task") {
-      return "Mark done";
+  const handleQueueSecondaryAction = async (action: (typeof clientActions)[number]) => {
+    if (action.entityType !== "approval") {
+      return;
     }
 
-    if (action.entityType === "post" && action.tone === "schedule") {
-      return "Schedule today";
+    if (queueConfirmingId !== action.id) {
+      setQueueConfirmingId(action.id);
+      return;
     }
 
-    return "Open";
+    setQueueConfirmingId(null);
+    await handleReview(action.entityId, "Changes Requested");
+  };
+
+  const handleUndoLastQueueAction = async () => {
+    if (!lastQueueUndo) {
+      return;
+    }
+
+    const undoAction = lastQueueUndo;
+    setLastQueueUndo(null);
+    await undoAction.undo();
   };
 
   return (
@@ -609,6 +629,19 @@ export default function DashboardPage() {
           </Link>
         </div>
 
+        {lastQueueUndo ? (
+          <div className="mt-3 flex items-center justify-between gap-3 rounded-[1.1rem] border border-white/10 bg-white/[0.04] px-4 py-3">
+            <p className="text-sm text-white/72">{lastQueueUndo.label}</p>
+            <button
+              className="shrink-0 rounded-full border border-white/12 px-3 py-1.5 text-xs font-semibold text-white"
+              type="button"
+              onClick={() => void handleUndoLastQueueAction()}
+            >
+              Undo
+            </button>
+          </div>
+        ) : null}
+
         {visibleSectionIds.has("attention") ? (
           <div className="mt-3 rounded-[1.35rem] border border-white/10 bg-[#1b1c1f] p-4">
             <button
@@ -662,16 +695,20 @@ export default function DashboardPage() {
                               type="button"
                               onClick={() => void handleReview(action.entityId, "Approved")}
                             >
-                              Approve
+                              {getQueuePrimaryActionLabel(action)}
                             </button>
                             <button
-                              aria-label="Delete approval"
-                              className="rounded-full border border-white/10 p-2 text-white/45"
-                              disabled={deletingId === action.entityId}
+                              className={cn(
+                                "rounded-full border px-3 py-1.5 text-xs font-semibold transition",
+                                queueConfirmingId === action.id
+                                  ? "border-white/22 bg-white/10 text-white"
+                                  : "border-white/10 text-white/55"
+                              )}
+                              disabled={reviewingId === action.entityId}
                               type="button"
-                              onClick={() => void handleDeleteApproval(action.entityId)}
+                              onClick={() => void handleQueueSecondaryAction(action)}
                             >
-                              <Trash2 className="h-4 w-4" />
+                              {queueConfirmingId === action.id ? "Confirm" : getQueueSecondaryActionLabel(action)}
                             </button>
                           </>
                         ) : action.entityType === "task" || (action.entityType === "post" && action.tone === "schedule") ? (
@@ -917,6 +954,17 @@ export default function DashboardPage() {
         </div>
       </Card>
 
+      {lastQueueUndo ? (
+        <Card className="hidden sm:block">
+          <div className="flex items-center justify-between gap-4 px-6 py-4">
+            <p className="text-sm text-muted-foreground">{lastQueueUndo.label}</p>
+            <Button size="sm" variant="outline" onClick={() => void handleUndoLastQueueAction()}>
+              Undo
+            </Button>
+          </div>
+        </Card>
+      ) : null}
+
       {visibleSectionIds.has("attention") || visibleSectionIds.has("active-campaign") ? (
         <div
           className="grid gap-5 xl:grid-cols-[0.92fr_1.08fr]"
@@ -974,25 +1022,16 @@ export default function DashboardPage() {
                               onClick={() => void handleReview(action.entityId, "Approved")}
                               size="sm"
                             >
-                              Approve
+                              {getQueuePrimaryActionLabel(action)}
                             </Button>
                             <Button
                               className="sm:w-auto"
                               disabled={reviewingId === action.entityId}
-                              variant="outline"
-                              onClick={() => void handleReview(action.entityId, "Changes Requested")}
+                              variant={queueConfirmingId === action.id ? "default" : "outline"}
+                              onClick={() => void handleQueueSecondaryAction(action)}
                               size="sm"
                             >
-                              Request changes
-                            </Button>
-                            <Button
-                              className="sm:w-auto"
-                              disabled={deletingId === action.entityId}
-                              variant="ghost"
-                              onClick={() => void handleDeleteApproval(action.entityId)}
-                              size="sm"
-                            >
-                              Delete
+                              {queueConfirmingId === action.id ? "Confirm changes" : getQueueSecondaryActionLabel(action)}
                             </Button>
                           </>
                         ) : action.entityType === "task" || (action.entityType === "post" && action.tone === "schedule") ? (

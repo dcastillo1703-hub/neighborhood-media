@@ -17,10 +17,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { useActiveClient } from "@/lib/client-context";
 import { getScheduledPosts } from "@/lib/domain/content";
 import { buildOperatorQueue } from "@/lib/domain/operator-queue";
-<<<<<<< HEAD
-=======
 import type { OperatorQueueItem } from "@/lib/domain/operator-queue";
->>>>>>> b4d0d0d (Phase 6: actionable operator queue (inline execution))
+import {
+  getQueuePrimaryActionLabel,
+  getQueueSecondaryActionLabel,
+  isQueueUndoable,
+} from "@/lib/domain/operator-queue-actions";
 import { useAssets } from "@/lib/repositories/use-assets";
 import { useClientCampaignGoals } from "@/lib/repositories/use-campaign-goals";
 import { useCampaigns } from "@/lib/repositories/use-campaigns";
@@ -142,6 +144,8 @@ export default function ContentPage() {
   const [deletingPostId, setDeletingPostId] = useState<string | null>(null);
   const [queueActioningId, setQueueActioningId] = useState<string | null>(null);
   const [reviewingApprovalId, setReviewingApprovalId] = useState<string | null>(null);
+  const [queueConfirmingId, setQueueConfirmingId] = useState<string | null>(null);
+  const [lastQueueUndo, setLastQueueUndo] = useState<null | { label: string; undo: () => Promise<void> }>(null);
   const monthDays = useMemo(() => getMonthDays(new Date(selectedDate)), [selectedDate]);
   const monthLabel = new Date(selectedDate).toLocaleDateString("en-US", {
     month: "long",
@@ -235,7 +239,16 @@ export default function ContentPage() {
 
     try {
       if (task.entityType === "task") {
+        const linkedTask = tasks.find((entry) => entry.id === task.entityId);
         await updateTaskStatus(task.entityId, "Done");
+        if (linkedTask && isQueueUndoable(task)) {
+          setLastQueueUndo({
+            label: `${task.title} marked done.`,
+            undo: async () => {
+              await updateTaskStatus(task.entityId, linkedTask.status);
+            }
+          });
+        }
         return;
       }
 
@@ -252,6 +265,16 @@ export default function ContentPage() {
           status: "Scheduled",
           approvalState: linkedPost.approvalState ?? "Approved"
         });
+        if (isQueueUndoable(task)) {
+          setLastQueueUndo({
+            label: `${task.title} scheduled.`,
+            undo: async () => {
+              await updatePost(task.entityId, {
+                ...linkedPost
+              });
+            }
+          });
+        }
       }
     } finally {
       setQueueActioningId(null);
@@ -273,6 +296,30 @@ export default function ContentPage() {
     } finally {
       setReviewingApprovalId(null);
     }
+  };
+
+  const handleQueueSecondaryAction = async (task: OperatorQueueItem) => {
+    if (task.entityType !== "approval") {
+      return;
+    }
+
+    if (queueConfirmingId !== task.id) {
+      setQueueConfirmingId(task.id);
+      return;
+    }
+
+    setQueueConfirmingId(null);
+    await handleQueueReview(task.entityId, "Changes Requested");
+  };
+
+  const handleUndoLastQueueAction = async () => {
+    if (!lastQueueUndo) {
+      return;
+    }
+
+    const undoAction = lastQueueUndo;
+    setLastQueueUndo(null);
+    await undoAction.undo();
   };
 
   if (!ready) {
@@ -315,6 +362,19 @@ export default function ContentPage() {
             </button>
           ))}
         </div>
+
+        {lastQueueUndo ? (
+          <div className="mt-4 flex items-center justify-between gap-3 rounded-[1rem] border border-white/10 bg-white/[0.04] px-4 py-3">
+            <p className="text-sm text-white/72">{lastQueueUndo.label}</p>
+            <button
+              className="shrink-0 rounded-full border border-white/12 px-3 py-1.5 text-xs font-semibold text-white"
+              type="button"
+              onClick={() => void handleUndoLastQueueAction()}
+            >
+              Undo
+            </button>
+          </div>
+        ) : null}
 
         {mobileTaskView === "calendar" ? (
           <>
@@ -380,8 +440,6 @@ export default function ContentPage() {
                               <span className="rounded-full bg-white/[0.06] px-2.5 py-1">{task.status}</span>
                               {task.campaignName ? (
                                 <span className="rounded-full bg-white/[0.06] px-2.5 py-1">{task.campaignName}</span>
-<<<<<<< HEAD
-=======
                               ) : null}
                             </div>
                             <div className="mt-4 flex flex-wrap gap-2">
@@ -397,19 +455,24 @@ export default function ContentPage() {
                                       void handleQueueReview(task.entityId, "Approved");
                                     }}
                                   >
-                                    Approve
+                                    {getQueuePrimaryActionLabel(task)}
                                   </button>
                                   <button
-                                    className="rounded-full border border-white/12 px-3 py-1.5 text-xs font-semibold text-white/72"
+                                    className={[
+                                      "rounded-full border px-3 py-1.5 text-xs font-semibold transition",
+                                      queueConfirmingId === task.id
+                                        ? "border-white/22 bg-white/10 text-white"
+                                        : "border-white/12 text-white/72"
+                                    ].join(" ")}
                                     disabled={reviewingApprovalId === task.entityId}
                                     type="button"
                                     onClick={(event) => {
                                       event.preventDefault();
                                       event.stopPropagation();
-                                      void handleQueueReview(task.entityId, "Changes Requested");
+                                      void handleQueueSecondaryAction(task);
                                     }}
                                   >
-                                    Changes
+                                    {queueConfirmingId === task.id ? "Confirm" : getQueueSecondaryActionLabel(task)}
                                   </button>
                                 </>
                               ) : task.entityType === "task" || (task.entityType === "post" && task.tone === "schedule") ? (
@@ -423,9 +486,8 @@ export default function ContentPage() {
                                     void handleQueuePrimaryAction(task);
                                   }}
                                 >
-                                  {task.entityType === "task" ? "Mark done" : "Schedule here"}
+                                  {getQueuePrimaryActionLabel(task)}
                                 </button>
->>>>>>> b4d0d0d (Phase 6: actionable operator queue (inline execution))
                               ) : null}
                             </div>
                           </div>
@@ -477,8 +539,6 @@ export default function ContentPage() {
                                 <span>{getQueueItemLabel(task.tone)}</span>
                                 {task.dateKey ? <DatePill className="border-white/12 bg-white/[0.06] text-white/58" value={task.dateKey} /> : null}
                                 {task.campaignName ? <span>{task.campaignName}</span> : null}
-<<<<<<< HEAD
-=======
                               </div>
                               <div className="mt-3 flex flex-wrap gap-2">
                                 {task.entityType === "approval" ? (
@@ -493,19 +553,24 @@ export default function ContentPage() {
                                         void handleQueueReview(task.entityId, "Approved");
                                       }}
                                     >
-                                      Approve
+                                      {getQueuePrimaryActionLabel(task)}
                                     </button>
                                     <button
-                                      className="rounded-full border border-white/12 px-3 py-1.5 text-[0.7rem] font-semibold text-white/72"
+                                      className={[
+                                        "rounded-full border px-3 py-1.5 text-[0.7rem] font-semibold transition",
+                                        queueConfirmingId === task.id
+                                          ? "border-white/22 bg-white/10 text-white"
+                                          : "border-white/12 text-white/72"
+                                      ].join(" ")}
                                       disabled={reviewingApprovalId === task.entityId}
                                       type="button"
                                       onClick={(event) => {
                                         event.preventDefault();
                                         event.stopPropagation();
-                                        void handleQueueReview(task.entityId, "Changes Requested");
+                                        void handleQueueSecondaryAction(task);
                                       }}
                                     >
-                                      Changes
+                                      {queueConfirmingId === task.id ? "Confirm" : getQueueSecondaryActionLabel(task)}
                                     </button>
                                   </>
                                 ) : task.entityType === "task" || (task.entityType === "post" && task.tone === "schedule") ? (
@@ -519,10 +584,9 @@ export default function ContentPage() {
                                       void handleQueuePrimaryAction(task);
                                     }}
                                   >
-                                    {task.entityType === "task" ? "Mark done" : "Schedule today"}
+                                    {getQueuePrimaryActionLabel(task)}
                                   </button>
                                 ) : null}
->>>>>>> b4d0d0d (Phase 6: actionable operator queue (inline execution))
                               </div>
                             </div>
                             <span className="text-xs text-white/38">{task.status}</span>
@@ -549,6 +613,17 @@ export default function ContentPage() {
         <span><strong className="font-medium text-foreground">{number(queuedPublishJobs.length)}</strong> publish jobs</span>
         <span><strong className="font-medium text-foreground">{number(assets.filter((asset) => asset.status === "Ready").length)}</strong> ready assets</span>
       </div>
+
+      {lastQueueUndo ? (
+        <Card className="hidden sm:block">
+          <div className="flex items-center justify-between gap-4 px-5 py-4">
+            <p className="text-sm text-muted-foreground">{lastQueueUndo.label}</p>
+            <Button size="sm" variant="outline" onClick={() => void handleUndoLastQueueAction()}>
+              Undo
+            </Button>
+          </div>
+        </Card>
+      ) : null}
 
       <div className="hidden gap-5 sm:grid xl:grid-cols-[0.82fr_1.18fr]">
         <Card id="create-content" className="p-5">
