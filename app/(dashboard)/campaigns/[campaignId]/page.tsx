@@ -831,6 +831,8 @@ export default function CampaignDetailPage() {
                   actionLabel: "Open plan",
                   onClick: () => setActiveView("overview")
                 };
+  const mobileNextActionLabel =
+    nextAction.actionLabel.length > 14 ? "Do next" : nextAction.actionLabel;
   const pipelineStages: Array<{
     id: CampaignPipelineStageId;
     label: string;
@@ -1664,6 +1666,18 @@ export default function CampaignDetailPage() {
           <LayoutList className="h-7 w-7 shrink-0" />
           <h1 className="min-w-0 text-4xl font-semibold leading-[0.95] tracking-[-0.055em]">{campaign.name}</h1>
         </div>
+        <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
+          <span className="rounded-full border border-white/12 bg-white/[0.06] px-3 py-1.5 text-white/78">
+            {campaign.status}
+          </span>
+          <span className={["inline-flex rounded-full border px-3 py-1.5 text-sm font-medium", campaignHealth.tone].join(" ")}>
+            {campaignHealth.label}
+          </span>
+          <span className="rounded-full border border-white/12 bg-white/[0.04] px-3 py-1.5 text-white/60">
+            {formatShortDate(campaign.startDate)} to {formatShortDate(campaign.endDate)}
+          </span>
+        </div>
+        <p className="mt-3 max-w-xl text-sm leading-6 text-white/58">{campaign.objective}</p>
       </div>
 
       <PageHeader
@@ -4282,7 +4296,7 @@ export default function CampaignDetailPage() {
                   <button
                     key={view.id}
                     className={[
-                      "rounded-[0.95rem] px-3 py-2.5 text-left transition",
+                      "rounded-[0.95rem] px-3 py-3 text-left transition",
                       activeView === view.id
                         ? "bg-white/[0.08] text-white"
                         : "text-white/62 hover:bg-white/[0.05] hover:text-white"
@@ -4294,28 +4308,33 @@ export default function CampaignDetailPage() {
                     }}
                   >
                     <span className="block text-sm font-semibold">{view.label}</span>
-                    <span className="mt-0.5 block text-xs text-white/45">{view.description}</span>
                   </button>
                 ))}
               </div>
             </div>
           ) : null}
           <button
-            aria-label="Board view"
-            className="rounded-[1rem] border p-2.5"
-            style={{ backgroundColor: accent.soft, borderColor: accent.bg, color: accent.bg }}
+            className="flex min-w-[7.5rem] items-center justify-center gap-2 rounded-[1rem] border border-white/15 px-4 py-2.5 text-base font-medium"
             type="button"
-            onClick={() => setActiveView("board")}
+            onClick={() => {
+              setMobileMoreOpen(false);
+              setMobileViewMenuOpen((current) => !current);
+            }}
           >
-            <LayoutList className="h-5 w-5" />
+            View · {activeViewLabel}
+            <ChevronUp className={["h-4 w-4 transition", mobileViewMenuOpen ? "rotate-180" : ""].join(" ")} />
           </button>
           <button
-            className="flex min-w-[7.25rem] items-center justify-center gap-2 rounded-[1rem] border border-white/15 px-4 py-2.5 text-base font-medium"
+            className="flex min-w-[6.5rem] items-center justify-center rounded-[1rem] px-4 py-2.5 text-base font-medium"
+            style={{ backgroundColor: accent.soft, color: accent.bg }}
             type="button"
-            onClick={() => setMobileViewMenuOpen((current) => !current)}
+            onClick={() => {
+              setMobileViewMenuOpen(false);
+              setMobileMoreOpen(false);
+              nextAction.onClick();
+            }}
           >
-            {activeViewLabel}
-            <ChevronUp className={["h-4 w-4 transition", mobileViewMenuOpen ? "rotate-180" : ""].join(" ")} />
+            {mobileNextActionLabel}
           </button>
           <button
             aria-label="Add content"
@@ -4323,6 +4342,7 @@ export default function CampaignDetailPage() {
             style={{ backgroundColor: accent.bg, color: accent.text }}
             type="button"
             onClick={() => {
+              setMobileViewMenuOpen(false);
               resetComposer();
               setAddTaskOpen(true);
             }}
