@@ -485,6 +485,7 @@ export default function CampaignDetailPage() {
   const [taskError, setTaskError] = useState<string | null>(null);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [processingJobId, setProcessingJobId] = useState<string | null>(null);
+  const [nextActionFeedback, setNextActionFeedback] = useState<null | { label: string; detail: string }>(null);
   const [mobileViewMenuOpen, setMobileViewMenuOpen] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [openOverviewSections, setOpenOverviewSections] = useState<CampaignOverviewSection[]>([]);
@@ -770,65 +771,104 @@ export default function CampaignDetailPage() {
       ? {
           label: "Create the first campaign step",
           detail: "Start with one task or one content item so this campaign has something concrete to execute.",
+          reason: "There is no real execution item in motion yet.",
+          impact: "This gives the campaign its first live step so content, approvals, and scheduling can follow.",
+          timeContext: "This week",
           actionLabel: "Add first step",
           onClick: () => {
             setActiveView("overview");
             setAddTaskOpen(true);
           }
         }
-      : blockedTaskCount
-        ? {
-            label: "Unblock waiting work",
-            detail: `${number(blockedTaskCount)} task${blockedTaskCount === 1 ? "" : "s"} are waiting on another dependency to move forward.`,
-            actionLabel: "Open tasks",
-            onClick: () => setActiveView("list")
-          }
     : overdueTaskCount
     ? {
         label: "Resolve overdue work",
         detail: `${number(overdueTaskCount)} task${overdueTaskCount === 1 ? "" : "s"} are overdue and blocking the campaign.`,
-        actionLabel: "Open tasks",
+        reason: "Overdue work is the highest-priority risk in this campaign right now.",
+        impact: "Clearing it lets the next review or scheduling step move again today.",
+        timeContext: "Today",
+        actionLabel: "Fix tasks",
         onClick: () => setActiveView("list")
       }
+      : blockedTaskCount
+        ? {
+            label: "Unblock waiting work",
+            detail: `${number(blockedTaskCount)} task${blockedTaskCount === 1 ? "" : "s"} are waiting on another dependency to move forward.`,
+            reason: "A dependency is holding up the next set of campaign actions.",
+            impact: "Unblocking it moves stalled work back into progress so the next content step can continue.",
+            timeContext: "Today",
+            actionLabel: "Fix tasks",
+            onClick: () => setActiveView("list")
+          }
     : pendingReviews
       ? {
           label: "Review pending approvals",
           detail: `${number(pendingReviews)} content item${pendingReviews === 1 ? "" : "s"} are waiting on approval before they can move forward.`,
-          actionLabel: "Review approvals",
+          reason: "Approval is the current gate between content creation and scheduling.",
+          impact: "Approving now moves the next content item straight into scheduling.",
+          timeContext: "Today",
+          actionLabel: "Review now",
           onClick: () => setActiveView("list")
         }
+      : scheduleGaps.length >= 3
+        ? {
+            label: "Close scheduling gaps",
+            detail: nextScheduledPost
+              ? `${number(scheduleGaps.length)} open day${scheduleGaps.length === 1 ? "" : "s"} are still empty in the next 7 days.`
+              : "Nothing is scheduled in the next 7 days for this campaign.",
+            reason: "The schedule needs more continuity before this campaign can run cleanly.",
+            impact: "Filling the gap puts the next live publish on the calendar for this week.",
+            timeContext: "Next 7 days",
+            actionLabel: "Fill schedule",
+            onClick: () => setActiveView("calendar")
+          }
       : unscheduledReadyCount
         ? {
             label: "Schedule ready content",
             detail: `${number(unscheduledReadyCount)} approved item${unscheduledReadyCount === 1 ? "" : "s"} are ready to place on the calendar.`,
-            actionLabel: "Open calendar",
+            reason: "This content is already approved and can move immediately.",
+            impact: "Scheduling it creates the next live post and clears ready work from the queue.",
+            timeContext: "Next 2 days",
+            actionLabel: "Schedule now",
             onClick: () => setActiveView("calendar")
           }
         : missingContentCount
         ? {
             label: "Finish campaign content",
             detail: `${number(missingContentCount)} content item${missingContentCount === 1 ? "" : "s"} still need copy or assets.`,
-            actionLabel: "Open content",
+            reason: "Content setup is incomplete, so downstream approvals and scheduling cannot move cleanly.",
+            impact: "Finishing the content moves the next item into review instead of leaving it stalled.",
+            timeContext: "This week",
+            actionLabel: "Finish content",
             onClick: () => setActiveView("overview")
           }
           : !websiteReady
             ? {
                 label: "Finish campaign setup",
                 detail: "Add the tagged website handoff so this campaign can be measured once execution starts.",
-                actionLabel: "Open results",
+                reason: "Measurement setup is still missing from this campaign.",
+                impact: "This makes the next scheduled traffic easier to tie back to campaign results.",
+                timeContext: "Before launch",
+                actionLabel: "Finish setup",
                 onClick: () => setActiveView("performance")
               }
             : hasMeaningfulResults
               ? {
               label: "Capture results",
               detail: "Execution is moving. The next step is keeping website and revenue signals updated.",
-              actionLabel: "Open results",
+              reason: "The campaign now has enough live execution to justify measurement follow-up.",
+              impact: "Updating results gives you a clearer performance read for this week and the next move after it.",
+              timeContext: "This week",
+              actionLabel: "Review results",
               onClick: () => setActiveView("performance")
               }
               : {
                   label: "Keep execution moving",
                   detail: "The campaign is set up, but it still needs approved or scheduled work before there is anything meaningful to measure.",
-                  actionLabel: "Open plan",
+                  reason: "The campaign is prepared, but it does not have enough live movement yet.",
+                  impact: "Adding one next step moves the campaign back toward review, scheduling, or live performance.",
+                  timeContext: "This week",
+                  actionLabel: "Add next step",
                   onClick: () => setActiveView("overview")
                 };
   const mobileNextActionLabel =
@@ -1081,6 +1121,17 @@ export default function CampaignDetailPage() {
             ? "Approved from the campaign workspace."
             : "Requested revisions from the campaign workspace."
       });
+      setNextActionFeedback(
+        status === "Approved"
+          ? {
+              label: "Approval cleared.",
+              detail: "That content can move into scheduling next."
+            }
+          : {
+              label: "Changes requested.",
+              detail: "The content stays in review until the updates are made."
+            }
+      );
     } finally {
       setReviewingId(null);
     }
@@ -1184,6 +1235,10 @@ export default function CampaignDetailPage() {
       if (payload.approval && !getPostApproval(payload.approval.entityId)) {
         prependApproval(payload.approval);
       }
+      setNextActionFeedback({
+        label: "Sent for approval.",
+        detail: "That content is now waiting on review before it can be scheduled."
+      });
     } catch (error) {
       setSelectedSaveError(error instanceof Error ? error.message : "Unable to send content to approval.");
     } finally {
@@ -1215,6 +1270,17 @@ export default function CampaignDetailPage() {
         approverUserId: profile?.id,
         note: selectedNote.trim() || (status === "Approved" ? "Approved from task details." : "Requested changes from task details.")
       });
+      setNextActionFeedback(
+        status === "Approved"
+          ? {
+              label: "Approval cleared.",
+              detail: "That content is ready for scheduling next."
+            }
+          : {
+              label: "Changes requested.",
+              detail: "The item stays in review until the requested updates are made."
+            }
+      );
       resetSelectedNote("");
     } catch (error) {
       setSelectedSaveError(error instanceof Error ? error.message : "Unable to review post.");
@@ -1567,6 +1633,10 @@ export default function CampaignDetailPage() {
       if (payload.approval && !getPostApproval(payload.approval.entityId)) {
         prependApproval(payload.approval);
       }
+      setNextActionFeedback({
+        label: `Scheduled for ${formatShortDate(publishDate)}.`,
+        detail: "The next live campaign step is now on the calendar."
+      });
     } catch (error) {
       setSelectedSaveError(error instanceof Error ? error.message : "Unable to schedule content.");
     }
@@ -1807,11 +1877,26 @@ export default function CampaignDetailPage() {
 
         <Card className="p-0">
           <div className="border-b border-border/70 px-4 py-4 sm:px-5">
-            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Next action</p>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Next action</p>
+              <span className="rounded-full border border-border/70 bg-muted/50 px-2.5 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                {nextAction.timeContext}
+              </span>
+            </div>
             <p className="mt-2 text-lg font-semibold tracking-[-0.03em] text-foreground">{nextAction.label}</p>
           </div>
           <div className="space-y-4 px-4 py-4 sm:px-5">
             <p className="text-sm leading-6 text-muted-foreground">{nextAction.detail}</p>
+            <div className="grid gap-3 rounded-[1rem] border border-border/70 bg-card/55 p-4">
+              <div>
+                <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">Why now</p>
+                <p className="mt-1 text-sm leading-6 text-foreground">{nextAction.reason}</p>
+              </div>
+              <div>
+                <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">What it unlocks</p>
+                <p className="mt-1 text-sm leading-6 text-foreground">{nextAction.impact}</p>
+              </div>
+            </div>
             <div className="flex items-center justify-between gap-3">
               <span className={["inline-flex rounded-full border px-2.5 py-1 text-xs font-medium", campaignHealth.tone].join(" ")}>
                 {campaignHealth.label}
@@ -1820,6 +1905,12 @@ export default function CampaignDetailPage() {
                 {nextAction.actionLabel}
               </Button>
             </div>
+            {nextActionFeedback ? (
+              <div className="rounded-[1rem] border border-border/70 bg-card/55 p-4">
+                <p className="text-sm font-medium text-foreground">{nextActionFeedback.label}</p>
+                <p className="mt-1 text-sm leading-6 text-muted-foreground">{nextActionFeedback.detail}</p>
+              </div>
+            ) : null}
           </div>
         </Card>
       </div>
@@ -1934,9 +2025,24 @@ export default function CampaignDetailPage() {
             <div className="px-4 py-4">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-sm text-white/45">Next action</p>
+                  <div className="flex items-center gap-3">
+                    <p className="text-sm text-white/45">Next action</p>
+                    <span className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-white/58">
+                      {nextAction.timeContext}
+                    </span>
+                  </div>
                   <p className="mt-1 text-lg font-semibold text-white">{nextAction.label}</p>
                   <p className="mt-2 text-sm leading-6 text-white/58">{nextAction.detail}</p>
+                  <div className="mt-4 grid gap-3 rounded-[1rem] border border-white/10 bg-white/[0.03] p-3">
+                    <div>
+                      <p className="text-[0.68rem] uppercase tracking-[0.16em] text-white/40">Why now</p>
+                      <p className="mt-1 text-sm leading-5 text-white/72">{nextAction.reason}</p>
+                    </div>
+                    <div>
+                      <p className="text-[0.68rem] uppercase tracking-[0.16em] text-white/40">What it unlocks</p>
+                      <p className="mt-1 text-sm leading-5 text-white/72">{nextAction.impact}</p>
+                    </div>
+                  </div>
                 </div>
                 <button
                   className="rounded-full border border-white/10 px-3 py-2 text-xs uppercase tracking-[0.14em] text-white/70"
@@ -1946,6 +2052,12 @@ export default function CampaignDetailPage() {
                   {nextAction.actionLabel}
                 </button>
               </div>
+              {nextActionFeedback ? (
+                <div className="mt-4 rounded-[1rem] border border-white/10 bg-white/[0.04] p-4">
+                  <p className="text-sm font-medium text-white/82">{nextActionFeedback.label}</p>
+                  <p className="mt-1 text-sm leading-6 text-white/58">{nextActionFeedback.detail}</p>
+                </div>
+              ) : null}
             </div>
             {[
               { id: "content" as const, label: "Connected content", value: linkedPosts.length },

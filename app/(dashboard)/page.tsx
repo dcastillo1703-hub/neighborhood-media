@@ -202,7 +202,7 @@ export default function DashboardPage() {
   const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [queueActioningId, setQueueActioningId] = useState<string | null>(null);
   const [queueConfirmingId, setQueueConfirmingId] = useState<string | null>(null);
-  const [lastQueueUndo, setLastQueueUndo] = useState<null | { label: string; undo: () => Promise<void> }>(null);
+  const [nextActionFeedback, setNextActionFeedback] = useState<null | { label: string; detail: string; undo?: () => Promise<void> }>(null);
   const [mobileAttentionExpanded, setMobileAttentionExpanded] = useState(false);
   const [overviewDraft, setOverviewDraft] = useState<OverviewDraft>(() => toOverviewDraft(settings));
 
@@ -303,53 +303,87 @@ export default function DashboardPage() {
     [approvals, campaigns, currentDateKey, openTasks, posts]
   );
   const clientActions = operatorQueue.items.slice(0, 4);
+  const hasScheduleGap = hasExecutionSetup && !nextScheduledItem;
   const homeNextAction = !hasExecutionSetup
     ? {
         title: "Create the first meaningful step",
         detail: "Start with one campaign task or one content item so this workspace has something concrete to execute.",
+        reason: "Nothing can move until the first real execution item exists.",
+        impact: "This creates the first task or content step the team can move into review and scheduling next.",
+        timeContext: "This week",
         href: "/campaigns" as Route,
-        actionLabel: "Open campaigns"
+        actionLabel: "Add first step"
       }
-    : blockedWorkspaceTask
-      ? {
-          title: "Unblock waiting work",
-          detail: `${blockedWorkspaceTask.title} is waiting on another dependency before the campaign can move forward.`,
-          href: "/approvals#open-tasks" as Route,
-          actionLabel: "Open tasks"
-        }
       : overdueWorkspaceTask
         ? {
             title: "Resolve overdue work",
             detail: "An overdue task is blocking execution. Clear it first so the schedule stays realistic.",
+            reason: "Overdue work is the highest-risk item in the system right now.",
+            impact: "Clearing it lets the next approval or publish step move again today.",
+            timeContext: "Today",
             href: "/approvals#open-tasks" as Route,
-            actionLabel: "Open tasks"
+            actionLabel: "Fix task"
           }
+    : blockedWorkspaceTask
+      ? {
+          title: "Unblock waiting work",
+          detail: `${blockedWorkspaceTask.title} is waiting on another dependency before the campaign can move forward.`,
+          reason: "A blocked dependency is holding up downstream work.",
+          impact: "Unblocking it moves the stalled task back into progress so the next content or approval step can follow.",
+          timeContext: "Today",
+          href: "/approvals#open-tasks" as Route,
+          actionLabel: "Fix task"
+        }
         : pendingApprovals[0]
           ? {
               title: "Review pending approvals",
               detail: `${number(pendingApprovals.length)} approval${pendingApprovals.length === 1 ? "" : "s"} are waiting before content can move forward.`,
+              reason: "Content cannot move into scheduling or publishing until approval clears.",
+              impact: "Approving now moves the next content item straight into scheduling.",
+              timeContext: "Today",
               href: "/approvals" as Route,
-              actionLabel: "Open approvals"
+              actionLabel: "Review now"
             }
+          : hasScheduleGap
+            ? {
+                title: "Close the schedule gap",
+                detail: readyUnscheduledPost
+                  ? `${readyUnscheduledPost.goal} is approved, but nothing is scheduled next.`
+                  : "The content calendar has no upcoming scheduled item right now.",
+                reason: "A visible gap in the schedule weakens campaign momentum.",
+                impact: "Filling the gap puts the next live publish on the calendar for the next few days.",
+                timeContext: "Next 7 days",
+                href: "/calendar" as Route,
+                actionLabel: "Schedule next"
+              }
           : readyUnscheduledPost
             ? {
                 title: "Schedule approved content",
                 detail: `${readyUnscheduledPost.goal} is approved and ready for a publish date.`,
+                reason: "This item is fully ready and can move immediately.",
+                impact: "Scheduling it creates the next live post and clears the ready queue.",
+                timeContext: "Next 2 days",
                 href: "/calendar" as Route,
-                actionLabel: "Open calendar"
+                actionLabel: "Schedule now"
               }
             : nextScheduledItem
               ? {
                   title: "Prepare the next scheduled publish",
                   detail: `${nextScheduledItem.platform} is coming up ${nextScheduledItem.date ? `on ${formatShortDate(nextScheduledItem.date)}` : "soon"}.`,
+                  reason: "The next scheduled publish is the most immediate live execution point.",
+                  impact: "Checking it now keeps the next scheduled post ready instead of slipping at the last minute.",
+                  timeContext: nextScheduledItem.date ? formatShortDate(nextScheduledItem.date) : "Coming up",
                   href: "/calendar" as Route,
-                  actionLabel: "Open calendar"
+                  actionLabel: "Check publish"
                 }
               : {
                   title: "Add the next execution step",
                   detail: "The workspace is active, but it needs another task or content item to keep momentum moving.",
+                  reason: "There is no clear follow-on item lined up after the current work.",
+                  impact: "Adding one next step keeps the workflow moving from task to content to scheduling.",
+                  timeContext: "This week",
                   href: "/campaigns" as Route,
-                  actionLabel: "Open campaigns"
+                  actionLabel: "Add next step"
                 };
 
   const defaultHomeCards = useMemo<OverviewCardDraft[]>(() => [
@@ -496,6 +530,17 @@ export default function DashboardPage() {
         note: status === "Approved" ? "Approved from the client home dashboard." : "Requested changes from the client home dashboard.",
         approverName: profile?.fullName ?? profile?.email ?? "Client"
       });
+      setNextActionFeedback(
+        status === "Approved"
+          ? {
+              label: "Approval cleared.",
+              detail: "That item can move into scheduling next."
+            }
+          : {
+              label: "Changes requested.",
+              detail: "The content stays in review until the updates are made."
+            }
+      );
     } finally {
       setReviewingId(null);
     }
@@ -509,8 +554,9 @@ export default function DashboardPage() {
         const linkedTask = tasks.find((task) => task.id === action.entityId);
         await updateTaskStatus(action.entityId, "Done");
         if (linkedTask && isQueueUndoable(action)) {
-          setLastQueueUndo({
-            label: `${action.title} marked done.`,
+          setNextActionFeedback({
+            label: "Task marked done.",
+            detail: "The next priority can move up in Today.",
             undo: async () => {
               await updateTaskStatus(action.entityId, linkedTask.status);
             }
@@ -533,8 +579,9 @@ export default function DashboardPage() {
           approvalState: linkedPost.approvalState ?? "Approved"
         });
         if (isQueueUndoable(action)) {
-          setLastQueueUndo({
-            label: `${action.title} scheduled.`,
+          setNextActionFeedback({
+            label: `Scheduled for ${formatShortDate(linkedPost.publishDate || currentDateKey)}.`,
+            detail: "The calendar now has a live next step.",
             undo: async () => {
               await updatePost(action.entityId, {
                 ...linkedPost
@@ -563,13 +610,17 @@ export default function DashboardPage() {
   };
 
   const handleUndoLastQueueAction = async () => {
-    if (!lastQueueUndo) {
+    if (!nextActionFeedback?.undo) {
       return;
     }
 
-    const undoAction = lastQueueUndo;
-    setLastQueueUndo(null);
-    await undoAction.undo();
+    const undoAction = nextActionFeedback.undo;
+    setNextActionFeedback(null);
+    await undoAction();
+    setNextActionFeedback({
+      label: "Change undone.",
+      detail: "The item is back in its previous state."
+    });
   };
 
   return (
@@ -617,9 +668,24 @@ export default function DashboardPage() {
         </div>
 
         <div className="mt-3 rounded-[1.35rem] border border-white/10 bg-[#1b1c1f] p-4">
-          <p className="text-sm text-white/45">Next action</p>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm text-white/45">Next action</p>
+            <span className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-white/58">
+              {homeNextAction.timeContext}
+            </span>
+          </div>
           <p className="mt-1 text-lg font-semibold text-white">{homeNextAction.title}</p>
           <p className="mt-2 text-sm leading-6 text-white/58">{homeNextAction.detail}</p>
+          <div className="mt-4 grid gap-3 rounded-[1rem] border border-white/10 bg-white/[0.03] p-3">
+            <div>
+              <p className="text-[0.68rem] uppercase tracking-[0.16em] text-white/40">Why now</p>
+              <p className="mt-1 text-sm leading-5 text-white/72">{homeNextAction.reason}</p>
+            </div>
+            <div>
+              <p className="text-[0.68rem] uppercase tracking-[0.16em] text-white/40">What it unlocks</p>
+              <p className="mt-1 text-sm leading-5 text-white/72">{homeNextAction.impact}</p>
+            </div>
+          </div>
           <Link
             className="mt-4 inline-flex rounded-full bg-white px-4 py-2 text-sm font-semibold text-[#202124]"
             href={homeNextAction.href}
@@ -628,16 +694,23 @@ export default function DashboardPage() {
           </Link>
         </div>
 
-        {lastQueueUndo ? (
-          <div className="mt-3 flex items-center justify-between gap-3 rounded-[1.1rem] border border-white/10 bg-white/[0.04] px-4 py-3">
-            <p className="text-sm text-white/72">{lastQueueUndo.label}</p>
-            <button
-              className="shrink-0 rounded-full border border-white/12 px-3 py-1.5 text-xs font-semibold text-white"
-              type="button"
-              onClick={() => void handleUndoLastQueueAction()}
-            >
-              Undo
-            </button>
+        {nextActionFeedback ? (
+          <div className="mt-3 rounded-[1.1rem] border border-white/10 bg-white/[0.04] px-4 py-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-white/82">{nextActionFeedback.label}</p>
+                <p className="mt-1 text-sm text-white/58">{nextActionFeedback.detail}</p>
+              </div>
+              {nextActionFeedback.undo ? (
+                <button
+                  className="shrink-0 rounded-full border border-white/12 px-3 py-1.5 text-xs font-semibold text-white"
+                  type="button"
+                  onClick={() => void handleUndoLastQueueAction()}
+                >
+                  Undo
+                </button>
+              ) : null}
+            </div>
           </div>
         ) : null}
 
@@ -916,22 +989,42 @@ export default function DashboardPage() {
             <CardDescription>Next Action</CardDescription>
             <CardTitle className="mt-3">{homeNextAction.title}</CardTitle>
           </div>
-          <Link className="hidden items-center gap-1 text-sm font-medium text-primary sm:flex" href={homeNextAction.href}>
-            {homeNextAction.actionLabel} <ChevronRight className="h-4 w-4" />
-          </Link>
+          <div className="hidden items-center gap-3 sm:flex">
+            <span className="rounded-full border border-border/70 bg-muted/50 px-2.5 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              {homeNextAction.timeContext}
+            </span>
+            <Link className="items-center gap-1 text-sm font-medium text-primary sm:flex" href={homeNextAction.href}>
+              {homeNextAction.actionLabel} <ChevronRight className="h-4 w-4" />
+            </Link>
+          </div>
         </CardHeader>
         <div className="px-6 pb-6">
           <p className="text-sm leading-6 text-muted-foreground">{homeNextAction.detail}</p>
+          <div className="mt-4 grid gap-3 rounded-[1rem] border border-border/70 bg-card/55 p-4 sm:grid-cols-2">
+            <div>
+              <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">Why now</p>
+              <p className="mt-1 text-sm leading-6 text-foreground">{homeNextAction.reason}</p>
+            </div>
+            <div>
+              <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">What it unlocks</p>
+              <p className="mt-1 text-sm leading-6 text-foreground">{homeNextAction.impact}</p>
+            </div>
+          </div>
         </div>
       </Card>
 
-      {lastQueueUndo ? (
+      {nextActionFeedback ? (
         <Card className="hidden sm:block">
           <div className="flex items-center justify-between gap-4 px-6 py-4">
-            <p className="text-sm text-muted-foreground">{lastQueueUndo.label}</p>
-            <Button size="sm" variant="outline" onClick={() => void handleUndoLastQueueAction()}>
-              Undo
-            </Button>
+            <div>
+              <p className="text-sm font-medium text-foreground">{nextActionFeedback.label}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{nextActionFeedback.detail}</p>
+            </div>
+            {nextActionFeedback.undo ? (
+              <Button size="sm" variant="outline" onClick={() => void handleUndoLastQueueAction()}>
+                Undo
+              </Button>
+            ) : null}
           </div>
         </Card>
       ) : null}
