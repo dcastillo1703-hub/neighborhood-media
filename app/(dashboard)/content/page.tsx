@@ -1,11 +1,10 @@
 "use client";
 
-import type { Route } from "next";
 import { useMemo, useState } from "react";
-import Link from "next/link";
 
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { ListCard } from "@/components/dashboard/list-card";
+import { OperatorQueueCard } from "@/components/dashboard/operator-queue-card";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,6 +20,7 @@ import type { OperatorQueueItem } from "@/lib/domain/operator-queue";
 import {
   getQueuePrimaryActionLabel,
   getQueueSecondaryActionLabel,
+  getQueueToneLabel,
   isQueueUndoable,
 } from "@/lib/domain/operator-queue-actions";
 import { useAssets } from "@/lib/repositories/use-assets";
@@ -92,23 +92,6 @@ function getMonthDays(anchorDate: Date) {
       isCurrentMonth: date.getMonth() === anchorDate.getMonth()
     };
   });
-}
-
-function getQueueItemLabel(tone: "review" | "schedule" | "task" | "publishing" | "goal" | "content") {
-  switch (tone) {
-    case "review":
-      return "Approval";
-    case "schedule":
-      return "Ready to schedule";
-    case "publishing":
-      return "Publishing";
-    case "goal":
-      return "Campaign goal";
-    case "content":
-      return "Scheduled content";
-    default:
-      return "Campaign task";
-  }
 }
 
 export default function ContentPage() {
@@ -423,76 +406,37 @@ export default function ContentPage() {
                 {selectedDayTasks.length ? (
                   selectedDayTasks.map((task) => {
                     return (
-                      <Link
-                        className="block rounded-[1.35rem] border border-white/12 bg-white/[0.035] p-4 transition hover:bg-white/[0.055]"
-                        href={task.href as Route}
+                      <OperatorQueueCard
+                        eyebrow={getQueueToneLabel(task)}
+                        item={task}
                         key={task.id}
-                      >
-                        <div className="flex items-start gap-3">
-                          <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/45 text-white/65">
-                            ✓
-                          </span>
-                          <div className="min-w-0">
-                            <p className="text-xs uppercase tracking-[0.18em] text-white/38">{getQueueItemLabel(task.tone)}</p>
-                            <p className="mt-1 text-lg font-semibold text-white">{task.title}</p>
-                            <p className="mt-2 line-clamp-2 text-sm leading-6 text-white/52">{task.detail}</p>
-                            <div className="mt-3 flex flex-wrap gap-2 text-xs text-white/48">
-                              <span className="rounded-full bg-white/[0.06] px-2.5 py-1">{task.status}</span>
-                              {task.campaignName ? (
-                                <span className="rounded-full bg-white/[0.06] px-2.5 py-1">{task.campaignName}</span>
-                              ) : null}
-                            </div>
-                            <div className="mt-4 flex flex-wrap gap-2">
-                              {task.entityType === "approval" ? (
-                                <>
-                                  <button
-                                    className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-[#202024]"
-                                    disabled={reviewingApprovalId === task.entityId}
-                                    type="button"
-                                    onClick={(event) => {
-                                      event.preventDefault();
-                                      event.stopPropagation();
-                                      void handleQueueReview(task.entityId, "Approved");
-                                    }}
-                                  >
-                                    {getQueuePrimaryActionLabel(task)}
-                                  </button>
-                                  <button
-                                    className={[
-                                      "rounded-full border px-3 py-1.5 text-xs font-semibold transition",
-                                      queueConfirmingId === task.id
-                                        ? "border-white/22 bg-white/10 text-white"
-                                        : "border-white/12 text-white/72"
-                                    ].join(" ")}
-                                    disabled={reviewingApprovalId === task.entityId}
-                                    type="button"
-                                    onClick={(event) => {
-                                      event.preventDefault();
-                                      event.stopPropagation();
-                                      void handleQueueSecondaryAction(task);
-                                    }}
-                                  >
-                                    {queueConfirmingId === task.id ? "Confirm" : getQueueSecondaryActionLabel(task)}
-                                  </button>
-                                </>
-                              ) : task.entityType === "task" || (task.entityType === "post" && task.tone === "schedule") ? (
-                                <button
-                                  className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-[#202024]"
-                                  disabled={queueActioningId === task.id}
-                                  type="button"
-                                  onClick={(event) => {
-                                    event.preventDefault();
-                                    event.stopPropagation();
-                                    void handleQueuePrimaryAction(task);
-                                  }}
-                                >
-                                  {getQueuePrimaryActionLabel(task)}
-                                </button>
-                              ) : null}
-                            </div>
-                          </div>
-                        </div>
-                      </Link>
+                        primaryAction={
+                          task.entityType === "approval"
+                            ? {
+                                label: getQueuePrimaryActionLabel(task),
+                                disabled: reviewingApprovalId === task.entityId,
+                                onClick: () => void handleQueueReview(task.entityId, "Approved"),
+                              }
+                            : task.entityType === "task" || (task.entityType === "post" && task.tone === "schedule")
+                              ? {
+                                  label: getQueuePrimaryActionLabel(task),
+                                  disabled: queueActioningId === task.id,
+                                  onClick: () => void handleQueuePrimaryAction(task),
+                                }
+                              : null
+                        }
+                        secondaryAction={
+                          task.entityType === "approval"
+                            ? {
+                                label: queueConfirmingId === task.id ? "Confirm" : (getQueueSecondaryActionLabel(task) ?? "Request changes"),
+                                disabled: reviewingApprovalId === task.entityId,
+                                emphasis: queueConfirmingId === task.id ? "default" : "subtle",
+                                onClick: () => void handleQueueSecondaryAction(task),
+                              }
+                            : null
+                        }
+                        theme="dark"
+                      />
                     );
                   })
                 ) : (
@@ -523,75 +467,39 @@ export default function ContentPage() {
                   {Array.isArray(sectionTasks) && sectionTasks.length ? (
                     sectionTasks.map((task) => {
                       return (
-                        <Link
-                          className="block rounded-[1.2rem] border border-white/10 bg-white/[0.035] px-4 py-3 transition hover:bg-white/[0.055]"
-                          href={task.href as Route}
+                        <OperatorQueueCard
+                          className="px-4 py-3"
+                          compact
+                          eyebrow={getQueueToneLabel(task)}
+                          item={task}
                           key={task.id}
-                        >
-                          <div className="flex items-start gap-3">
-                            <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-white/42 text-xs text-white/62">
-                              ✓
-                            </span>
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-base font-semibold text-white">{task.title}</p>
-                              <p className="mt-1 line-clamp-2 text-sm text-white/55">{task.detail}</p>
-                              <div className="mt-1 flex flex-wrap gap-2 text-xs text-white/45">
-                                <span>{getQueueItemLabel(task.tone)}</span>
-                                {task.dateKey ? <DatePill className="border-white/12 bg-white/[0.06] text-white/58" value={task.dateKey} /> : null}
-                                {task.campaignName ? <span>{task.campaignName}</span> : null}
-                              </div>
-                              <div className="mt-3 flex flex-wrap gap-2">
-                                {task.entityType === "approval" ? (
-                                  <>
-                                    <button
-                                      className="rounded-full bg-white px-3 py-1.5 text-[0.7rem] font-semibold text-[#202024]"
-                                      disabled={reviewingApprovalId === task.entityId}
-                                      type="button"
-                                      onClick={(event) => {
-                                        event.preventDefault();
-                                        event.stopPropagation();
-                                        void handleQueueReview(task.entityId, "Approved");
-                                      }}
-                                    >
-                                      {getQueuePrimaryActionLabel(task)}
-                                    </button>
-                                    <button
-                                      className={[
-                                        "rounded-full border px-3 py-1.5 text-[0.7rem] font-semibold transition",
-                                        queueConfirmingId === task.id
-                                          ? "border-white/22 bg-white/10 text-white"
-                                          : "border-white/12 text-white/72"
-                                      ].join(" ")}
-                                      disabled={reviewingApprovalId === task.entityId}
-                                      type="button"
-                                      onClick={(event) => {
-                                        event.preventDefault();
-                                        event.stopPropagation();
-                                        void handleQueueSecondaryAction(task);
-                                      }}
-                                    >
-                                      {queueConfirmingId === task.id ? "Confirm" : getQueueSecondaryActionLabel(task)}
-                                    </button>
-                                  </>
-                                ) : task.entityType === "task" || (task.entityType === "post" && task.tone === "schedule") ? (
-                                  <button
-                                    className="rounded-full bg-white px-3 py-1.5 text-[0.7rem] font-semibold text-[#202024]"
-                                    disabled={queueActioningId === task.id}
-                                    type="button"
-                                    onClick={(event) => {
-                                      event.preventDefault();
-                                      event.stopPropagation();
-                                      void handleQueuePrimaryAction(task);
-                                    }}
-                                  >
-                                    {getQueuePrimaryActionLabel(task)}
-                                  </button>
-                                ) : null}
-                              </div>
-                            </div>
-                            <span className="text-xs text-white/38">{task.status}</span>
-                          </div>
-                        </Link>
+                          primaryAction={
+                            task.entityType === "approval"
+                              ? {
+                                  label: getQueuePrimaryActionLabel(task),
+                                  disabled: reviewingApprovalId === task.entityId,
+                                  onClick: () => void handleQueueReview(task.entityId, "Approved"),
+                                }
+                              : task.entityType === "task" || (task.entityType === "post" && task.tone === "schedule")
+                                ? {
+                                    label: getQueuePrimaryActionLabel(task),
+                                    disabled: queueActioningId === task.id,
+                                    onClick: () => void handleQueuePrimaryAction(task),
+                                  }
+                                : null
+                          }
+                          secondaryAction={
+                            task.entityType === "approval"
+                              ? {
+                                  label: queueConfirmingId === task.id ? "Confirm" : (getQueueSecondaryActionLabel(task) ?? "Request changes"),
+                                  disabled: reviewingApprovalId === task.entityId,
+                                  emphasis: queueConfirmingId === task.id ? "default" : "subtle",
+                                  onClick: () => void handleQueueSecondaryAction(task),
+                                }
+                              : null
+                          }
+                          theme="dark"
+                        />
                       );
                     })
                   ) : (

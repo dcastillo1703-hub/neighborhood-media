@@ -1,5 +1,22 @@
 import type { OperatorQueueItem } from "@/lib/domain/operator-queue";
 
+export function getQueueToneLabel(item: OperatorQueueItem) {
+  switch (item.tone) {
+    case "review":
+      return "Review";
+    case "schedule":
+      return "Ready";
+    case "publishing":
+      return "Publishing";
+    case "goal":
+      return "Goal";
+    case "content":
+      return "Scheduled";
+    default:
+      return "Task";
+  }
+}
+
 export function getQueuePrimaryActionLabel(item: OperatorQueueItem) {
   if (item.entityType === "approval") {
     return "Approve";

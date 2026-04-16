@@ -9,17 +9,15 @@ import {
   ArrowUp,
   CheckCircle2,
   ChevronRight,
-  Circle,
-  MessageSquare,
   Pencil,
   Sparkles,
 } from "lucide-react";
 
 import { EmptyState } from "@/components/dashboard/empty-state";
+import { OperatorQueueCard } from "@/components/dashboard/operator-queue-card";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { DatePill } from "@/components/ui/date-pill";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -32,6 +30,7 @@ import { buildOperatorQueue } from "@/lib/domain/operator-queue";
 import {
   getQueuePrimaryActionLabel,
   getQueueSecondaryActionLabel,
+  getQueueToneLabel,
   isQueueUndoable,
 } from "@/lib/domain/operator-queue-actions";
 import { buildToastOpportunitySummary } from "@/lib/domain/performance";
@@ -663,66 +662,38 @@ export default function DashboardPage() {
               <div className="mt-5 space-y-4 border-t border-white/10 pt-4">
                 {clientActions.length ? (
                   clientActions.map((action) => (
-                    <div className="flex items-start gap-4" key={action.id}>
-                      <Link
-                        className="flex min-w-0 flex-1 items-start gap-4"
-                        href={action.href as Route}
-                      >
-                        <span
-                          className={cn(
-                            "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border",
-                            action.tone === "review" ? "border-[var(--app-accent-bg)] text-[var(--app-accent-bg)]" : "border-white/25 text-white/60"
-                          )}
-                        >
-                          {action.tone === "review" ? <MessageSquare className="h-4 w-4" /> : <Circle className="h-4 w-4" />}
-                        </span>
-                        <span className="min-w-0">
-                          <span className="block truncate text-base font-semibold">{action.title}</span>
-                          <span className="mt-1 flex flex-wrap items-center gap-2 text-sm leading-5 text-white/55">
-                            <span>{action.detail}</span>
-                            {action.dateKey ? (
-                              <DatePill className="border-white/15 bg-white/10 text-white/75" value={action.dateKey} />
-                            ) : null}
-                          </span>
-                        </span>
-                      </Link>
-                      <div className="flex shrink-0 items-center gap-2">
-                        {action.tone === "review" ? (
-                          <>
-                            <button
-                              className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-[#202124]"
-                              disabled={reviewingId === action.entityId}
-                              type="button"
-                              onClick={() => void handleReview(action.entityId, "Approved")}
-                            >
-                              {getQueuePrimaryActionLabel(action)}
-                            </button>
-                            <button
-                              className={cn(
-                                "rounded-full border px-3 py-1.5 text-xs font-semibold transition",
-                                queueConfirmingId === action.id
-                                  ? "border-white/22 bg-white/10 text-white"
-                                  : "border-white/10 text-white/55"
-                              )}
-                              disabled={reviewingId === action.entityId}
-                              type="button"
-                              onClick={() => void handleQueueSecondaryAction(action)}
-                            >
-                              {queueConfirmingId === action.id ? "Confirm" : getQueueSecondaryActionLabel(action)}
-                            </button>
-                          </>
-                        ) : action.entityType === "task" || (action.entityType === "post" && action.tone === "schedule") ? (
-                          <button
-                            className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-[#202124]"
-                            disabled={queueActioningId === action.id}
-                            type="button"
-                            onClick={() => void handleQueuePrimaryAction(action)}
-                          >
-                            {getQueuePrimaryActionLabel(action)}
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
+                    <OperatorQueueCard
+                      className="px-0 py-0 border-0 bg-transparent"
+                      eyebrow={getQueueToneLabel(action)}
+                      item={action}
+                      key={action.id}
+                      primaryAction={
+                        action.tone === "review"
+                          ? {
+                              label: getQueuePrimaryActionLabel(action),
+                              disabled: reviewingId === action.entityId,
+                              onClick: () => void handleReview(action.entityId, "Approved"),
+                            }
+                          : action.entityType === "task" || (action.entityType === "post" && action.tone === "schedule")
+                            ? {
+                                label: getQueuePrimaryActionLabel(action),
+                                disabled: queueActioningId === action.id,
+                                onClick: () => void handleQueuePrimaryAction(action),
+                              }
+                            : null
+                      }
+                      secondaryAction={
+                        action.tone === "review"
+                          ? {
+                              label: queueConfirmingId === action.id ? "Confirm" : (getQueueSecondaryActionLabel(action) ?? "Request changes"),
+                              disabled: reviewingId === action.entityId,
+                              emphasis: queueConfirmingId === action.id ? "default" : "subtle",
+                              onClick: () => void handleQueueSecondaryAction(action),
+                            }
+                          : null
+                      }
+                      theme="dark"
+                    />
                   ))
                 ) : (
                   <div className="flex items-center gap-4 text-white/65">
@@ -984,68 +955,41 @@ export default function DashboardPage() {
               <div className="space-y-3">
                 {clientActions.length ? (
                   clientActions.map((action) => (
-                    <div className="rounded-3xl border border-border/70 bg-card/60 p-4" key={action.id}>
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="min-w-0">
-                          <p className="font-medium text-foreground">{action.title}</p>
-                          <p className="mt-1 text-sm text-muted-foreground">{action.detail}</p>
-                          {action.campaignName ? (
-                            <p className="mt-1 text-xs uppercase tracking-[0.14em] text-muted-foreground">
-                              {action.campaignName}
-                            </p>
-                          ) : null}
-                        </div>
-                        <p className="shrink-0 rounded-full bg-[var(--app-accent-soft)] px-3 py-1 text-xs font-medium text-[var(--app-accent-bg)]">
-                          {action.tone === "review"
-                            ? "Review"
-                            : action.tone === "schedule"
-                              ? "Ready"
-                              : action.tone === "publishing"
-                                ? "Publishing"
-                                : action.tone === "goal"
-                                  ? "Goal"
-                                  : action.tone === "content"
-                                    ? "Scheduled"
-                                    : "Task"}
-                        </p>
-                      </div>
-                      <div className="mt-4 flex flex-wrap items-center gap-2">
-                        <Link className="text-sm font-medium text-primary" href={action.href as Route}>
-                          Open
-                        </Link>
-                        {action.dateKey ? <DatePill value={action.dateKey} /> : null}
-                        {action.tone === "review" ? (
-                          <>
-                            <Button
-                              className="sm:w-auto"
-                              disabled={reviewingId === action.entityId}
-                              onClick={() => void handleReview(action.entityId, "Approved")}
-                              size="sm"
-                            >
-                              {getQueuePrimaryActionLabel(action)}
-                            </Button>
-                            <Button
-                              className="sm:w-auto"
-                              disabled={reviewingId === action.entityId}
-                              variant={queueConfirmingId === action.id ? "default" : "outline"}
-                              onClick={() => void handleQueueSecondaryAction(action)}
-                              size="sm"
-                            >
-                              {queueConfirmingId === action.id ? "Confirm changes" : getQueueSecondaryActionLabel(action)}
-                            </Button>
-                          </>
-                        ) : action.entityType === "task" || (action.entityType === "post" && action.tone === "schedule") ? (
-                          <Button
-                            className="sm:w-auto"
-                            disabled={queueActioningId === action.id}
-                            onClick={() => void handleQueuePrimaryAction(action)}
-                            size="sm"
-                          >
-                            {getQueuePrimaryActionLabel(action)}
-                          </Button>
-                        ) : null}
-                      </div>
-                    </div>
+                    <OperatorQueueCard
+                      eyebrow={getQueueToneLabel(action)}
+                      item={action}
+                      key={action.id}
+                      primaryAction={
+                        action.tone === "review"
+                          ? {
+                              label: getQueuePrimaryActionLabel(action),
+                              disabled: reviewingId === action.entityId,
+                              onClick: () => void handleReview(action.entityId, "Approved"),
+                            }
+                          : action.entityType === "task" || (action.entityType === "post" && action.tone === "schedule")
+                            ? {
+                                label: getQueuePrimaryActionLabel(action),
+                                disabled: queueActioningId === action.id,
+                                onClick: () => void handleQueuePrimaryAction(action),
+                              }
+                            : null
+                      }
+                      secondaryAction={
+                        action.tone === "review"
+                          ? {
+                              label:
+                                queueConfirmingId === action.id
+                                  ? "Confirm changes"
+                                  : (getQueueSecondaryActionLabel(action) ?? "Request changes"),
+                              disabled: reviewingId === action.entityId,
+                              emphasis: queueConfirmingId === action.id ? "default" : "subtle",
+                              onClick: () => void handleQueueSecondaryAction(action),
+                            }
+                          : null
+                      }
+                      statusBadge={getQueueToneLabel(action)}
+                      theme="light"
+                    />
                   ))
                 ) : (
                   <EmptyState
