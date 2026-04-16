@@ -12,6 +12,11 @@ export type OperatorQueueTone = "review" | "schedule" | "task" | "publishing" | 
 
 export type OperatorQueueItem = {
   id: string;
+<<<<<<< HEAD
+=======
+  entityType: "approval" | "task" | "post" | "job" | "goal";
+  entityId: string;
+>>>>>>> b4d0d0d (Phase 6: actionable operator queue (inline execution))
   title: string;
   detail: string;
   status: string;
@@ -62,9 +67,17 @@ export function buildOperatorQueue({
     .forEach((approval, index) => {
       const linkedPost = postById.get(approval.entityId);
       const dateKey = linkedPost?.publishDate;
+<<<<<<< HEAD
       queueItems.push({
         id: `approval-${approval.id}`,
         title: approval.summary,
+=======
+    queueItems.push({
+      id: `approval-${approval.id}`,
+      entityType: "approval",
+      entityId: approval.id,
+      title: approval.summary,
+>>>>>>> b4d0d0d (Phase 6: actionable operator queue (inline execution))
         detail: approval.note ?? "Waiting on approval before content can move forward.",
         status: approval.status,
         tone: "review",
@@ -91,9 +104,17 @@ export function buildOperatorQueue({
             ? "upcoming"
             : "unscheduled";
 
+<<<<<<< HEAD
       queueItems.push({
         id: `task-${task.id}`,
         title: task.title,
+=======
+    queueItems.push({
+      id: `task-${task.id}`,
+      entityType: "task",
+      entityId: task.id,
+      title: task.title,
+>>>>>>> b4d0d0d (Phase 6: actionable operator queue (inline execution))
         detail: task.detail || "Campaign-linked task.",
         status: isBlocked ? "Blocked" : isOverdue ? "Overdue" : task.status,
         tone: "task",
@@ -126,9 +147,17 @@ export function buildOperatorQueue({
             : "unscheduled";
 
       if (isApprovedReady || isScheduled) {
+<<<<<<< HEAD
         queueItems.push({
           id: `post-${post.id}`,
           title: post.goal,
+=======
+      queueItems.push({
+        id: `post-${post.id}`,
+        entityType: "post",
+        entityId: post.id,
+        title: post.goal,
+>>>>>>> b4d0d0d (Phase 6: actionable operator queue (inline execution))
           detail: post.content || `${post.platform} content`,
           status: isApprovedReady ? "Approved" : post.status,
           tone: isApprovedReady ? "schedule" : "content",
@@ -147,9 +176,17 @@ export function buildOperatorQueue({
     .forEach((job, index) => {
       const linkedPost = postById.get(job.postId);
       const dateKey = job.scheduledFor?.split("T")[0];
+<<<<<<< HEAD
       queueItems.push({
         id: `job-${job.id}`,
         title: `${job.provider} publish job`,
+=======
+    queueItems.push({
+      id: `job-${job.id}`,
+      entityType: "job",
+      entityId: job.id,
+      title: `${job.provider} publish job`,
+>>>>>>> b4d0d0d (Phase 6: actionable operator queue (inline execution))
         detail: job.detail,
         status: job.status,
         tone: "publishing",
@@ -169,9 +206,17 @@ export function buildOperatorQueue({
       const section: OperatorQueueSection =
         dateKey === todayKey ? "today" : dateKey && dateKey > todayKey ? "upcoming" : "unscheduled";
 
+<<<<<<< HEAD
       queueItems.push({
         id: `goal-${goal.id}`,
         title: goal.label,
+=======
+    queueItems.push({
+      id: `goal-${goal.id}`,
+      entityType: "goal",
+      entityId: goal.id,
+      title: goal.label,
+>>>>>>> b4d0d0d (Phase 6: actionable operator queue (inline execution))
         detail: goal.assigneeName ? `Assigned to ${goal.assigneeName}` : "Campaign checkpoint.",
         status: "Open",
         tone: "goal",

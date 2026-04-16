@@ -17,6 +17,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { useActiveClient } from "@/lib/client-context";
 import { getScheduledPosts } from "@/lib/domain/content";
 import { buildOperatorQueue } from "@/lib/domain/operator-queue";
+<<<<<<< HEAD
+=======
+import type { OperatorQueueItem } from "@/lib/domain/operator-queue";
+>>>>>>> b4d0d0d (Phase 6: actionable operator queue (inline execution))
 import { useAssets } from "@/lib/repositories/use-assets";
 import { useClientCampaignGoals } from "@/lib/repositories/use-campaign-goals";
 import { useCampaigns } from "@/lib/repositories/use-campaigns";
@@ -111,9 +115,9 @@ export default function ContentPage() {
   const { campaigns } = useCampaigns(activeClient.id);
   const { goals: campaignGoals } = useClientCampaignGoals(activeClient.id);
   const { assets } = useAssets(activeClient.id);
-  const { posts, ready, error, addPost, deletePost } = usePosts(activeClient.id);
-  const { tasks } = useOperationsApi(workspace.id, activeClient.id);
-  const { approvals, prependApproval } = useApprovalsApi(activeClient.id);
+  const { posts, ready, error, addPost, updatePost, deletePost } = usePosts(activeClient.id);
+  const { tasks, updateTaskStatus } = useOperationsApi(workspace.id, activeClient.id);
+  const { approvals, prependApproval, reviewApproval } = useApprovalsApi(activeClient.id);
   const { jobs, prependJob } = usePublishingApi(activeClient.id);
   const todayKey = formatDateKey(new Date());
   const contentDraftNamespace = `content:${activeClient.id}`;
@@ -136,6 +140,8 @@ export default function ContentPage() {
   } = usePersistentDraft<ContentDraft>(`${contentDraftNamespace}:draft`, () => createContentDraft());
   const [isCreating, setIsCreating] = useState(false);
   const [deletingPostId, setDeletingPostId] = useState<string | null>(null);
+  const [queueActioningId, setQueueActioningId] = useState<string | null>(null);
+  const [reviewingApprovalId, setReviewingApprovalId] = useState<string | null>(null);
   const monthDays = useMemo(() => getMonthDays(new Date(selectedDate)), [selectedDate]);
   const monthLabel = new Date(selectedDate).toLocaleDateString("en-US", {
     month: "long",
@@ -221,6 +227,51 @@ export default function ContentPage() {
       await deletePost(postId);
     } finally {
       setDeletingPostId(null);
+    }
+  };
+
+  const handleQueuePrimaryAction = async (task: OperatorQueueItem) => {
+    setQueueActioningId(task.id);
+
+    try {
+      if (task.entityType === "task") {
+        await updateTaskStatus(task.entityId, "Done");
+        return;
+      }
+
+      if (task.entityType === "post" && task.tone === "schedule") {
+        const linkedPost = posts.find((post) => post.id === task.entityId);
+
+        if (!linkedPost) {
+          return;
+        }
+
+        await updatePost(task.entityId, {
+          ...linkedPost,
+          publishDate: linkedPost.publishDate || selectedDate || todayKey,
+          status: "Scheduled",
+          approvalState: linkedPost.approvalState ?? "Approved"
+        });
+      }
+    } finally {
+      setQueueActioningId(null);
+    }
+  };
+
+  const handleQueueReview = async (approvalId: string, status: "Approved" | "Changes Requested") => {
+    setReviewingApprovalId(approvalId);
+
+    try {
+      await reviewApproval(approvalId, {
+        status,
+        note:
+          status === "Approved"
+            ? "Approved from the operator queue."
+            : "Changes requested from the operator queue.",
+        approverName: "Operator"
+      });
+    } finally {
+      setReviewingApprovalId(null);
     }
   };
 
@@ -329,6 +380,52 @@ export default function ContentPage() {
                               <span className="rounded-full bg-white/[0.06] px-2.5 py-1">{task.status}</span>
                               {task.campaignName ? (
                                 <span className="rounded-full bg-white/[0.06] px-2.5 py-1">{task.campaignName}</span>
+<<<<<<< HEAD
+=======
+                              ) : null}
+                            </div>
+                            <div className="mt-4 flex flex-wrap gap-2">
+                              {task.entityType === "approval" ? (
+                                <>
+                                  <button
+                                    className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-[#202024]"
+                                    disabled={reviewingApprovalId === task.entityId}
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                      void handleQueueReview(task.entityId, "Approved");
+                                    }}
+                                  >
+                                    Approve
+                                  </button>
+                                  <button
+                                    className="rounded-full border border-white/12 px-3 py-1.5 text-xs font-semibold text-white/72"
+                                    disabled={reviewingApprovalId === task.entityId}
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                      void handleQueueReview(task.entityId, "Changes Requested");
+                                    }}
+                                  >
+                                    Changes
+                                  </button>
+                                </>
+                              ) : task.entityType === "task" || (task.entityType === "post" && task.tone === "schedule") ? (
+                                <button
+                                  className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-[#202024]"
+                                  disabled={queueActioningId === task.id}
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    void handleQueuePrimaryAction(task);
+                                  }}
+                                >
+                                  {task.entityType === "task" ? "Mark done" : "Schedule here"}
+                                </button>
+>>>>>>> b4d0d0d (Phase 6: actionable operator queue (inline execution))
                               ) : null}
                             </div>
                           </div>
@@ -380,6 +477,52 @@ export default function ContentPage() {
                                 <span>{getQueueItemLabel(task.tone)}</span>
                                 {task.dateKey ? <DatePill className="border-white/12 bg-white/[0.06] text-white/58" value={task.dateKey} /> : null}
                                 {task.campaignName ? <span>{task.campaignName}</span> : null}
+<<<<<<< HEAD
+=======
+                              </div>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {task.entityType === "approval" ? (
+                                  <>
+                                    <button
+                                      className="rounded-full bg-white px-3 py-1.5 text-[0.7rem] font-semibold text-[#202024]"
+                                      disabled={reviewingApprovalId === task.entityId}
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        void handleQueueReview(task.entityId, "Approved");
+                                      }}
+                                    >
+                                      Approve
+                                    </button>
+                                    <button
+                                      className="rounded-full border border-white/12 px-3 py-1.5 text-[0.7rem] font-semibold text-white/72"
+                                      disabled={reviewingApprovalId === task.entityId}
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        void handleQueueReview(task.entityId, "Changes Requested");
+                                      }}
+                                    >
+                                      Changes
+                                    </button>
+                                  </>
+                                ) : task.entityType === "task" || (task.entityType === "post" && task.tone === "schedule") ? (
+                                  <button
+                                    className="rounded-full bg-white px-3 py-1.5 text-[0.7rem] font-semibold text-[#202024]"
+                                    disabled={queueActioningId === task.id}
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                      void handleQueuePrimaryAction(task);
+                                    }}
+                                  >
+                                    {task.entityType === "task" ? "Mark done" : "Schedule today"}
+                                  </button>
+                                ) : null}
+>>>>>>> b4d0d0d (Phase 6: actionable operator queue (inline execution))
                               </div>
                             </div>
                             <span className="text-xs text-white/38">{task.status}</span>

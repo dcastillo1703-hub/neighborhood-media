@@ -186,22 +186,24 @@ export default function DashboardPage() {
   const { settings, setSettings, revenueModelDefaults } = useClientSettings(activeClient.id);
   const { metrics } = useWeeklyMetrics(activeClient.id);
   const { items } = usePlannerItems(activeClient.id);
-  const { posts } = usePosts(activeClient.id);
+  const { posts, updatePost } = usePosts(activeClient.id);
   const { campaigns } = useCampaigns(activeClient.id);
   const { blogPosts } = useBlogPosts(activeClient.id);
   const { assets } = useAssets(activeClient.id);
   const { analyticsSnapshots } = useAnalyticsSnapshots(activeClient.id);
-  const { tasks } = useOperationalTasks(workspace.id);
+  const { tasks, updateTaskStatus } = useOperationalTasks(workspace.id);
   useActivityEvents(workspace.id);
   const { approvals, ready: approvalsReady, reviewApproval, deleteApproval } = useApprovalsApi(activeClient.id);
   const { summary: googleAnalyticsSummary } = useGoogleAnalytics(activeClient.id);
   const [isEditingOverview, setIsEditingOverview] = useState(false);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [queueActioningId, setQueueActioningId] = useState<string | null>(null);
   const [mobileAttentionExpanded, setMobileAttentionExpanded] = useState(false);
   const [overviewDraft, setOverviewDraft] = useState<OverviewDraft>(() => toOverviewDraft(settings));
 
   const model = calculateRevenueModel(revenueModelDefaults);
+  const currentDateKey = new Date().toISOString().slice(0, 10);
   const scheduledContent = useMemo(() => {
     const postItems = posts
       .filter((post) => post.status === "Scheduled")
@@ -292,9 +294,15 @@ export default function DashboardPage() {
         jobs: [],
         tasks: openTasks,
         goals: [],
+<<<<<<< HEAD
         todayKey: new Date().toISOString().slice(0, 10)
       }),
     [approvals, campaigns, openTasks, posts]
+=======
+        todayKey: currentDateKey
+      }),
+    [approvals, campaigns, currentDateKey, openTasks, posts]
+>>>>>>> b4d0d0d (Phase 6: actionable operator queue (inline execution))
   );
   const clientActions = operatorQueue.items.slice(0, 4);
   const homeNextAction = !hasExecutionSetup
@@ -505,6 +513,46 @@ export default function DashboardPage() {
     }
   };
 
+  const handleQueuePrimaryAction = async (action: (typeof clientActions)[number]) => {
+    setQueueActioningId(action.id);
+
+    try {
+      if (action.entityType === "task") {
+        await updateTaskStatus(action.entityId, "Done");
+        return;
+      }
+
+      if (action.entityType === "post" && action.tone === "schedule") {
+        const linkedPost = posts.find((post) => post.id === action.entityId);
+
+        if (!linkedPost) {
+          return;
+        }
+
+        await updatePost(action.entityId, {
+          ...linkedPost,
+          publishDate: linkedPost.publishDate || currentDateKey,
+          status: "Scheduled",
+          approvalState: linkedPost.approvalState ?? "Approved"
+        });
+      }
+    } finally {
+      setQueueActioningId(null);
+    }
+  };
+
+  const getQueuePrimaryActionLabel = (action: (typeof clientActions)[number]) => {
+    if (action.entityType === "task") {
+      return "Mark done";
+    }
+
+    if (action.entityType === "post" && action.tone === "schedule") {
+      return "Schedule today";
+    }
+
+    return "Open";
+  };
+
   return (
     <div className="grid gap-6 sm:gap-8">
       <section className="-mx-4 -mt-4 rounded-b-[1.75rem] bg-[#202124] px-4 pb-5 pt-6 text-white shadow-[0_18px_60px_rgba(0,0,0,0.22)] sm:hidden">
@@ -605,17 +653,38 @@ export default function DashboardPage() {
                           </span>
                         </span>
                       </Link>
-                      {action.tone === "review" ? (
-                        <button
-                          aria-label="Delete approval"
-                          className="rounded-full border border-white/10 p-2 text-white/45"
-                          disabled={deletingId === action.id}
-                          type="button"
-                          onClick={() => void handleDeleteApproval(action.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      ) : null}
+                      <div className="flex shrink-0 items-center gap-2">
+                        {action.tone === "review" ? (
+                          <>
+                            <button
+                              className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-[#202124]"
+                              disabled={reviewingId === action.entityId}
+                              type="button"
+                              onClick={() => void handleReview(action.entityId, "Approved")}
+                            >
+                              Approve
+                            </button>
+                            <button
+                              aria-label="Delete approval"
+                              className="rounded-full border border-white/10 p-2 text-white/45"
+                              disabled={deletingId === action.entityId}
+                              type="button"
+                              onClick={() => void handleDeleteApproval(action.entityId)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </>
+                        ) : action.entityType === "task" || (action.entityType === "post" && action.tone === "schedule") ? (
+                          <button
+                            className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-[#202124]"
+                            disabled={queueActioningId === action.id}
+                            type="button"
+                            onClick={() => void handleQueuePrimaryAction(action)}
+                          >
+                            {getQueuePrimaryActionLabel(action)}
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
                   ))
                 ) : (
@@ -901,31 +970,40 @@ export default function DashboardPage() {
                           <>
                             <Button
                               className="sm:w-auto"
-                              disabled={reviewingId === action.id}
-                              onClick={() => void handleReview(action.id, "Approved")}
+                              disabled={reviewingId === action.entityId}
+                              onClick={() => void handleReview(action.entityId, "Approved")}
                               size="sm"
                             >
                               Approve
                             </Button>
                             <Button
                               className="sm:w-auto"
-                              disabled={reviewingId === action.id}
+                              disabled={reviewingId === action.entityId}
                               variant="outline"
-                              onClick={() => void handleReview(action.id, "Changes Requested")}
+                              onClick={() => void handleReview(action.entityId, "Changes Requested")}
                               size="sm"
                             >
                               Request changes
                             </Button>
                             <Button
                               className="sm:w-auto"
-                              disabled={deletingId === action.id}
+                              disabled={deletingId === action.entityId}
                               variant="ghost"
-                              onClick={() => void handleDeleteApproval(action.id)}
+                              onClick={() => void handleDeleteApproval(action.entityId)}
                               size="sm"
                             >
                               Delete
                             </Button>
                           </>
+                        ) : action.entityType === "task" || (action.entityType === "post" && action.tone === "schedule") ? (
+                          <Button
+                            className="sm:w-auto"
+                            disabled={queueActioningId === action.id}
+                            onClick={() => void handleQueuePrimaryAction(action)}
+                            size="sm"
+                          >
+                            {getQueuePrimaryActionLabel(action)}
+                          </Button>
                         ) : null}
                       </div>
                     </div>
