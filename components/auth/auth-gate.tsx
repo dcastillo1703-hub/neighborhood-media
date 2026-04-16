@@ -22,7 +22,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(timeout);
   }, [mode, ready, session]);
 
-  if (!ready && !showFallbackSignIn) {
+  if (!ready && !session && !showFallbackSignIn) {
     return (
       <div className="flex min-h-screen items-center justify-center px-6 text-sm text-muted-foreground">
         Loading workspace...

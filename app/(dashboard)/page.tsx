@@ -29,6 +29,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useActiveClient } from "@/lib/client-context";
 import { calculateRevenueModel } from "@/lib/calculations";
 import { getCampaignOverview } from "@/lib/domain/campaigns";
+import { buildOperatorQueue } from "@/lib/domain/operator-queue";
 import { buildToastOpportunitySummary } from "@/lib/domain/performance";
 import { useAnalyticsSnapshots } from "@/lib/repositories/use-analytics-snapshots";
 import { useAssets } from "@/lib/repositories/use-assets";
@@ -65,15 +66,6 @@ type OverviewDraft = {
 };
 
 type OverviewCardDraft = ClientHomeCard;
-
-type ClientAction = {
-  id: string;
-  title: string;
-  detail: string;
-  href: Route;
-  tone: "review" | "schedule" | "task";
-  date?: string;
-};
 
 const overviewStatePrefix = "__client_home_v1__";
 
@@ -256,7 +248,6 @@ export default function DashboardPage() {
     (post) => post.approvalState === "Approved" && post.status !== "Scheduled"
   );
   const hasExecutionSetup = Boolean(openTasks.length || posts.length || items.length);
-  const nextTask = openTasks[0] ?? null;
   const decodedOverview = useMemo(() => decodeOverviewSummary(settings.overviewSummary), [settings.overviewSummary]);
   const clientFirstName =
     profile?.fullName?.split(" ")[0] ??
@@ -292,43 +283,20 @@ export default function DashboardPage() {
     },
     [campaigns, relevantCampaigns]
   );
-  const clientActions = useMemo<ClientAction[]>(() => {
-    const actions: ClientAction[] = [];
-
-    if (pendingApprovals[0]) {
-      actions.push({
-        id: pendingApprovals[0].id,
-        title: pendingApprovals[0].summary,
-        detail: pendingApprovals[0].note ?? "Waiting on approval before this can move forward.",
-        href: "/approvals",
-        tone: "review"
-      });
-    }
-
-    if (nextScheduledItem) {
-      actions.push({
-        id: nextScheduledItem.id,
-        title: nextScheduledItem.content,
-        detail: nextScheduledItem.platform,
-        href: "/calendar",
-        tone: "schedule",
-        date: nextScheduledItem.date
-      });
-    }
-
-    if (nextTask) {
-      actions.push({
-        id: nextTask.id,
-        title: nextTask.title,
-        detail: nextTask.status,
-        href: "/approvals#open-tasks",
-        tone: "task",
-        date: nextTask.dueDate
-      });
-    }
-
-    return actions.slice(0, 4);
-  }, [nextScheduledItem, nextTask, pendingApprovals]);
+  const operatorQueue = useMemo(
+    () =>
+      buildOperatorQueue({
+        campaigns,
+        posts,
+        approvals,
+        jobs: [],
+        tasks: openTasks,
+        goals: [],
+        todayKey: new Date().toISOString().slice(0, 10)
+      }),
+    [approvals, campaigns, openTasks, posts]
+  );
+  const clientActions = operatorQueue.items.slice(0, 4);
   const homeNextAction = !hasExecutionSetup
     ? {
         title: "Create the first meaningful step",
@@ -617,7 +585,7 @@ export default function DashboardPage() {
                     <div className="flex items-start gap-4" key={action.id}>
                       <Link
                         className="flex min-w-0 flex-1 items-start gap-4"
-                        href={action.href}
+                        href={action.href as Route}
                       >
                         <span
                           className={cn(
@@ -631,8 +599,8 @@ export default function DashboardPage() {
                           <span className="block truncate text-base font-semibold">{action.title}</span>
                           <span className="mt-1 flex flex-wrap items-center gap-2 text-sm leading-5 text-white/55">
                             <span>{action.detail}</span>
-                            {action.date ? (
-                              <DatePill className="border-white/15 bg-white/10 text-white/75" value={action.date} />
+                            {action.dateKey ? (
+                              <DatePill className="border-white/15 bg-white/10 text-white/75" value={action.dateKey} />
                             ) : null}
                           </span>
                         </span>
@@ -904,16 +872,31 @@ export default function DashboardPage() {
                         <div className="min-w-0">
                           <p className="font-medium text-foreground">{action.title}</p>
                           <p className="mt-1 text-sm text-muted-foreground">{action.detail}</p>
+                          {action.campaignName ? (
+                            <p className="mt-1 text-xs uppercase tracking-[0.14em] text-muted-foreground">
+                              {action.campaignName}
+                            </p>
+                          ) : null}
                         </div>
                         <p className="shrink-0 rounded-full bg-[var(--app-accent-soft)] px-3 py-1 text-xs font-medium text-[var(--app-accent-bg)]">
-                          {action.tone === "review" ? "Review" : action.tone === "schedule" ? "Scheduled" : "Task"}
+                          {action.tone === "review"
+                            ? "Review"
+                            : action.tone === "schedule"
+                              ? "Ready"
+                              : action.tone === "publishing"
+                                ? "Publishing"
+                                : action.tone === "goal"
+                                  ? "Goal"
+                                  : action.tone === "content"
+                                    ? "Scheduled"
+                                    : "Task"}
                         </p>
                       </div>
                       <div className="mt-4 flex flex-wrap items-center gap-2">
-                        <Link className="text-sm font-medium text-primary" href={action.href}>
+                        <Link className="text-sm font-medium text-primary" href={action.href as Route}>
                           Open
                         </Link>
-                        {action.date ? <DatePill value={action.date} /> : null}
+                        {action.dateKey ? <DatePill value={action.dateKey} /> : null}
                         {action.tone === "review" ? (
                           <>
                             <Button

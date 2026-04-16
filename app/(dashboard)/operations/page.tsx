@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { ListCard } from "@/components/dashboard/list-card";
@@ -19,6 +19,7 @@ import { useWorkspaceMembers } from "@/lib/repositories/use-workspace";
 import { useAuth } from "@/lib/auth-context";
 import { useApprovalsApi } from "@/lib/use-approvals-api";
 import { useOperationsApi } from "@/lib/use-operations-api";
+import { usePersistentDraft } from "@/lib/use-persistent-draft";
 import { number } from "@/lib/utils";
 import { useWorkspaceContext } from "@/lib/workspace-context";
 import { OperationalTask, TaskPriority, TaskStatus } from "@/types";
@@ -48,14 +49,17 @@ export default function OperationsPage() {
     workspace.id,
     activeClient.id
   );
-  const [draft, setDraft] = useState<OperationalTask>(createEmptyTask(workspace.id, activeClient.id));
+  const {
+    value: draft,
+    setValue: setDraft,
+    reset: resetDraft
+  } = usePersistentDraft<OperationalTask>(
+    `operations:${workspace.id}:${activeClient.id}:task-draft`,
+    () => createEmptyTask(workspace.id, activeClient.id)
+  );
   const [saving, setSaving] = useState(false);
   const [savingTaskId, setSavingTaskId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setDraft(createEmptyTask(workspace.id, activeClient.id));
-  }, [activeClient.id, workspace.id]);
 
   const filteredTasks = useMemo(
     () => tasks.filter((task) => !task.clientId || task.clientId === activeClient.id),
@@ -81,7 +85,7 @@ export default function OperationsPage() {
         workspaceId: workspace.id,
         clientId: draft.clientId ?? activeClient.id
       });
-      setDraft(createEmptyTask(workspace.id, activeClient.id));
+      resetDraft(() => createEmptyTask(workspace.id, activeClient.id));
     } catch (taskError) {
       setFormError(taskError instanceof Error ? taskError.message : "Unable to create task.");
     } finally {

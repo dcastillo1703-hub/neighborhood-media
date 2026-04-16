@@ -58,6 +58,7 @@ import { useApprovalsApi } from "@/lib/use-approvals-api";
 import { useCampaignRoi } from "@/lib/use-campaign-roi";
 import { useGoogleAnalytics } from "@/lib/use-google-analytics";
 import { useOperationsApi } from "@/lib/use-operations-api";
+import { clearPersistentDraft, usePersistentDraft } from "@/lib/use-persistent-draft";
 import { usePublishingApi } from "@/lib/use-publishing-api";
 import { currency, formatShortDate, number } from "@/lib/utils";
 import { validatePost } from "@/lib/validation";
@@ -86,6 +87,10 @@ type MobileComposerStep = 1 | 2 | 3 | 4;
 type SelectedCampaignItem =
   | { type: "post"; item: Post }
   | { type: "task"; item: OperationalTask };
+type SelectedCampaignItemState = {
+  type: "post" | "task";
+  id: string;
+};
 type CampaignRoiNumberField =
   | "adSpend"
   | "productionCost"
@@ -347,23 +352,6 @@ export default function CampaignDetailPage() {
   const { assets } = useAssets(activeClient.id);
   const { metrics } = useWeeklyMetrics(activeClient.id);
   const { analyticsSnapshots } = useAnalyticsSnapshots(activeClient.id);
-  const [websiteDraft, setWebsiteDraft] = useState({
-    landingPath: "",
-    utmSource: "facebook",
-    utmMedium: "social",
-    utmCampaign: ""
-  });
-  const {
-    summary: googleAnalyticsSummary,
-    campaignImpact: googleAnalyticsCampaignImpact
-  } = useGoogleAnalytics(activeClient.id, {
-    landingPath: websiteDraft.landingPath.startsWith("/")
-      ? websiteDraft.landingPath
-      : websiteDraft.landingPath
-        ? `/${websiteDraft.landingPath}`
-        : "/",
-    utmCampaign: websiteDraft.utmCampaign || slugifyCampaignName(campaignId)
-  });
   const { approvals, ready: approvalsReady, reviewApproval, prependApproval } = useApprovalsApi(activeClient.id);
   const { jobs, ready: jobsReady, processJob } = usePublishingApi(activeClient.id);
   const {
@@ -383,60 +371,6 @@ export default function CampaignDetailPage() {
     error: campaignGoalsError,
     saveGoals: saveCampaignGoals
   } = useCampaignGoals(activeClient.id, campaignId);
-  const [draft, setDraft] = useState<Post>(() => createCampaignPost(activeClient.id, campaignId));
-  const [taskDraft, setTaskDraft] = useState<OperationalTask>(() =>
-    createCampaignTask(workspace.id, activeClient.id, campaignId)
-  );
-  const [taskKind, setTaskKind] = useState<CampaignTaskKind | null>(null);
-  const [addTaskOpen, setAddTaskOpen] = useState(false);
-  const [mobileComposerStep, setMobileComposerStep] = useState<MobileComposerStep>(1);
-  const [composerTitleDraft, setComposerTitleDraft] = useState("");
-  const [mobilePostStatus, setMobilePostStatus] = useState<PostStatus>("Draft");
-  const [roiDraft, setRoiDraft] = useState(roiSnapshot);
-  const [roiNumberDraft, setRoiNumberDraft] = useState<CampaignRoiNumberDraft>(() =>
-    toNumberDraft(roiSnapshot)
-  );
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState(false);
-  const [savingTask, setSavingTask] = useState(false);
-  const [savingSelectedTask, setSavingSelectedTask] = useState(false);
-  const [deletingSelectedItem, setDeletingSelectedItem] = useState(false);
-  const [taskError, setTaskError] = useState<string | null>(null);
-  const [reviewingId, setReviewingId] = useState<string | null>(null);
-  const [processingJobId, setProcessingJobId] = useState<string | null>(null);
-  const [activeView, setActiveView] = useState<CampaignWorkspaceView>(() =>
-    typeof window === "undefined"
-      ? "overview"
-      : normalizeCampaignView(new URLSearchParams(window.location.search).get("view"))
-  );
-  const [selectedItem, setSelectedItem] = useState<SelectedCampaignItem | null>(null);
-  const [mobileViewMenuOpen, setMobileViewMenuOpen] = useState(false);
-  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
-  const [openOverviewSections, setOpenOverviewSections] = useState<CampaignOverviewSection[]>([]);
-  const [selectedPostDraft, setSelectedPostDraft] = useState<Post | null>(null);
-  const [selectedTaskDraft, setSelectedTaskDraft] = useState<OperationalTask | null>(null);
-  const [selectedNote, setSelectedNote] = useState("");
-  const [selectedSaveError, setSelectedSaveError] = useState<string | null>(null);
-  const [goalDraft, setGoalDraft] = useState("");
-  const [goalDueDateDraft, setGoalDueDateDraft] = useState("");
-  const [goalAssigneeDraft, setGoalAssigneeDraft] = useState("");
-  const [savingWebsite, setSavingWebsite] = useState(false);
-  const [websiteError, setWebsiteError] = useState<string | null>(null);
-  const [websiteNotice, setWebsiteNotice] = useState<string | null>(null);
-  const [draggedReadyPostId, setDraggedReadyPostId] = useState<string | null>(null);
-
-  useEffect(() => {
-    setRoiDraft(roiSnapshot);
-    setRoiNumberDraft(toNumberDraft(roiSnapshot));
-  }, [roiSnapshot]);
-
-  useEffect(() => {
-    setSelectedPostDraft(selectedItem?.type === "post" ? { ...selectedItem.item } : null);
-    setSelectedTaskDraft(selectedItem?.type === "task" ? { ...selectedItem.item } : null);
-    setSelectedNote("");
-    setSelectedSaveError(null);
-  }, [selectedItem]);
-
   const campaign = campaigns.find((item) => item.id === campaignId) ?? null;
   const routeView =
     typeof window === "undefined"
@@ -446,6 +380,134 @@ export default function CampaignDetailPage() {
     ? getDefaultViewFromCampaignNotes(campaign.notes)
     : null;
   const campaignMetadata = campaign ? parseCampaignMetadata(campaign.notes) : null;
+  const campaignDraftNamespace = `${activeClient.id}:${campaignId}`;
+  const {
+    value: draft,
+    setValue: setDraft,
+    reset: resetPostComposerDraft
+  } = usePersistentDraft<Post>(
+    `campaign:${campaignDraftNamespace}:composer:post`,
+    () => createCampaignPost(activeClient.id, campaignId)
+  );
+  const {
+    value: taskDraft,
+    setValue: setTaskDraft,
+    reset: resetTaskComposerDraft
+  } = usePersistentDraft<OperationalTask>(
+    `campaign:${campaignDraftNamespace}:composer:task`,
+    () => createCampaignTask(workspace.id, activeClient.id, campaignId)
+  );
+  const { value: taskKind, setValue: setTaskKind, reset: resetTaskKind } =
+    usePersistentDraft<CampaignTaskKind | null>(`campaign:${campaignDraftNamespace}:composer:kind`, null);
+  const { value: addTaskOpen, setValue: setAddTaskOpen } =
+    usePersistentDraft<boolean>(`campaign:${campaignDraftNamespace}:composer:open`, false);
+  const {
+    value: mobileComposerStep,
+    setValue: setMobileComposerStep,
+    reset: resetMobileComposerStep
+  } = usePersistentDraft<MobileComposerStep>(`campaign:${campaignDraftNamespace}:composer:step`, 1);
+  const {
+    value: composerTitleDraft,
+    setValue: setComposerTitleDraft,
+    reset: resetComposerTitleDraft
+  } = usePersistentDraft<string>(`campaign:${campaignDraftNamespace}:composer:title`, "");
+  const {
+    value: mobilePostStatus,
+    setValue: setMobilePostStatus,
+    reset: resetMobilePostStatus
+  } = usePersistentDraft<PostStatus>(`campaign:${campaignDraftNamespace}:composer:status`, "Draft");
+  const {
+    value: activeView,
+    setValue: setActiveView
+  } = usePersistentDraft<CampaignWorkspaceView>(
+    `campaign:${campaignDraftNamespace}:view`,
+    () => (routeView ? normalizeCampaignView(routeView) : campaignDefaultView ?? "overview")
+  );
+  const {
+    value: selectedItemState,
+    setValue: setSelectedItemState,
+    reset: resetSelectedItemState
+  } = usePersistentDraft<SelectedCampaignItemState | null>(
+    `campaign:${campaignDraftNamespace}:selected-item`,
+    null
+  );
+  const {
+    value: roiDraft,
+    setValue: setRoiDraft,
+    syncFromSource: syncRoiDraftFromSource,
+    reset: resetRoiDraft
+  } = usePersistentDraft<CampaignRoiSnapshot>(
+    `campaign:${campaignDraftNamespace}:roi`,
+    roiSnapshot
+  );
+  const {
+    value: roiNumberDraft,
+    setValue: setRoiNumberDraft,
+    syncFromSource: syncRoiNumberDraftFromSource,
+    reset: resetRoiNumberDraft
+  } = usePersistentDraft<CampaignRoiNumberDraft>(
+    `campaign:${campaignDraftNamespace}:roi-number`,
+    () => toNumberDraft(roiSnapshot)
+  );
+  const {
+    value: websiteDraft,
+    setValue: setWebsiteDraft,
+    syncFromSource: syncWebsiteDraftFromSource,
+    reset: resetWebsiteDraft
+  } = usePersistentDraft(
+    `campaign:${campaignDraftNamespace}:website`,
+    () =>
+      campaign
+        ? getCampaignWebsiteMetadata(campaign)
+        : {
+            landingPath: "",
+            utmSource: "facebook",
+            utmMedium: "social",
+            utmCampaign: ""
+          }
+  );
+  const {
+    summary: googleAnalyticsSummary,
+    campaignImpact: googleAnalyticsCampaignImpact
+  } = useGoogleAnalytics(activeClient.id, {
+    landingPath: websiteDraft.landingPath.startsWith("/")
+      ? websiteDraft.landingPath
+      : websiteDraft.landingPath
+        ? `/${websiteDraft.landingPath}`
+        : "/",
+    utmCampaign: websiteDraft.utmCampaign || slugifyCampaignName(campaignId)
+  });
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [savingTask, setSavingTask] = useState(false);
+  const [savingSelectedTask, setSavingSelectedTask] = useState(false);
+  const [deletingSelectedItem, setDeletingSelectedItem] = useState(false);
+  const [taskError, setTaskError] = useState<string | null>(null);
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
+  const [processingJobId, setProcessingJobId] = useState<string | null>(null);
+  const [mobileViewMenuOpen, setMobileViewMenuOpen] = useState(false);
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+  const [openOverviewSections, setOpenOverviewSections] = useState<CampaignOverviewSection[]>([]);
+  const [selectedSaveError, setSelectedSaveError] = useState<string | null>(null);
+  const {
+    value: goalDraft,
+    setValue: setGoalDraft,
+    reset: resetGoalDraft
+  } = usePersistentDraft<string>(`campaign:${campaignDraftNamespace}:goal:label`, "");
+  const {
+    value: goalDueDateDraft,
+    setValue: setGoalDueDateDraft,
+    reset: resetGoalDueDateDraft
+  } = usePersistentDraft<string>(`campaign:${campaignDraftNamespace}:goal:due-date`, "");
+  const {
+    value: goalAssigneeDraft,
+    setValue: setGoalAssigneeDraft,
+    reset: resetGoalAssigneeDraft
+  } = usePersistentDraft<string>(`campaign:${campaignDraftNamespace}:goal:assignee`, "");
+  const [savingWebsite, setSavingWebsite] = useState(false);
+  const [websiteError, setWebsiteError] = useState<string | null>(null);
+  const [websiteNotice, setWebsiteNotice] = useState<string | null>(null);
+  const [draggedReadyPostId, setDraggedReadyPostId] = useState<string | null>(null);
   const overview = useMemo(
     () =>
       campaign
@@ -455,23 +517,17 @@ export default function CampaignDetailPage() {
   );
 
   useEffect(() => {
-    if (routeView) {
-      setActiveView(normalizeCampaignView(routeView));
-      return;
-    }
-
-    if (campaignDefaultView) {
-      setActiveView(campaignDefaultView);
-    }
-  }, [campaignDefaultView, routeView]);
+    syncRoiDraftFromSource(roiSnapshot);
+    syncRoiNumberDraftFromSource(toNumberDraft(roiSnapshot));
+  }, [roiSnapshot, syncRoiDraftFromSource, syncRoiNumberDraftFromSource]);
 
   useEffect(() => {
     if (!campaign) {
       return;
     }
 
-    setWebsiteDraft(getCampaignWebsiteMetadata(campaign));
-  }, [campaign]);
+    syncWebsiteDraftFromSource(getCampaignWebsiteMetadata(campaign));
+  }, [campaign, syncWebsiteDraftFromSource]);
 
   const linkedPostIds = useMemo(
     () => new Set(overview?.linkedPosts.map((post) => post.id) ?? []),
@@ -512,7 +568,7 @@ export default function CampaignDetailPage() {
         .sort((left, right) => left.publishDate.localeCompare(right.publishDate)),
     [overview, postApprovalMap, postPublishJobMap]
   );
-  const linkedPosts = overview?.linkedPosts ?? [];
+  const linkedPosts = useMemo(() => overview?.linkedPosts ?? [], [overview]);
   const campaignTasks = useMemo(
     () =>
       tasks.filter(
@@ -523,6 +579,55 @@ export default function CampaignDetailPage() {
       ),
     [activeClient.id, campaignId, tasks]
   );
+  const selectedItem = useMemo<SelectedCampaignItem | null>(() => {
+    if (!selectedItemState) {
+      return null;
+    }
+
+    if (selectedItemState.type === "post") {
+      const item = linkedPosts.find((post) => post.id === selectedItemState.id);
+      return item ? { type: "post", item } : null;
+    }
+
+    const item = campaignTasks.find((task) => task.id === selectedItemState.id);
+    return item ? { type: "task", item } : null;
+  }, [campaignTasks, linkedPosts, selectedItemState]);
+  const selectedPostDraftStorageKey = `campaign:${campaignDraftNamespace}:selected-post:${
+    selectedItemState?.type === "post" ? selectedItemState.id : "none"
+  }`;
+  const selectedTaskDraftStorageKey = `campaign:${campaignDraftNamespace}:selected-task:${
+    selectedItemState?.type === "task" ? selectedItemState.id : "none"
+  }`;
+  const selectedNoteStorageKey = `campaign:${campaignDraftNamespace}:selected-note:${
+    selectedItemState ? `${selectedItemState.type}:${selectedItemState.id}` : "none"
+  }`;
+  const {
+    value: selectedPostDraft,
+    setValue: setSelectedPostDraft,
+    reset: resetSelectedPostDraft
+  } = usePersistentDraft<Post | null>(
+    selectedPostDraftStorageKey,
+    () =>
+      selectedItem?.type === "post"
+        ? { ...selectedItem.item }
+        : null
+  );
+  const {
+    value: selectedTaskDraft,
+    setValue: setSelectedTaskDraft,
+    reset: resetSelectedTaskDraft
+  } = usePersistentDraft<OperationalTask | null>(
+    selectedTaskDraftStorageKey,
+    () =>
+      selectedItem?.type === "task"
+        ? { ...selectedItem.item }
+        : null
+  );
+  const {
+    value: selectedNote,
+    setValue: setSelectedNote,
+    reset: resetSelectedNote
+  } = usePersistentDraft<string>(selectedNoteStorageKey, "");
   const pendingReviews = campaignApprovals.filter((approval) => approval.status === "Pending").length;
   const queuedPublishJobs = campaignPublishJobs.filter((job) =>
     ["Queued", "Processing", "Blocked"].includes(job.status)
@@ -837,19 +942,20 @@ export default function CampaignDetailPage() {
   };
 
   const resetComposer = () => {
-    setTaskKind(null);
-    setMobileComposerStep(1);
-    setComposerTitleDraft("");
-    setMobilePostStatus("Draft");
-    setDraft(createCampaignPost(activeClient.id, campaignId));
-    setTaskDraft(createCampaignTask(workspace.id, activeClient.id, campaignId));
+    resetTaskKind();
+    resetMobileComposerStep();
+    resetComposerTitleDraft();
+    resetMobilePostStatus();
+    resetPostComposerDraft(() => createCampaignPost(activeClient.id, campaignId));
+    resetTaskComposerDraft(() => createCampaignTask(workspace.id, activeClient.id, campaignId));
     setErrors({});
     setTaskError(null);
   };
 
   const closeAddTaskFlow = () => {
     setAddTaskOpen(false);
-    resetComposer();
+    setErrors({});
+    setTaskError(null);
   };
 
   const addCampaignGoal = () => {
@@ -873,9 +979,9 @@ export default function CampaignDetailPage() {
         updatedAt: new Date().toISOString()
       }
     ]);
-    setGoalDraft("");
-    setGoalDueDateDraft("");
-    setGoalAssigneeDraft("");
+    resetGoalDraft();
+    resetGoalDueDateDraft();
+    resetGoalAssigneeDraft();
   };
 
   const toggleCampaignGoal = (goalId: string) => {
@@ -888,6 +994,15 @@ export default function CampaignDetailPage() {
 
   const deleteCampaignGoal = (goalId: string) => {
     saveCampaignGoals(campaignGoals.filter((goal) => goal.id !== goalId));
+  };
+
+  const clearSelectedDrafts = () => {
+    clearPersistentDraft(selectedPostDraftStorageKey);
+    clearPersistentDraft(selectedTaskDraftStorageKey);
+    clearPersistentDraft(selectedNoteStorageKey);
+    resetSelectedPostDraft(null);
+    resetSelectedTaskDraft(null);
+    resetSelectedNote("");
   };
 
   const shareCampaign = () => {
@@ -1017,8 +1132,8 @@ export default function CampaignDetailPage() {
         prependApproval(payload.approval);
       }
 
-      setSelectedItem(null);
-      setSelectedPostDraft(null);
+      clearSelectedDrafts();
+      resetSelectedItemState(null);
     } catch (error) {
       setSelectedSaveError(error instanceof Error ? error.message : "Unable to update post.");
     } finally {
@@ -1098,7 +1213,7 @@ export default function CampaignDetailPage() {
         approverUserId: profile?.id,
         note: selectedNote.trim() || (status === "Approved" ? "Approved from task details." : "Requested changes from task details.")
       });
-      setSelectedNote("");
+      resetSelectedNote("");
     } catch (error) {
       setSelectedSaveError(error instanceof Error ? error.message : "Unable to review post.");
     } finally {
@@ -1142,9 +1257,8 @@ export default function CampaignDetailPage() {
         linkedEntityId: campaignId
       });
 
-      setSelectedItem(null);
-      setSelectedTaskDraft(null);
-      setSelectedNote("");
+      clearSelectedDrafts();
+      resetSelectedItemState(null);
     } catch (error) {
       setSelectedSaveError(error instanceof Error ? error.message : "Unable to update task.");
     } finally {
@@ -1168,8 +1282,8 @@ export default function CampaignDetailPage() {
 
     try {
       await deletePost(selectedPostDraft.id);
-      setSelectedItem(null);
-      setSelectedPostDraft(null);
+      clearSelectedDrafts();
+      resetSelectedItemState(null);
     } catch (error) {
       setSelectedSaveError(error instanceof Error ? error.message : "Unable to delete content task.");
     } finally {
@@ -1193,8 +1307,8 @@ export default function CampaignDetailPage() {
 
     try {
       await deleteTask(selectedTaskDraft.id);
-      setSelectedItem(null);
-      setSelectedTaskDraft(null);
+      clearSelectedDrafts();
+      resetSelectedItemState(null);
     } catch (error) {
       setSelectedSaveError(error instanceof Error ? error.message : "Unable to delete task.");
     } finally {
@@ -1344,12 +1458,16 @@ export default function CampaignDetailPage() {
     }));
   };
   const saveRoi = () => {
-    saveRoiSnapshot({
+    const nextSnapshot = {
       ...roiDraft,
       ...Object.fromEntries(
         Object.entries(roiNumberDraft).map(([field, value]) => [field, Number(value) || 0])
       )
-    });
+    };
+
+    saveRoiSnapshot(nextSnapshot);
+    resetRoiDraft(nextSnapshot);
+    resetRoiNumberDraft(toNumberDraft(nextSnapshot));
   };
   const roiNarrative =
     roiSummary.totalInvestment > 0 || roiDraft.attributedRevenue > 0
@@ -1388,11 +1506,12 @@ export default function CampaignDetailPage() {
           }
         })
       });
-      setWebsiteDraft((current) => ({
-        ...current,
+      const nextWebsiteDraft = {
+        ...websiteDraft,
         landingPath: websitePreviewPath,
-        utmCampaign: current.utmCampaign || slugifyCampaignName(campaign.name)
-      }));
+        utmCampaign: websiteDraft.utmCampaign || slugifyCampaignName(campaign.name)
+      };
+      resetWebsiteDraft(nextWebsiteDraft);
       setWebsiteNotice("Website handoff saved. Use the tagged link below when you share this campaign.");
     } catch (error) {
       setWebsiteError(
@@ -1862,7 +1981,7 @@ export default function CampaignDetailPage() {
                               className="block w-full rounded-[1rem] bg-white/[0.035] px-3 py-3 text-left"
                               key={post.id}
                               type="button"
-                              onClick={() => setSelectedItem({ type: "post", item: post })}
+                              onClick={() => setSelectedItemState({ type: "post", id: post.id })}
                             >
                               <span className="block truncate font-medium text-white/86">{post.goal}</span>
                               <span className="mt-1 flex items-center gap-2 text-white/48">
@@ -1882,7 +2001,7 @@ export default function CampaignDetailPage() {
                               className="block w-full rounded-[1rem] bg-white/[0.035] px-3 py-3 text-left"
                               key={task.id}
                               type="button"
-                              onClick={() => setSelectedItem({ type: "task", item: task })}
+                              onClick={() => setSelectedItemState({ type: "task", id: task.id })}
                             >
                               <span className="block truncate font-medium text-white/86">{task.title}</span>
                               <span className="mt-1 block text-white/48">{task.status} · {task.priority}</span>
@@ -2423,7 +2542,7 @@ export default function CampaignDetailPage() {
 
               return (
                 <div key={post.id}>
-                  <button className="block w-full text-left" type="button" onClick={() => setSelectedItem({ type: "post", item: post })}>
+                  <button className="block w-full text-left" type="button" onClick={() => setSelectedItemState({ type: "post", id: post.id })}>
                   <ListCard className="m-3 bg-[#202024] text-white sm:hidden">
                     <div className="grid grid-cols-[2rem_1fr_auto] items-center gap-3">
                       <CheckCircle2 className="h-6 w-6 text-white/55" />
@@ -2440,7 +2559,7 @@ export default function CampaignDetailPage() {
                     </div>
                   </ListCard>
                   </button>
-                  <button className="hidden w-full text-left sm:block" type="button" onClick={() => setSelectedItem({ type: "post", item: post })}>
+                  <button className="hidden w-full text-left sm:block" type="button" onClick={() => setSelectedItemState({ type: "post", id: post.id })}>
                   <ListCard className="hidden rounded-none border-0 bg-transparent px-4 py-3 hover:bg-primary/5 sm:block sm:px-5">
                     <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_8rem_9rem_9rem_9rem] sm:items-center">
                       <div>
@@ -2485,7 +2604,7 @@ export default function CampaignDetailPage() {
                   const taskState = getTaskVisualState(task);
                   return (
                     <>
-                      <button className="block w-full text-left" type="button" onClick={() => setSelectedItem({ type: "task", item: task })}>
+                      <button className="block w-full text-left" type="button" onClick={() => setSelectedItemState({ type: "task", id: task.id })}>
                         <ListCard className="m-3 bg-[#202024] text-white sm:hidden">
                           <div className="grid grid-cols-[2rem_1fr_auto] items-center gap-3">
                             <CheckCircle2 className="h-6 w-6 text-white/55" />
@@ -2502,7 +2621,7 @@ export default function CampaignDetailPage() {
                           </div>
                         </ListCard>
                       </button>
-                      <button className="hidden w-full text-left sm:block" type="button" onClick={() => setSelectedItem({ type: "task", item: task })}>
+                      <button className="hidden w-full text-left sm:block" type="button" onClick={() => setSelectedItemState({ type: "task", id: task.id })}>
                         <ListCard className="hidden rounded-none border-0 bg-transparent px-4 py-3 hover:bg-primary/5 sm:block sm:px-5">
                           <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_8rem_9rem_9rem_9rem] sm:items-center">
                             <div>
@@ -2595,7 +2714,7 @@ export default function CampaignDetailPage() {
                       const readiness = getPostReadiness(post, approval?.status, publishJob?.status);
 
                       return (
-                        <button className="block w-full text-left" key={post.id} type="button" onClick={() => setSelectedItem({ type: "post", item: post })}>
+                        <button className="block w-full text-left" key={post.id} type="button" onClick={() => setSelectedItemState({ type: "post", id: post.id })}>
                         <ListCard className="bg-card">
                           <div className="flex items-start justify-between gap-3">
                             <p className="font-medium text-foreground">{post.goal}</p>
@@ -2621,7 +2740,7 @@ export default function CampaignDetailPage() {
                       (() => {
                         const taskState = getTaskVisualState(task);
                         return (
-                      <button className="block w-full text-left" key={task.id} type="button" onClick={() => setSelectedItem({ type: "task", item: task })}>
+                      <button className="block w-full text-left" key={task.id} type="button" onClick={() => setSelectedItemState({ type: "task", id: task.id })}>
                       <ListCard className="bg-card">
                         <div className="flex items-start justify-between gap-3">
                           <p className="font-medium text-foreground">{task.title}</p>
@@ -2779,7 +2898,7 @@ export default function CampaignDetailPage() {
                   className="block w-full text-left"
                   key={post.id}
                   type="button"
-                  onClick={() => setSelectedItem({ type: "post", item: post })}
+                  onClick={() => setSelectedItemState({ type: "post", id: post.id })}
                 >
                   <div
                     draggable
@@ -3692,7 +3811,7 @@ export default function CampaignDetailPage() {
       ) : null}
 
       {selectedItem ? (
-        <div className="fixed inset-0 z-50 bg-black/25 backdrop-blur-[2px]" onClick={() => setSelectedItem(null)}>
+        <div className="fixed inset-0 z-50 bg-black/25 backdrop-blur-[2px]" onClick={() => resetSelectedItemState(null)}>
           <aside
             className="absolute inset-x-0 bottom-0 max-h-[88vh] overflow-y-auto overscroll-contain rounded-t-[1.5rem] border border-border bg-card p-4 shadow-[0_-24px_80px_rgba(0,0,0,0.24)] [-webkit-overflow-scrolling:touch] sm:inset-y-4 sm:left-auto sm:right-4 sm:w-[28rem] sm:max-h-none sm:rounded-[1.25rem] sm:p-5"
             onClick={(event) => event.stopPropagation()}
@@ -3710,7 +3829,7 @@ export default function CampaignDetailPage() {
                 aria-label="Close task details"
                 className="rounded-full border border-border bg-background/70 p-2 text-muted-foreground transition hover:text-foreground"
                 type="button"
-                onClick={() => setSelectedItem(null)}
+                onClick={() => resetSelectedItemState(null)}
               >
                 <X className="h-4 w-4" />
               </button>

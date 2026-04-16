@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { ListCard } from "@/components/dashboard/list-card";
@@ -19,6 +19,7 @@ import { useCampaigns } from "@/lib/repositories/use-campaigns";
 import { usePlannerItems } from "@/lib/repositories/use-planner-items";
 import { usePosts } from "@/lib/repositories/use-posts";
 import { useApprovalsApi } from "@/lib/use-approvals-api";
+import { usePersistentDraft } from "@/lib/use-persistent-draft";
 import { usePublishingApi } from "@/lib/use-publishing-api";
 import { validatePost } from "@/lib/validation";
 import { Post, PostStatus } from "@/types";
@@ -55,14 +56,19 @@ export default function PostCreatorPage() {
     error: approvalsError,
     prependApproval
   } = useApprovalsApi(activeClient.id);
-  const [draft, setDraft] = useState<Post>(createEmptyPost(activeClient.id));
+  const {
+    value: draft,
+    setValue: setDraft,
+    reset: resetDraft
+  } = usePersistentDraft<Post>(
+    `post-creator:${activeClient.id}:draft`,
+    () => createEmptyPost(activeClient.id)
+  );
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [linkedPlannerItemIds, setLinkedPlannerItemIds] = useState<string[]>([]);
-
-  useEffect(() => {
-    setDraft(createEmptyPost(activeClient.id));
-    setLinkedPlannerItemIds([]);
-  }, [activeClient.id]);
+  const {
+    value: linkedPlannerItemIds,
+    setValue: setLinkedPlannerItemIds
+  } = usePersistentDraft<string[]>(`post-creator:${activeClient.id}:linked-planner-item-ids`, []);
 
   const scheduledPosts = useMemo(() => getScheduledPosts(posts), [posts]);
   const approvalsByPostId = useMemo(
@@ -112,7 +118,7 @@ export default function PostCreatorPage() {
         }
 
         setErrors({});
-        setDraft(createEmptyPost(activeClient.id));
+        resetDraft(() => createEmptyPost(activeClient.id));
       })
       .catch(() => {
         setErrors({

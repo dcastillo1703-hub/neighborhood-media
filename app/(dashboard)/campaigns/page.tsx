@@ -24,6 +24,7 @@ import { useBlogPosts } from "@/lib/repositories/use-blog-posts";
 import { useCampaigns } from "@/lib/repositories/use-campaigns";
 import { usePosts } from "@/lib/repositories/use-posts";
 import { useWeeklyMetrics } from "@/lib/repositories/use-weekly-metrics";
+import { usePersistentDraft } from "@/lib/use-persistent-draft";
 import { currency, formatShortDate, number } from "@/lib/utils";
 import { validateCampaign } from "@/lib/validation";
 import { Campaign, CampaignStatus } from "@/types";
@@ -82,9 +83,25 @@ export default function CampaignsPage() {
   const { assets } = useAssets(activeClient.id);
   const { metrics } = useWeeklyMetrics(activeClient.id);
   const { analyticsSnapshots } = useAnalyticsSnapshots(activeClient.id);
-  const [draft, setDraft] = useState<Campaign>(createEmptyCampaign(activeClient.id));
-  const [channelDraft, setChannelDraft] = useState("");
-  const [defaultView, setDefaultView] = useState<CampaignDefaultView>("Overview");
+  const campaignCreateNamespace = `campaign-create:${activeClient.id}`;
+  const {
+    value: draft,
+    setValue: setDraft,
+    reset: resetDraft
+  } = usePersistentDraft<Campaign>(
+    `${campaignCreateNamespace}:draft`,
+    () => createEmptyCampaign(activeClient.id)
+  );
+  const {
+    value: channelDraft,
+    setValue: setChannelDraft,
+    reset: resetChannelDraft
+  } = usePersistentDraft<string>(`${campaignCreateNamespace}:channel`, "");
+  const {
+    value: defaultView,
+    setValue: setDefaultView,
+    reset: resetDefaultView
+  } = usePersistentDraft<CampaignDefaultView>(`${campaignCreateNamespace}:default-view`, "Overview");
   const [mobileProjectTab, setMobileProjectTab] = useState<"Recents" | "Starred" | "Member of">("Member of");
   const [revealedCampaignId, setRevealedCampaignId] = useState<string | null>(null);
   const [starredCampaignIds, setStarredCampaignIds] = useState<string[]>(() => {
@@ -99,7 +116,11 @@ export default function CampaignsPage() {
       return [];
     }
   });
-  const [createOpen, setCreateOpen] = useState(false);
+  const {
+    value: createOpen,
+    setValue: setCreateOpen,
+    reset: resetCreateOpen
+  } = usePersistentDraft<boolean>(`${campaignCreateNamespace}:open`, false);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -139,15 +160,15 @@ export default function CampaignsPage() {
   };
 
   const resetCreateState = () => {
-    setDraft(createEmptyCampaign(activeClient.id));
-    setDefaultView("Overview");
-    setChannelDraft("");
+    resetDraft(() => createEmptyCampaign(activeClient.id));
+    resetDefaultView();
+    resetChannelDraft();
     setErrors({});
   };
 
   const closeCreate = () => {
     setCreateOpen(false);
-    resetCreateState();
+    setErrors({});
   };
 
   const saveCampaign = async () => {
@@ -179,7 +200,7 @@ export default function CampaignsPage() {
       });
 
       resetCreateState();
-      setCreateOpen(false);
+      resetCreateOpen();
       router.push(`/campaigns/${payload.campaign.id}?view=${defaultView.toLowerCase()}` as never);
     } catch (saveError) {
       setErrors({

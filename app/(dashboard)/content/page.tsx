@@ -1,6 +1,8 @@
 "use client";
 
+import type { Route } from "next";
 import { useMemo, useState } from "react";
+import Link from "next/link";
 
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { ListCard } from "@/components/dashboard/list-card";
@@ -14,12 +16,14 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useActiveClient } from "@/lib/client-context";
 import { getScheduledPosts } from "@/lib/domain/content";
+import { buildOperatorQueue } from "@/lib/domain/operator-queue";
 import { useAssets } from "@/lib/repositories/use-assets";
 import { useClientCampaignGoals } from "@/lib/repositories/use-campaign-goals";
 import { useCampaigns } from "@/lib/repositories/use-campaigns";
 import { usePosts } from "@/lib/repositories/use-posts";
 import { useApprovalsApi } from "@/lib/use-approvals-api";
 import { useOperationsApi } from "@/lib/use-operations-api";
+import { usePersistentDraft } from "@/lib/use-persistent-draft";
 import { usePublishingApi } from "@/lib/use-publishing-api";
 import { number } from "@/lib/utils";
 import { useWorkspaceContext } from "@/lib/workspace-context";
@@ -84,6 +88,23 @@ function getMonthDays(anchorDate: Date) {
   });
 }
 
+function getQueueItemLabel(tone: "review" | "schedule" | "task" | "publishing" | "goal" | "content") {
+  switch (tone) {
+    case "review":
+      return "Approval";
+    case "schedule":
+      return "Ready to schedule";
+    case "publishing":
+      return "Publishing";
+    case "goal":
+      return "Campaign goal";
+    case "content":
+      return "Scheduled content";
+    default:
+      return "Campaign task";
+  }
+}
+
 export default function ContentPage() {
   const { activeClient } = useActiveClient();
   const { workspace } = useWorkspaceContext();
@@ -95,10 +116,24 @@ export default function ContentPage() {
   const { approvals, prependApproval } = useApprovalsApi(activeClient.id);
   const { jobs, prependJob } = usePublishingApi(activeClient.id);
   const todayKey = formatDateKey(new Date());
-  const [selectedDate, setSelectedDate] = useState(() => todayKey);
-  const [mobileTaskView, setMobileTaskView] = useState<"list" | "calendar">("calendar");
-  const [contentView, setContentView] = useState<"list" | "calendar">("list");
-  const [draft, setDraft] = useState<ContentDraft>(() => createContentDraft());
+  const contentDraftNamespace = `content:${activeClient.id}`;
+  const { value: selectedDate, setValue: setSelectedDate } = usePersistentDraft<string>(
+    `${contentDraftNamespace}:selected-date`,
+    todayKey
+  );
+  const { value: mobileTaskView, setValue: setMobileTaskView } = usePersistentDraft<"list" | "calendar">(
+    `${contentDraftNamespace}:mobile-task-view`,
+    "calendar"
+  );
+  const { value: contentView, setValue: setContentView } = usePersistentDraft<"list" | "calendar">(
+    `${contentDraftNamespace}:content-view`,
+    "list"
+  );
+  const {
+    value: draft,
+    setValue: setDraft,
+    reset: resetDraft
+  } = usePersistentDraft<ContentDraft>(`${contentDraftNamespace}:draft`, () => createContentDraft());
   const [isCreating, setIsCreating] = useState(false);
   const [deletingPostId, setDeletingPostId] = useState<string | null>(null);
   const monthDays = useMemo(() => getMonthDays(new Date(selectedDate)), [selectedDate]);
@@ -124,126 +159,25 @@ export default function ContentPage() {
     month: "long",
     day: "numeric"
   });
-  const selectedDayPosts = campaignPosts.filter((post) => post.publishDate === selectedDate);
-  const selectedDayApprovals = pendingApprovals.filter((approval) => {
-    const linkedPost = posts.find((post) => post.id === approval.entityId);
-    return linkedPost?.publishDate === selectedDate;
-  });
-  const selectedDayJobs = queuedPublishJobs.filter((job) => job.scheduledFor?.startsWith(selectedDate));
-  const selectedDayCampaignTasks = campaignTasks.filter((task) => task.dueDate === selectedDate);
-  const selectedDayGoals = campaignGoals.filter((goal) => !goal.done && goal.dueDate === selectedDate);
-  const selectedDayTasks = [
-    ...selectedDayPosts.map((post) => ({
-      id: `post-${post.id}`,
-      title: post.goal,
-      eyebrow: `${post.platform} content`,
-      detail: post.content || "Scheduled content item.",
-      status: post.status,
-      campaignId: post.campaignId
-    })),
-    ...selectedDayApprovals.map((approval) => ({
-      id: `approval-${approval.id}`,
-      title: approval.summary,
-      eyebrow: "Approval",
-      detail: approval.note ?? "Needs review.",
-      status: approval.status,
-      campaignId: posts.find((post) => post.id === approval.entityId)?.campaignId
-    })),
-    ...selectedDayJobs.map((job) => ({
-      id: `job-${job.id}`,
-      title: `${job.provider} publish job`,
-      eyebrow: "Publishing",
-      detail: job.detail,
-      status: job.status,
-      campaignId: posts.find((post) => post.id === job.postId)?.campaignId
-    })),
-    ...selectedDayCampaignTasks.map((task) => ({
-      id: `task-${task.id}`,
-      title: task.title,
-      eyebrow: "Campaign task",
-      detail: task.detail || "Campaign-linked task.",
-      status: task.status,
-      campaignId: task.linkedEntityId
-    })),
-    ...selectedDayGoals.map((goal) => ({
-      id: `goal-${goal.id}`,
-      title: goal.label,
-      eyebrow: "Campaign goal",
-      detail: goal.assigneeName ? `Assigned to ${goal.assigneeName}` : "Campaign checkpoint.",
-      status: "Open",
-      campaignId: goal.campaignId
-    }))
-  ];
-  const mobileTasks = [
-    ...campaignPosts.map((post) => ({
-      id: `post-${post.id}`,
-      title: post.goal,
-      eyebrow: `${post.platform} content`,
-      detail: post.content || "Scheduled content item.",
-      status: post.status,
-      dateKey: post.publishDate,
-      campaignId: post.campaignId
-    })),
-    ...pendingApprovals.map((approval) => {
-      const linkedPost = posts.find((post) => post.id === approval.entityId);
-
-      return {
-        id: `approval-${approval.id}`,
-        title: approval.summary,
-        eyebrow: "Approval",
-        detail: approval.note ?? "Needs review.",
-        status: approval.status,
-        dateKey: linkedPost?.publishDate,
-        campaignId: linkedPost?.campaignId
-      };
-    }),
-    ...queuedPublishJobs.map((job) => {
-      const linkedPost = posts.find((post) => post.id === job.postId);
-
-      return {
-        id: `job-${job.id}`,
-        title: `${job.provider} publish job`,
-        eyebrow: "Publishing",
-        detail: job.detail,
-        status: job.status,
-        dateKey: job.scheduledFor?.split("T")[0],
-        campaignId: linkedPost?.campaignId
-      };
-    }),
-    ...campaignTasks.map((task) => ({
-      id: `task-${task.id}`,
-      title: task.title,
-      eyebrow: "Campaign task",
-      detail: task.detail || "Campaign-linked task.",
-      status: task.status,
-      dateKey: task.dueDate,
-      campaignId: task.linkedEntityId
-    })),
-    ...campaignGoals.filter((goal) => !goal.done).map((goal) => ({
-      id: `goal-${goal.id}`,
-      title: goal.label,
-      eyebrow: "Campaign goal",
-      detail: goal.assigneeName ? `Assigned to ${goal.assigneeName}` : "Campaign checkpoint.",
-      status: "Open",
-      dateKey: goal.dueDate,
-      campaignId: goal.campaignId
-    }))
-  ].sort((left, right) => (left.dateKey ?? "9999-12-31").localeCompare(right.dateKey ?? "9999-12-31"));
-  const todayTasks = mobileTasks.filter((task) => task.dateKey === todayKey);
-  const waitingTasks = mobileTasks.filter(
-    (task) =>
-      task.eyebrow === "Approval" ||
-      task.eyebrow === "Publishing" ||
-      task.status === "Waiting" ||
-      task.status === "Pending" ||
-      task.status === "Blocked" ||
-      task.status === "Processing"
-  ).slice(0, 8);
-  const waitingTaskIds = new Set(waitingTasks.map((task) => task.id));
-  const upcomingTasks = mobileTasks
-    .filter((task) => task.dateKey && task.dateKey > todayKey && !waitingTaskIds.has(task.id))
-    .slice(0, 8);
-  const unscheduledTasks = mobileTasks.filter((task) => !task.dateKey).slice(0, 8);
+  const operatorQueue = useMemo(
+    () =>
+      buildOperatorQueue({
+        campaigns,
+        posts: campaignPosts,
+        approvals,
+        jobs,
+        tasks: campaignTasks,
+        goals: campaignGoals.filter((goal) => !goal.done),
+        todayKey
+      }),
+    [approvals, campaignGoals, campaignPosts, campaignTasks, campaigns, jobs, todayKey]
+  );
+  const selectedDayTasks = operatorQueue.items.filter((item) => item.dateKey === selectedDate);
+  const mobileTasks = operatorQueue.items;
+  const todayTasks = operatorQueue.today.slice(0, 8);
+  const waitingTasks = operatorQueue.waiting.slice(0, 8);
+  const upcomingTasks = operatorQueue.upcoming.slice(0, 8);
+  const unscheduledTasks = operatorQueue.unscheduled.slice(0, 8);
 
   const handleCreateContent = async () => {
     if (!draft.goal.trim() || !draft.content.trim() || !draft.cta.trim()) {
@@ -273,7 +207,7 @@ export default function ContentPage() {
         prependJob(payload.publishJob);
       }
 
-      setDraft(createContentDraft(new Date(draft.publishDate)));
+      resetDraft(() => createContentDraft(new Date(draft.publishDate)));
       setContentView("list");
     } finally {
       setIsCreating(false);
@@ -377,27 +311,29 @@ export default function ContentPage() {
               <div className="mt-5 space-y-3">
                 {selectedDayTasks.length ? (
                   selectedDayTasks.map((task) => {
-                    const linkedCampaign = campaigns.find((campaign) => campaign.id === task.campaignId);
-
                     return (
-                      <div className="rounded-[1.35rem] border border-white/12 bg-white/[0.035] p-4" key={task.id}>
+                      <Link
+                        className="block rounded-[1.35rem] border border-white/12 bg-white/[0.035] p-4 transition hover:bg-white/[0.055]"
+                        href={task.href as Route}
+                        key={task.id}
+                      >
                         <div className="flex items-start gap-3">
                           <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/45 text-white/65">
                             ✓
                           </span>
                           <div className="min-w-0">
-                            <p className="text-xs uppercase tracking-[0.18em] text-white/38">{task.eyebrow}</p>
+                            <p className="text-xs uppercase tracking-[0.18em] text-white/38">{getQueueItemLabel(task.tone)}</p>
                             <p className="mt-1 text-lg font-semibold text-white">{task.title}</p>
                             <p className="mt-2 line-clamp-2 text-sm leading-6 text-white/52">{task.detail}</p>
                             <div className="mt-3 flex flex-wrap gap-2 text-xs text-white/48">
                               <span className="rounded-full bg-white/[0.06] px-2.5 py-1">{task.status}</span>
-                              {linkedCampaign ? (
-                                <span className="rounded-full bg-white/[0.06] px-2.5 py-1">{linkedCampaign.name}</span>
+                              {task.campaignName ? (
+                                <span className="rounded-full bg-white/[0.06] px-2.5 py-1">{task.campaignName}</span>
                               ) : null}
                             </div>
                           </div>
                         </div>
-                      </div>
+                      </Link>
                     );
                   })
                 ) : (
@@ -427,26 +363,28 @@ export default function ContentPage() {
                 <div className="mt-3 space-y-2">
                   {Array.isArray(sectionTasks) && sectionTasks.length ? (
                     sectionTasks.map((task) => {
-                      const linkedCampaign = campaigns.find((campaign) => campaign.id === task.campaignId);
-
                       return (
-                        <div className="rounded-[1.2rem] border border-white/10 bg-white/[0.035] px-4 py-3" key={task.id}>
+                        <Link
+                          className="block rounded-[1.2rem] border border-white/10 bg-white/[0.035] px-4 py-3 transition hover:bg-white/[0.055]"
+                          href={task.href as Route}
+                          key={task.id}
+                        >
                           <div className="flex items-start gap-3">
                             <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-white/42 text-xs text-white/62">
                               ✓
                             </span>
-                          <div className="min-w-0 flex-1">
+                            <div className="min-w-0 flex-1">
                               <p className="truncate text-base font-semibold text-white">{task.title}</p>
                               <p className="mt-1 line-clamp-2 text-sm text-white/55">{task.detail}</p>
                               <div className="mt-1 flex flex-wrap gap-2 text-xs text-white/45">
-                                <span>{task.eyebrow}</span>
+                                <span>{getQueueItemLabel(task.tone)}</span>
                                 {task.dateKey ? <DatePill className="border-white/12 bg-white/[0.06] text-white/58" value={task.dateKey} /> : null}
-                                {linkedCampaign ? <span>{linkedCampaign.name}</span> : null}
+                                {task.campaignName ? <span>{task.campaignName}</span> : null}
                               </div>
                             </div>
                             <span className="text-xs text-white/38">{task.status}</span>
                           </div>
-                        </div>
+                        </Link>
                       );
                     })
                   ) : (
