@@ -1,15 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  Tooltip,
+  XAxis,
+  YAxis
+} from "recharts";
 
+import { ChartShell } from "@/components/charts/chart-shell";
+import { ChartTooltip } from "@/components/charts/chart-tooltip";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { ListCard } from "@/components/dashboard/list-card";
 import { PageHeader } from "@/components/dashboard/page-header";
-import { StatGrid } from "@/components/dashboard/stat-grid";
-import { MetricCard } from "@/components/metric-card";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { calculateRevenueModel } from "@/lib/calculations";
 import { useActiveClient } from "@/lib/client-context";
 import {
@@ -20,6 +30,7 @@ import {
 import {
   summarizeCampaignRecaps,
   summarizeChannelContribution,
+  summarizePeriodComparison,
   summarizeRoi
 } from "@/lib/domain/reporting";
 import { useAnalyticsSnapshots } from "@/lib/repositories/use-analytics-snapshots";
@@ -30,6 +41,12 @@ import { useGoogleAnalytics } from "@/lib/use-google-analytics";
 import { useManualMetaPerformance } from "@/lib/use-manual-meta-performance";
 import { useMetaBusinessSuite } from "@/lib/use-meta-business-suite";
 import { currency, number, percent } from "@/lib/utils";
+
+type AssumptionDraft = {
+  averageCheck: number;
+  guestsPerTable: number;
+  growthTarget: number;
+};
 
 export default function PerformancePage() {
   const { activeClient } = useActiveClient();
@@ -42,37 +59,53 @@ export default function PerformancePage() {
     sync: syncGoogleAnalytics
   } = useGoogleAnalytics(activeClient.id);
   const { summary: metaSummary, syncInsights } = useMetaBusinessSuite(activeClient.id);
-  const {
-    enabledChannels: manualMetaChannels,
-    totals: manualMetaTotals
-  } = useManualMetaPerformance(activeClient.id);
+  const { enabledChannels: manualMetaChannels } = useManualMetaPerformance(activeClient.id);
   const [syncingFacebook, setSyncingFacebook] = useState(false);
   const [facebookSyncMessage, setFacebookSyncMessage] = useState<string | null>(null);
   const [syncingGoogleAnalytics, setSyncingGoogleAnalytics] = useState(false);
   const [googleAnalyticsMessage, setGoogleAnalyticsMessage] = useState<string | null>(null);
+  const defaultAssumptions = useMemo<AssumptionDraft>(
+    () => ({
+      averageCheck: settings.averageCheck,
+      guestsPerTable: settings.guestsPerTable,
+      growthTarget: revenueModelDefaults.growthTarget
+    }),
+    [revenueModelDefaults.growthTarget, settings.averageCheck, settings.guestsPerTable]
+  );
+  const [assumptions, setAssumptions] = useState<AssumptionDraft>(defaultAssumptions);
+
+  useEffect(() => {
+    setAssumptions(defaultAssumptions);
+  }, [defaultAssumptions]);
 
   const revenueModel = useMemo(
-    () => calculateRevenueModel(revenueModelDefaults),
-    [revenueModelDefaults]
+    () =>
+      calculateRevenueModel({
+        ...revenueModelDefaults,
+        averageCheck: assumptions.averageCheck,
+        guestsPerTable: assumptions.guestsPerTable,
+        growthTarget: assumptions.growthTarget
+      }),
+    [assumptions, revenueModelDefaults]
   );
   const latestWeek = useMemo(
-    () => getLatestWeekSummary(metrics, settings.averageCheck),
-    [metrics, settings.averageCheck]
+    () => getLatestWeekSummary(metrics, assumptions.averageCheck),
+    [assumptions.averageCheck, metrics]
   );
   const toastOpportunities = useMemo(
-    () => buildToastOpportunitySummary(metrics, settings.averageCheck),
-    [metrics, settings.averageCheck]
+    () => buildToastOpportunitySummary(metrics, assumptions.averageCheck),
+    [assumptions.averageCheck, metrics]
   );
   const monthlyPerformance = useMemo(
     () =>
       buildMonthlyPerformance(
         metrics,
-        settings.averageCheck,
-        settings.guestsPerTable,
+        assumptions.averageCheck,
+        assumptions.guestsPerTable,
         6,
         false
       ),
-    [metrics, settings.averageCheck, settings.guestsPerTable]
+    [assumptions.averageCheck, assumptions.guestsPerTable, metrics]
   );
   const roiSummary = useMemo(
     () => summarizeRoi(analyticsSnapshots),
@@ -86,8 +119,55 @@ export default function PerformancePage() {
     () => summarizeCampaignRecaps(campaigns, analyticsSnapshots),
     [analyticsSnapshots, campaigns]
   );
+  const periodComparison = useMemo(
+    () => summarizePeriodComparison(metrics, assumptions.averageCheck),
+    [assumptions.averageCheck, metrics]
+  );
   const currentMonth = monthlyPerformance[monthlyPerformance.length - 1] ?? null;
-  const topCampaign = [...campaignRecaps].sort((left, right) => right.revenue - left.revenue)[0] ?? null;
+  const previousMonth = monthlyPerformance[monthlyPerformance.length - 2] ?? null;
+  const monthRevenueDelta =
+    currentMonth && previousMonth ? currentMonth.revenue - previousMonth.revenue : 0;
+  const monthRevenueDeltaPercent =
+    previousMonth?.revenue
+      ? (monthRevenueDelta / previousMonth.revenue) * 100
+      : 0;
+  const attributedRevenueShare =
+    currentMonth?.revenue ? (roiSummary.revenue / currentMonth.revenue) * 100 : 0;
+  const topCampaigns = [...campaignRecaps]
+    .filter((campaign) => campaign.revenue > 0 || campaign.covers > 0)
+    .sort((left, right) => right.revenue - left.revenue)
+    .slice(0, 4);
+  const topCampaign = topCampaigns[0] ?? null;
+  const topChannels = [...channelContribution]
+    .sort((left, right) => right.revenue - left.revenue)
+    .slice(0, 4);
+  const trendData = monthlyPerformance.map((entry) => ({
+    month: entry.monthLabel,
+    revenue: Math.round(entry.revenue),
+    covers: entry.covers
+  }));
+  const comparisonCards = [
+    {
+      label: "Recent period revenue",
+      value: currency(periodComparison.currentRevenue),
+      detail: "Recent half of the available weekly history."
+    },
+    {
+      label: "Prior period revenue",
+      value: currency(periodComparison.previousRevenue),
+      detail: "Baseline read from the earlier half of the same history."
+    },
+    {
+      label: "Revenue delta",
+      value: `${periodComparison.revenueDelta >= 0 ? "+" : ""}${currency(periodComparison.revenueDelta)}`,
+      detail: "Current interpretation using the average check assumption above."
+    },
+    {
+      label: "Cover delta",
+      value: `${periodComparison.coversDelta >= 0 ? "+" : ""}${number(periodComparison.coversDelta)}`,
+      detail: "Cover movement between the same two periods."
+    }
+  ];
   const connectedMetaProviders = useMemo(
     () =>
       new Set(
@@ -101,22 +181,6 @@ export default function PerformancePage() {
     () => manualMetaChannels.filter((channel) => !connectedMetaProviders.has(channel.provider)),
     [connectedMetaProviders, manualMetaChannels]
   );
-  const fallbackManualTotals = useMemo(
-    () =>
-      fallbackManualChannels.reduce(
-        (totals, channel) => ({
-          impressions: totals.impressions + channel.impressions,
-          clicks: totals.clicks + channel.clicks,
-          reach: totals.reach + channel.reach,
-          attributedRevenue: totals.attributedRevenue + channel.attributedRevenue,
-          attributedCovers: totals.attributedCovers + channel.attributedCovers
-        }),
-        { impressions: 0, clicks: 0, reach: 0, attributedRevenue: 0, attributedCovers: 0 }
-      ),
-    [fallbackManualChannels]
-  );
-  const displayedMetaRevenue =
-    (metaSummary?.totalAttributedRevenue ?? 0) + fallbackManualTotals.attributedRevenue;
   const connectedFacebook = metaSummary?.channels.find(
     (channel) => channel.provider === "facebook" && channel.authStatus === "connected"
   );
@@ -129,7 +193,6 @@ export default function PerformancePage() {
         engagement: connectedFacebook.conversions,
         periodLabel: connectedFacebook.latestPeriodLabel,
         syncedAt: connectedFacebook.lastSyncAt,
-        nextAction: connectedFacebook.nextAction,
         source: "live" as const
       }
     : manualFacebook
@@ -140,18 +203,64 @@ export default function PerformancePage() {
           engagement: manualFacebook.engagement,
           periodLabel: manualFacebook.periodLabel,
           syncedAt: undefined,
-          nextAction: manualFacebook.nextAction,
           source: "manual" as const
         }
       : null;
-  const performanceStory = useMemo(
-    () =>
-      roiSummary.revenue > 0
-        ? `${activeClient.name} has ${currency(roiSummary.revenue)} in attributed campaign revenue across ${number(roiSummary.covers)} covers. ${topCampaign?.revenue ? `${topCampaign.name} is currently the strongest performer.` : "Keep tying posts and campaigns to weekly metrics to sharpen the picture."}`
-        : "No campaign revenue is attributed yet. Start by adding ROI snapshots inside campaigns, then use this page to see which growth efforts are actually moving covers and revenue.",
-    [activeClient.name, roiSummary.covers, roiSummary.revenue, topCampaign?.name, topCampaign?.revenue]
-  );
-
+  const topSource = googleAnalyticsSummary?.topSources[0] ?? null;
+  const topLandingPage = googleAnalyticsSummary?.topPages[0] ?? null;
+  const topIntentSignal = googleAnalyticsSummary?.keyEvents[0] ?? null;
+  const unattributedSessions = googleAnalyticsSummary?.sourceQuality.notSetSessions ?? 0;
+  const attributionConfidenceLabel = !googleAnalyticsSummary
+    ? "Partial"
+    : unattributedSessions > (googleAnalyticsSummary.sessions || 0) * 0.35
+      ? "Needs tagging cleanup"
+      : connectedFacebook
+        ? "Reportable"
+        : "Directional";
+  const summaryHeadline =
+    currentMonth && previousMonth
+      ? `${currentMonth.monthLabel} ${monthRevenueDelta >= 0 ? "outpaced" : "trailed"} ${previousMonth.monthLabel} by ${currency(Math.abs(monthRevenueDelta))}`
+      : "Performance story is ready to review";
+  const summaryNarrative =
+    roiSummary.revenue > 0
+      ? `${activeClient.name} currently shows ${currency(roiSummary.revenue)} in attributed revenue across ${number(roiSummary.covers)} covers. ${topCampaign ? `${topCampaign.name} is the clearest campaign proof point right now.` : "The contribution story is directional, but usable."}`
+      : `Toast is giving the operating picture, but campaign contribution still needs more attributed snapshots. This page now shows the business read, the assumptions behind it, and the evidence we have so far.`;
+  const websiteEvidenceNote = googleAnalyticsSummary
+    ? topSource
+      ? `${topSource.label} is currently the strongest traffic source with ${number(topSource.sessions)} sessions.`
+      : "GA4 is connected, but the current sync is still too thin to call a strongest source."
+    : "GA4 is not connected yet, so website evidence is still incomplete.";
+  const metaConfigurationNote = connectedFacebook
+    ? metaSummary?.configStatus.ready
+      ? "Facebook is connected and the broader Meta setup is ready."
+      : `Facebook is connected and reporting live. ${metaSummary?.configStatus.missingLabels.length ? `Still missing: ${metaSummary.configStatus.missingLabels.join(", ")}.` : "Broader Meta app configuration is still incomplete."}`
+    : manualFacebook
+      ? "Facebook is still using manual fallback reporting."
+      : "Connect Facebook to pull live page-level Meta reporting.";
+  const decisionTitle = topCampaign
+    ? `Use ${topCampaign.name} as the proof point, then push ${toastOpportunities.weakestDay.day.toLowerCase()} next`
+    : `Push ${toastOpportunities.weakestDay.day.toLowerCase()} next and build cleaner proof`;
+  const decisionItems = [
+    {
+      label: "Where to push",
+      value: toastOpportunities.weakestDay.day,
+      detail: `Baseline is about ${number(toastOpportunities.weakestDay.averageCovers, 1)} covers and ${currency(toastOpportunities.weakestDay.averageRevenue)} in revenue.`
+    },
+    {
+      label: "What to repeat",
+      value: topCampaign?.name ?? "Build the first proof point",
+      detail: topCampaign
+        ? `${topCampaign.name} is tied to ${currency(topCampaign.revenue)} and ${number(topCampaign.covers)} covers so far.`
+        : "No campaign has enough attributed proof yet, so keep tracking traffic and ROI snapshots tightly."
+    },
+    {
+      label: "What to tighten",
+      value: attributionConfidenceLabel,
+      detail: googleAnalyticsSummary
+        ? `Unattributed traffic is ${number(unattributedSessions)} sessions. Cleaner UTMs will make the next reporting cycle more credible.`
+        : "Connect and sync GA4 so website traffic can support the business story."
+    }
+  ];
   const syncFacebookInsights = async () => {
     setSyncingFacebook(true);
     setFacebookSyncMessage(null);
@@ -194,145 +303,316 @@ export default function PerformancePage() {
   };
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-8">
       <PageHeader
         eyebrow="Performance"
-        title="Track covers, tables, and revenue impact"
-        description="Keep the restaurant growth story in one place: weekly movement, monthly volume, modeled upside, and which campaigns are actually pulling weight."
+        title="Understand what changed, what likely caused it, and what to do next"
+        description="This page turns Toast, campaign activity, Google Analytics, and Meta into one performance story you can use internally or in a client conversation."
       />
 
-      <Card className="p-5">
-        <div className="grid gap-5 lg:grid-cols-[1fr_auto] lg:items-center">
+      <Card className="p-5 sm:p-6">
+        <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr] xl:items-start">
           <div>
-            <CardDescription>Growth Read</CardDescription>
-            <CardTitle className="mt-3">What the numbers are saying</CardTitle>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">{performanceStory}</p>
+            <CardDescription>Summary</CardDescription>
+            <CardTitle className="mt-3 text-2xl">{summaryHeadline}</CardTitle>
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
+              {summaryNarrative}
+            </p>
+            <div className="mt-4 rounded-[1.25rem] border border-border/70 bg-card/55 p-4">
+              <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">
+                Client-ready read
+              </p>
+              <p className="mt-2 text-sm leading-6 text-foreground">
+                {currentMonth && previousMonth
+                  ? `${currentMonth.monthLabel} is ${monthRevenueDelta >= 0 ? "up" : "down"} ${currency(Math.abs(monthRevenueDelta))} compared with ${previousMonth.monthLabel}. Our currently attributed work accounts for about ${percent(attributedRevenueShare)} of the current monthly revenue read, and the clearest next push is ${toastOpportunities.weakestDay.day.toLowerCase()}.`
+                  : "The historical business data is present, but the page still needs a fuller month-over-month timeline before the lead summary becomes stronger."}
+              </p>
+            </div>
           </div>
-          <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[28rem]">
-            <div className="rounded-2xl bg-muted/50 px-4 py-3">
-              <p className="text-xs text-muted-foreground">Attributed revenue</p>
-              <p className="mt-2 text-xl font-medium text-foreground">{currency(roiSummary.revenue)}</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-[1.25rem] border border-border/70 bg-card/60 p-4">
+              <p className="text-xs text-muted-foreground">Month-over-month revenue</p>
+              <p className="mt-2 text-2xl font-medium text-foreground">
+                {monthRevenueDelta >= 0 ? "+" : ""}
+                {currency(monthRevenueDelta)}
+              </p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {monthRevenueDeltaPercent >= 0 ? "+" : ""}
+                {percent(monthRevenueDeltaPercent)} vs the prior Toast month.
+              </p>
             </div>
-            <div className="rounded-2xl bg-muted/50 px-4 py-3">
-              <p className="text-xs text-muted-foreground">Attributed covers</p>
-              <p className="mt-2 text-xl font-medium text-foreground">{number(roiSummary.covers)}</p>
+            <div className="rounded-[1.25rem] border border-border/70 bg-card/60 p-4">
+              <p className="text-xs text-muted-foreground">Attributed contribution</p>
+              <p className="mt-2 text-2xl font-medium text-foreground">
+                {currency(roiSummary.revenue)}
+              </p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {number(roiSummary.covers)} covers tied back to current reporting.
+              </p>
             </div>
-            <div className="rounded-2xl bg-muted/50 px-4 py-3">
+            <div className="rounded-[1.25rem] border border-border/70 bg-card/60 p-4">
+              <p className="text-xs text-muted-foreground">Latest weekly movement</p>
+              <p className="mt-2 text-2xl font-medium text-foreground">
+                {latestWeek.latestWowChange >= 0 ? "+" : ""}
+                {number(latestWeek.latestWowChange)} covers
+              </p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {currency(latestWeek.latestRevenue)} in the latest week.
+              </p>
+            </div>
+            <div className="rounded-[1.25rem] border border-border/70 bg-card/60 p-4">
               <p className="text-xs text-muted-foreground">Biggest opportunity</p>
-              <p className="mt-2 truncate text-xl font-medium text-foreground">
+              <p className="mt-2 text-2xl font-medium text-foreground">
                 {toastOpportunities.weakestDay.day}
+              </p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Soft recurring night at {currency(toastOpportunities.weakestDay.averageRevenue)}.
               </p>
             </div>
           </div>
         </div>
       </Card>
 
-      <StatGrid>
-        <MetricCard href="/performance#business-snapshot" label="Weekly Covers" value={number(revenueModel.weeklyCovers)} detail="Current weekly demand baseline for the account." />
-        <MetricCard href="/revenue-modeling#model-outputs" label="Monthly Revenue Run Rate" value={currency(revenueModel.monthlyRevenue)} detail="Current run rate based on covers and average check." />
-        <MetricCard href="/revenue-modeling#growth-target" label="Growth Target" value={percent(revenueModelDefaults.growthTarget)} detail="Lift target currently being modeled against the business." />
-        <MetricCard href="/performance#campaign-impact" label="Attributed Revenue" value={currency(roiSummary.revenue)} detail="Revenue tied back to campaign and content activity." />
-        <MetricCard
-          href="/performance#meta-business-suite"
-          label="Meta Revenue"
-          value={currency(displayedMetaRevenue)}
-          detail={
-            fallbackManualChannels.length
-              ? "Live Facebook plus manual fallback for channels that are not connected yet."
-              : "Facebook and Instagram revenue tied back to Meta reporting."
-          }
-        />
-        <MetricCard
-          href="/performance#website-analytics"
-          label="Website Sessions"
-          value={number(googleAnalyticsSummary?.sessions ?? 0)}
-          detail="Latest synced Google Analytics sessions."
-        />
-        <MetricCard href="/performance#business-snapshot" label="Latest Weekly Change" value={`${latestWeek.latestWowChange > 0 ? "+" : ""}${number(latestWeek.latestWowChange)} covers`} detail="Most recent week-over-week movement." tone="olive" />
-      </StatGrid>
-
       <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-        <Card id="business-snapshot">
+        <Card id="contribution">
           <CardHeader>
             <div>
-              <CardDescription>Weekly and Monthly Read</CardDescription>
-              <CardTitle className="mt-3">Current business snapshot</CardTitle>
+              <CardDescription>Contribution</CardDescription>
+              <CardTitle className="mt-3">What our efforts likely contributed</CardTitle>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
+                This is the directional read of what campaign activity and tracked channels likely added to the business.
+              </p>
             </div>
           </CardHeader>
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="space-y-3">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <ListCard>
+                <p className="text-sm text-muted-foreground">Attributed revenue</p>
+                <p className="mt-2 text-2xl text-foreground">{currency(roiSummary.revenue)}</p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  About {percent(attributedRevenueShare)} of the current monthly run-rate read.
+                </p>
+              </ListCard>
+              <ListCard>
+                <p className="text-sm text-muted-foreground">Attributed covers</p>
+                <p className="mt-2 text-2xl text-foreground">{number(roiSummary.covers)}</p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {number(roiSummary.tables, 1)} tables attached to tracked activity.
+                </p>
+              </ListCard>
+              <ListCard>
+                <p className="text-sm text-muted-foreground">Strongest proof point</p>
+                <p className="mt-2 text-2xl text-foreground">{topCampaign?.name ?? "No proof yet"}</p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {topCampaign
+                    ? `${currency(topCampaign.revenue)} across ${number(topCampaign.covers)} covers.`
+                    : "Start tying more campaign activity to revenue snapshots."}
+                </p>
+              </ListCard>
+            </div>
             <ListCard>
-              <p className="text-sm text-muted-foreground">Latest Revenue</p>
-              <p className="mt-2 text-2xl text-foreground">
-                {currency(latestWeek.latestRevenue)}
-              </p>
+              <p className="font-medium text-foreground">Channel mix</p>
               <p className="mt-2 text-sm text-muted-foreground">
-                {toastOpportunities.weekOverWeekRevenueChange >= 0 ? "+" : ""}
-                {currency(toastOpportunities.weekOverWeekRevenueChange)} vs the prior week.
+                The channel list below is the cleanest current view of where attributed revenue is coming from.
               </p>
-            </ListCard>
-            <ListCard>
-              <p className="text-sm text-muted-foreground">Current Month</p>
-              <p className="mt-2 text-2xl text-foreground">
-                {currentMonth ? currentMonth.monthLabel : "No month yet"}
-              </p>
-              <p className="mt-2 text-sm text-muted-foreground">
-                {currentMonth
-                  ? `${number(currentMonth.covers)} covers · ${number(currentMonth.averageTables, 1)} average tables`
-                  : "Add more weekly records to build the monthly timeline."}
-              </p>
-            </ListCard>
-            <ListCard>
-              <p className="text-sm text-muted-foreground">Month-over-Month Revenue</p>
-              <p className="mt-2 text-2xl text-foreground">
-                {toastOpportunities.monthOverMonthRevenueChange >= 0 ? "+" : ""}
-                {currency(toastOpportunities.monthOverMonthRevenueChange)}
-              </p>
-              <p className="mt-2 text-sm text-muted-foreground">
-                {currentMonth
-                  ? `${currentMonth.monthLabel} compared with the previous Toast month.`
-                  : "Add more weekly records to build the monthly timeline."}
-              </p>
-            </ListCard>
-            <ListCard>
-              <p className="text-sm text-muted-foreground">Biggest Opportunity Night</p>
-              <p className="mt-2 text-2xl text-foreground">{toastOpportunities.weakestDay.day}</p>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Baseline is about {number(toastOpportunities.weakestDay.averageCovers, 1)} covers and{" "}
-                {currency(toastOpportunities.weakestDay.averageRevenue)} in Toast revenue.
-              </p>
+              <div className="mt-4 space-y-3">
+                {topChannels.length ? (
+                  topChannels.map((item) => (
+                    <div
+                      className="flex items-center justify-between gap-4 border-b border-border/60 pb-3 last:border-b-0 last:pb-0"
+                      key={item.channel}
+                    >
+                      <div>
+                        <p className="font-medium text-foreground">{item.channel}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {number(item.covers)} covers · {number(item.tables, 1)} tables
+                        </p>
+                      </div>
+                      <p className="text-sm font-medium text-foreground">{currency(item.revenue)}</p>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No attributed channels yet. Keep linking campaigns and snapshots so this becomes clearer.
+                  </p>
+                )}
+              </div>
             </ListCard>
           </div>
         </Card>
 
-        <Card id="opportunity-flags">
+        <Card id="assumptions">
           <CardHeader>
             <div>
-              <CardDescription>Opportunity Flags</CardDescription>
-              <CardTitle className="mt-3">Where the next growth move should go</CardTitle>
+              <CardDescription>Assumptions</CardDescription>
+              <CardTitle className="mt-3">Adjust the numbers driving this read</CardTitle>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
+                These inputs update the interpretation on this page only, so you can pressure-test the story without changing account defaults.
+              </p>
+            </div>
+          </CardHeader>
+          <div className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="space-y-2">
+                <Label htmlFor="average-check">Average check</Label>
+                <Input
+                  id="average-check"
+                  min="0"
+                  step="0.01"
+                  type="number"
+                  value={assumptions.averageCheck}
+                  onChange={(event) =>
+                    setAssumptions((current) => ({
+                      ...current,
+                      averageCheck: Number.parseFloat(event.target.value) || 0
+                    }))
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="guests-per-table">Guests per table</Label>
+                <Input
+                  id="guests-per-table"
+                  min="0"
+                  step="0.1"
+                  type="number"
+                  value={assumptions.guestsPerTable}
+                  onChange={(event) =>
+                    setAssumptions((current) => ({
+                      ...current,
+                      guestsPerTable: Number.parseFloat(event.target.value) || 0
+                    }))
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="growth-target">Growth target</Label>
+                <Input
+                  id="growth-target"
+                  min="0"
+                  step="1"
+                  type="number"
+                  value={assumptions.growthTarget}
+                  onChange={(event) =>
+                    setAssumptions((current) => ({
+                      ...current,
+                      growthTarget: Number.parseFloat(event.target.value) || 0
+                    }))
+                  }
+                />
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <Button size="sm" variant="outline" onClick={() => setAssumptions(defaultAssumptions)}>
+                Use saved defaults
+              </Button>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <ListCard>
+                <p className="text-sm text-muted-foreground">Weekly baseline revenue</p>
+                <p className="mt-2 text-2xl text-foreground">{currency(revenueModel.weeklyRevenue)}</p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Based on {number(revenueModel.weeklyCovers)} weekly covers and the current average check.
+                </p>
+              </ListCard>
+              <ListCard>
+                <p className="text-sm text-muted-foreground">Target upside</p>
+                <p className="mt-2 text-2xl text-foreground">{currency(revenueModel.addedMonthlyRevenue)}</p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Added monthly revenue implied by a {percent(assumptions.growthTarget)} growth target.
+                </p>
+              </ListCard>
+            </div>
+            <div className="rounded-[1.1rem] border border-border/70 bg-card/55 p-4">
+              <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">
+                Credibility note
+              </p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                Toast remains the source of truth for covers, tables, and revenue. Attribution is directional and depends on campaign snapshots, tracked traffic, and channel data quality.
+              </p>
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <Card id="comparison">
+          <CardHeader>
+            <div>
+              <CardDescription>Comparison</CardDescription>
+              <CardTitle className="mt-3">How current performance compares to baseline</CardTitle>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
+                This is the cleanest current comparison between recent business performance, prior period baseline, and the local assumptions above.
+              </p>
+            </div>
+          </CardHeader>
+          <ChartShell>
+            <LineChart data={trendData}>
+              <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
+              <XAxis dataKey="month" stroke="#b9b2a0" tickLine={false} axisLine={false} />
+              <YAxis
+                stroke="#b9b2a0"
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(value) => `$${Math.round(value / 1000)}k`}
+              />
+              <Tooltip
+                content={
+                  <ChartTooltip
+                    formatter={(value, name) =>
+                      name === "revenue" ? currency(value) : number(value)
+                    }
+                  />
+                }
+              />
+              <Line
+                dataKey="revenue"
+                name="revenue"
+                stroke="#b89a5a"
+                strokeWidth={3}
+                dot={{ r: 4 }}
+              />
+            </LineChart>
+          </ChartShell>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {comparisonCards.map((card) => (
+              <ListCard key={card.label}>
+                <p className="text-sm text-muted-foreground">{card.label}</p>
+                <p className="mt-2 text-2xl text-foreground">{card.value}</p>
+                <p className="mt-2 text-sm text-muted-foreground">{card.detail}</p>
+              </ListCard>
+            ))}
+          </div>
+        </Card>
+
+        <Card id="decision">
+          <CardHeader>
+            <div>
+              <CardDescription>Decision</CardDescription>
+              <CardTitle className="mt-3">What we should do next</CardTitle>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
+                This takes the business read, campaign proof, and measurement quality and turns it into the next move.
+              </p>
             </div>
           </CardHeader>
           <div className="space-y-3">
-            <ListCard>
-              <p className="text-sm leading-6 text-muted-foreground">{toastOpportunities.recommendation}</p>
-            </ListCard>
-            {toastOpportunities.flags.map((flag) => (
-              <ListCard key={flag.id}>
+            <div className="rounded-[1.25rem] border border-border/70 bg-card/55 p-4">
+              <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">
+                Decision read
+              </p>
+              <p className="mt-2 text-lg font-medium text-foreground">{decisionTitle}</p>
+              <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                {toastOpportunities.recommendation}
+              </p>
+            </div>
+            {decisionItems.map((item) => (
+              <ListCard key={item.label}>
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <p className="font-medium text-foreground">{flag.title}</p>
-                    <p className="mt-1 text-sm text-muted-foreground">{flag.detail}</p>
+                    <p className="font-medium text-foreground">{item.label}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">{item.detail}</p>
                   </div>
-                  <p
-                    className={
-                      flag.tone === "positive"
-                        ? "text-sm text-emerald-600"
-                        : flag.tone === "warning"
-                          ? "text-sm text-amber-600"
-                          : "text-sm text-foreground"
-                    }
-                  >
-                    {flag.value}
-                  </p>
+                  <p className="text-sm font-medium text-foreground">{item.value}</p>
                 </div>
               </ListCard>
             ))}
@@ -340,489 +620,128 @@ export default function PerformancePage() {
         </Card>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-        <Card id="source-mix">
+      <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+        <Card id="evidence">
           <CardHeader>
-            <div>
-              <CardDescription>Source Mix</CardDescription>
-              <CardTitle className="mt-3">What is contributing revenue</CardTitle>
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <CardDescription>Evidence</CardDescription>
+                <CardTitle className="mt-3">Traffic and platform signals behind the story</CardTitle>
+                <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
+                  These signals do not replace Toast, but they make the contribution story more credible in internal review and client conversations.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  disabled={!googleAnalyticsSummary?.readyToSync || syncingGoogleAnalytics}
+                  onClick={() => void syncWebsiteAnalytics()}
+                  size="sm"
+                  variant="outline"
+                >
+                  {syncingGoogleAnalytics ? "Syncing website..." : "Sync Google Analytics"}
+                </Button>
+                <Button
+                  disabled={
+                    syncingFacebook ||
+                    !metaSummary?.channels.find(
+                      (channel) =>
+                        channel.provider === "facebook" && channel.authStatus === "connected"
+                    )
+                  }
+                  onClick={() => void syncFacebookInsights()}
+                  size="sm"
+                  variant="outline"
+                >
+                  {syncingFacebook ? "Syncing Facebook..." : "Sync Facebook"}
+                </Button>
+              </div>
             </div>
           </CardHeader>
           <div className="space-y-3">
-            {channelContribution.length ? (
-              channelContribution.map((item) => (
-                <ListCard key={item.channel}>
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <p className="font-medium text-foreground">{item.channel}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        {number(item.covers)} covers · {number(item.tables, 1)} tables
-                      </p>
-                    </div>
-                    <p className="text-sm text-foreground">{currency(item.revenue)}</p>
+            {googleAnalyticsMessage ? (
+              <div className="rounded-[1rem] border border-border/70 bg-card/55 p-4 text-sm text-muted-foreground">
+                {googleAnalyticsMessage}
+              </div>
+            ) : null}
+            {facebookSyncMessage ? (
+              <div className="rounded-[1rem] border border-border/70 bg-card/55 p-4 text-sm text-muted-foreground">
+                {facebookSyncMessage}
+              </div>
+            ) : null}
+            <div className="grid gap-3 md:grid-cols-2">
+              <ListCard>
+                <p className="font-medium text-foreground">Website evidence</p>
+                <p className="mt-2 text-sm text-muted-foreground">{websiteEvidenceNote}</p>
+                {googleAnalyticsSummary ? (
+                  <div className="mt-4 space-y-2 text-sm">
+                    <p className="text-muted-foreground">
+                      Sessions: <span className="text-foreground">{number(googleAnalyticsSummary.sessions)}</span>
+                    </p>
+                    <p className="text-muted-foreground">
+                      Top landing page: <span className="text-foreground">{topLandingPage?.path ?? "None yet"}</span>
+                    </p>
+                    <p className="text-muted-foreground">
+                      Strongest intent signal: <span className="text-foreground">{topIntentSignal ? `${topIntentSignal.label} (${number(topIntentSignal.count)})` : "No tracked intent event yet"}</span>
+                    </p>
                   </div>
-                </ListCard>
-              ))
-            ) : (
-              <EmptyState
-                title="No attributed sources yet"
-                description="Connect analytics and posting data to build the channel mix."
-              />
-            )}
+                ) : null}
+              </ListCard>
+              <ListCard>
+                <p className="font-medium text-foreground">Meta evidence</p>
+                <p className="mt-2 text-sm text-muted-foreground">{metaConfigurationNote}</p>
+                {facebookRead ? (
+                  <div className="mt-4 space-y-2 text-sm">
+                    <p className="text-muted-foreground">
+                      Source: <span className="text-foreground">{facebookRead.source === "live" ? "Live Facebook" : "Manual fallback"}</span>
+                    </p>
+                    <p className="text-muted-foreground">
+                      Impressions: <span className="text-foreground">{number(facebookRead.impressions)}</span>
+                    </p>
+                    <p className="text-muted-foreground">
+                      Clicks: <span className="text-foreground">{number(facebookRead.clicks)}</span>
+                    </p>
+                  </div>
+                ) : null}
+              </ListCard>
+            </div>
           </div>
         </Card>
-      </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-        <Card id="website-analytics">
-          <CardHeader>
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-              <div>
-                <CardDescription>Website Analytics</CardDescription>
-                <CardTitle className="mt-3">What the website is doing</CardTitle>
-                <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
-                  This is the website traffic layer from GA4. It tells you whether campaigns are creating attention before we tie that traffic back to covers and revenue.
-                </p>
-              </div>
-              <Button
-                disabled={!googleAnalyticsSummary?.readyToSync || syncingGoogleAnalytics}
-                onClick={() => void syncWebsiteAnalytics()}
-                size="sm"
-                variant="outline"
-              >
-                {syncingGoogleAnalytics ? "Syncing website..." : "Sync Google Analytics"}
-              </Button>
-            </div>
-          </CardHeader>
-          {googleAnalyticsMessage ? (
-            <div className="rounded-2xl border border-border/70 bg-card/65 p-4 text-sm text-muted-foreground">
-              {googleAnalyticsMessage}
-            </div>
-          ) : null}
-          {googleAnalyticsSummary ? (
-            <div className="space-y-3">
-              <ListCard>
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Live GA4 website snapshot</p>
-                    <p className="mt-2 text-xl font-medium text-foreground">
-                      {googleAnalyticsSummary.accountLabel}
-                    </p>
-                    <p className="mt-2 text-sm text-muted-foreground">
-                      {googleAnalyticsSummary.periodLabel || "Last 30 days"}
-                    </p>
-                  </div>
-                  {googleAnalyticsSummary.lastSyncAt ? (
-                    <p className="text-xs uppercase tracking-[0.16em] text-primary">
-                      Synced {new Date(googleAnalyticsSummary.lastSyncAt).toLocaleDateString()}
-                    </p>
-                  ) : (
-                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Waiting on first sync</p>
-                  )}
-                </div>
-                <div className="mt-4 grid gap-3 sm:grid-cols-4">
-                  <div className="rounded-2xl bg-muted/50 px-4 py-3">
-                    <p className="text-xs text-muted-foreground">Sessions</p>
-                    <p className="mt-2 text-xl font-medium text-foreground">{number(googleAnalyticsSummary.sessions)}</p>
-                  </div>
-                  <div className="rounded-2xl bg-muted/50 px-4 py-3">
-                    <p className="text-xs text-muted-foreground">Users</p>
-                    <p className="mt-2 text-xl font-medium text-foreground">{number(googleAnalyticsSummary.users)}</p>
-                  </div>
-                  <div className="rounded-2xl bg-muted/50 px-4 py-3">
-                    <p className="text-xs text-muted-foreground">Views</p>
-                    <p className="mt-2 text-xl font-medium text-foreground">{number(googleAnalyticsSummary.views)}</p>
-                  </div>
-                  <div className="rounded-2xl bg-muted/50 px-4 py-3">
-                    <p className="text-xs text-muted-foreground">Events</p>
-                    <p className="mt-2 text-xl font-medium text-foreground">{number(googleAnalyticsSummary.events)}</p>
-                  </div>
-                </div>
-              </ListCard>
-              <div className="grid gap-3 lg:grid-cols-2">
-                <ListCard>
-                  <p className="font-medium text-foreground">Top traffic sources</p>
-                  <div className="mt-3 space-y-2">
-                    {googleAnalyticsSummary.topSources.length ? (
-                      googleAnalyticsSummary.topSources.map((source) => (
-                        <div className="flex items-center justify-between gap-4 text-sm" key={source.label}>
-                          <span className="text-muted-foreground">{source.label}</span>
-                          <span className="text-foreground">{number(source.sessions)}</span>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="text-sm text-muted-foreground">
-                        Run the first sync to see where the strongest sessions are coming from.
-                      </p>
-                    )}
-                  </div>
-                </ListCard>
-                <ListCard>
-                  <p className="font-medium text-foreground">Top landing pages</p>
-                  <div className="mt-3 space-y-2">
-                    {googleAnalyticsSummary.topPages.length ? (
-                      googleAnalyticsSummary.topPages.map((page) => (
-                        <div className="flex items-center justify-between gap-4 text-sm" key={page.path}>
-                          <span className="truncate text-muted-foreground">{page.path}</span>
-                          <span className="shrink-0 text-foreground">{number(page.views)}</span>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="text-sm text-muted-foreground">
-                        Run the first sync to see which pages are doing the work.
-                      </p>
-                    )}
-                  </div>
-                </ListCard>
-              </div>
-              <div className="grid gap-3 lg:grid-cols-2">
-                <ListCard>
-                  <p className="font-medium text-foreground">Website intent signals</p>
-                  <div className="mt-3 space-y-2">
-                    {googleAnalyticsSummary.keyEvents.length ? (
-                      googleAnalyticsSummary.keyEvents.map((event) => (
-                        <div
-                          className="flex items-center justify-between gap-4 text-sm"
-                          key={event.label}
-                        >
-                          <span className="text-muted-foreground">{event.label}</span>
-                          <span className="text-foreground">{number(event.count)}</span>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="text-sm text-muted-foreground">
-                        No tracked reservation, order, call, or menu actions yet.
-                      </p>
-                    )}
-                  </div>
-                </ListCard>
-                <ListCard>
-                  <p className="font-medium text-foreground">Traffic quality</p>
-                  <div className="mt-3 space-y-2 text-sm">
-                    <p className="text-muted-foreground">
-                      Strongest usable source:{" "}
-                      <span className="text-foreground">
-                        {googleAnalyticsSummary.sourceQuality.topSourceLabel ?? "None yet"}
-                      </span>
-                    </p>
-                    <p className="text-muted-foreground">
-                      Unattributed traffic:{" "}
-                      <span className="text-foreground">
-                        {number(googleAnalyticsSummary.sourceQuality.notSetSessions)} sessions
-                      </span>
-                    </p>
-                    <p className="text-muted-foreground">
-                      If you see `not set`, Google Analytics did not get a reliable traffic-source label for those visits.
-                    </p>
-                  </div>
-                </ListCard>
-              </div>
-            </div>
-          ) : (
-            <EmptyState
-              title="Website analytics not ready"
-              description="Add the GA4 property and service account credentials, then run the first sync."
-            />
-          )}
-        </Card>
-
-        <Card id="meta-business-suite">
-          <CardHeader>
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-              <div>
-                <CardDescription>Meta Business Suite</CardDescription>
-                <CardTitle className="mt-3">Digestible Meta performance</CardTitle>
-                <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
-                  Facebook is the first live source here. Instagram can continue as manual fallback until that connection is ready.
-                </p>
-              </div>
-              <Button
-                disabled={
-                  syncingFacebook ||
-                  !metaSummary?.channels.find(
-                    (channel) =>
-                      channel.provider === "facebook" && channel.authStatus === "connected"
-                  )
-                }
-                onClick={() => void syncFacebookInsights()}
-                size="sm"
-                variant="outline"
-              >
-                {syncingFacebook ? "Syncing Facebook..." : "Sync Facebook insights"}
-              </Button>
-            </div>
-          </CardHeader>
-          {facebookSyncMessage ? (
-            <div className="rounded-2xl border border-border/70 bg-card/65 p-4 text-sm text-muted-foreground">
-              {facebookSyncMessage}
-            </div>
-          ) : null}
-          {facebookRead ? (
-            <div className="space-y-3">
-              <ListCard>
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-sm text-muted-foreground">
-                      {facebookRead.source === "live" ? "Live Facebook snapshot" : "Manual Facebook snapshot"}
-                    </p>
-                    <p className="mt-2 text-xl font-medium text-foreground">{facebookRead.label}</p>
-                    <p className="mt-2 text-sm text-muted-foreground">
-                      {facebookRead.periodLabel || "Current Facebook reporting window"}
-                    </p>
-                  </div>
-                  {facebookRead.syncedAt ? (
-                    <p className="text-xs uppercase tracking-[0.16em] text-primary">
-                      Synced {new Date(facebookRead.syncedAt).toLocaleDateString()}
-                    </p>
-                  ) : (
-                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Manual</p>
-                  )}
-                </div>
-                <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-2xl bg-muted/50 px-4 py-3">
-                    <p className="text-xs text-muted-foreground">Impressions</p>
-                    <p className="mt-2 text-xl font-medium text-foreground">{number(facebookRead.impressions)}</p>
-                  </div>
-                  <div className="rounded-2xl bg-muted/50 px-4 py-3">
-                    <p className="text-xs text-muted-foreground">Clicks</p>
-                    <p className="mt-2 text-xl font-medium text-foreground">{number(facebookRead.clicks)}</p>
-                  </div>
-                  <div className="rounded-2xl bg-muted/50 px-4 py-3">
-                    <p className="text-xs text-muted-foreground">Engagement</p>
-                    <p className="mt-2 text-xl font-medium text-foreground">{number(facebookRead.engagement)}</p>
-                  </div>
-                </div>
-                <p className="mt-4 text-sm text-muted-foreground">
-                  {facebookRead.nextAction ||
-                    (facebookRead.impressions > 0
-                      ? "Facebook is connected and reporting live page-level performance."
-                      : "Facebook is connected, but Meta is still returning a thin performance payload for this Page.")}
-                </p>
-              </ListCard>
-            </div>
-          ) : null}
-          {!metaSummary && !manualMetaChannels.length ? (
-            <EmptyState
-              title="Meta digest not ready"
-              description="Connect Meta Business Suite and sync Facebook analytics to populate this summary."
-            />
-          ) : manualMetaChannels.length > 0 &&
-            !(metaSummary?.channels.some((channel) => channel.authStatus === "connected")) ? (
-            <div className="space-y-3">
-              <ListCard>
-                <p className="text-sm text-muted-foreground">Manual Meta Performance</p>
-                <div className="mt-3 grid gap-2 md:grid-cols-4">
-                  <p className="text-sm text-muted-foreground">
-                    Impressions: <span className="text-foreground">{number(manualMetaTotals.impressions)}</span>
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    Reach: <span className="text-foreground">{number(manualMetaTotals.reach)}</span>
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    Clicks: <span className="text-foreground">{number(manualMetaTotals.clicks)}</span>
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    Revenue: <span className="text-foreground">{currency(manualMetaTotals.attributedRevenue)}</span>
-                  </p>
-                </div>
-              </ListCard>
-              {manualMetaChannels.map((channel) => (
-                <ListCard key={channel.provider}>
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <p className="font-medium capitalize text-foreground">{channel.provider}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        {channel.accountLabel}{channel.handle ? ` · ${channel.handle}` : ""}
-                      </p>
-                    </div>
-                    <p className="text-xs uppercase tracking-[0.16em] text-primary">
-                      {channel.periodLabel}
-                    </p>
-                  </div>
-                  <div className="mt-3 grid gap-2 md:grid-cols-4">
-                    <p className="text-sm text-muted-foreground">
-                      Impressions: <span className="text-foreground">{number(channel.impressions)}</span>
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      Reach: <span className="text-foreground">{number(channel.reach)}</span>
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      Clicks: <span className="text-foreground">{number(channel.clicks)}</span>
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      Covers: <span className="text-foreground">{number(channel.attributedCovers)}</span>
-                    </p>
-                  </div>
-                  {channel.topPost || channel.nextAction ? (
-                    <div className="mt-4 grid gap-3 md:grid-cols-2">
-                      {channel.topPost ? (
-                        <p className="text-sm text-muted-foreground">
-                          Top post: <span className="text-foreground">{channel.topPost}</span>
-                        </p>
-                      ) : null}
-                      {channel.nextAction ? (
-                        <p className="text-sm text-muted-foreground">
-                          Next action: <span className="text-foreground">{channel.nextAction}</span>
-                        </p>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </ListCard>
-              ))}
-            </div>
-          ) : metaSummary ? (
-            <div className="space-y-3">
-              <ListCard>
-                <p className="text-sm text-muted-foreground">Combined Meta Performance</p>
-                <div className="mt-3 grid gap-2 md:grid-cols-4">
-                  <p className="text-sm text-muted-foreground">
-                    Impressions: <span className="text-foreground">{number(metaSummary.totalImpressions + fallbackManualTotals.impressions)}</span>
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    Clicks: <span className="text-foreground">{number(metaSummary.totalClicks + fallbackManualTotals.clicks)}</span>
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    Reach: <span className="text-foreground">{number(fallbackManualTotals.reach)}</span>
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    Revenue: <span className="text-foreground">{currency(displayedMetaRevenue)}</span>
-                  </p>
-                </div>
-              </ListCard>
-              {metaSummary.channels
-                .filter((channel) => channel.authStatus === "connected")
-                .map((channel) => (
-                <ListCard key={channel.provider}>
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <p className="font-medium capitalize text-foreground">{channel.provider}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">{channel.accountLabel}</p>
-                    </div>
-                    <p className="text-xs uppercase tracking-[0.16em] text-primary">
-                      {channel.lastSyncAt
-                        ? `Synced ${new Date(channel.lastSyncAt).toLocaleDateString()}`
-                        : channel.authStatus}
-                    </p>
-                  </div>
-                  {channel.latestPeriodLabel ? (
-                    <p className="mt-2 text-sm text-muted-foreground">{channel.latestPeriodLabel}</p>
-                  ) : null}
-                  <div className="mt-3 grid gap-2 md:grid-cols-3">
-                    <p className="text-sm text-muted-foreground">
-                      Impressions: <span className="text-foreground">{number(channel.impressions)}</span>
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      Clicks: <span className="text-foreground">{number(channel.clicks)}</span>
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      Covers: <span className="text-foreground">{number(channel.attributedCovers)}</span>
-                    </p>
-                  </div>
-                  {channel.nextAction ? (
-                    <p className="mt-3 text-sm text-muted-foreground">{channel.nextAction}</p>
-                  ) : null}
-                </ListCard>
-              ))}
-              {fallbackManualChannels.map((channel) => (
-                <ListCard key={`manual-${channel.provider}`}>
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <p className="font-medium capitalize text-foreground">{channel.provider}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        Manual fallback · {channel.accountLabel}
-                        {channel.handle ? ` · ${channel.handle}` : ""}
-                      </p>
-                    </div>
-                    <p className="text-xs uppercase tracking-[0.16em] text-primary">
-                      {channel.periodLabel}
-                    </p>
-                  </div>
-                  <div className="mt-3 grid gap-2 md:grid-cols-4">
-                    <p className="text-sm text-muted-foreground">
-                      Impressions: <span className="text-foreground">{number(channel.impressions)}</span>
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      Reach: <span className="text-foreground">{number(channel.reach)}</span>
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      Clicks: <span className="text-foreground">{number(channel.clicks)}</span>
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      Covers: <span className="text-foreground">{number(channel.attributedCovers)}</span>
-                    </p>
-                  </div>
-                </ListCard>
-              ))}
-            </div>
-          ) : (
-            <EmptyState
-              title="Meta digest not ready"
-              description="Connect Meta Business Suite and sync Facebook or Instagram analytics to populate this summary."
-            />
-          )}
-        </Card>
-
-        <Card id="campaign-impact">
+        <Card id="campaign-proof">
           <CardHeader>
             <div>
-              <CardDescription>Campaign Impact</CardDescription>
-              <CardTitle className="mt-3">What the active initiatives are producing</CardTitle>
+              <CardDescription>Campaign proof</CardDescription>
+              <CardTitle className="mt-3">Which initiatives are easiest to explain</CardTitle>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
+                These are the strongest campaign-level proof points to use in a restaurant conversation right now.
+              </p>
             </div>
           </CardHeader>
           <div className="space-y-3">
-            {campaignRecaps.length ? (
-              campaignRecaps.map((campaign) => (
+            {topCampaigns.length ? (
+              topCampaigns.map((campaign) => (
                 <ListCard key={campaign.id}>
                   <div className="flex items-start justify-between gap-4">
                     <div>
-                      <p className="font-medium text-foreground">{campaign.name}</p>
+                      <Link className="font-medium text-foreground hover:text-primary" href={`/campaigns/${campaign.id}`}>
+                        {campaign.name}
+                      </Link>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        Track whether campaign work created traffic, then compare it to covers and revenue movement.
+                        {currency(campaign.revenue)} · {number(campaign.covers)} covers · {number(campaign.tables, 1)} tables
                       </p>
                     </div>
-                    <Link className="text-sm font-medium text-primary" href={`/campaigns/${campaign.id}`}>
-                      Open
-                    </Link>
-                  </div>
-                  <div className="mt-3 grid gap-2 md:grid-cols-3">
-                    <p className="text-sm text-muted-foreground">
-                      Revenue: <span className="text-foreground">{currency(campaign.revenue)}</span>
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      Covers: <span className="text-foreground">{number(campaign.covers)}</span>
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      Tables: <span className="text-foreground">{number(campaign.tables, 1)}</span>
+                    <p className="text-xs uppercase tracking-[0.16em] text-primary">
+                      {campaign.revenue > 0 ? "Usable proof" : "Early"}
                     </p>
                   </div>
                 </ListCard>
               ))
             ) : (
               <EmptyState
-                title="No campaign impact yet"
-                description="Campaign-linked analytics will surface here once activity is connected."
+                title="No campaign proof yet"
+                description="Keep adding ROI snapshots and tied performance data so the initiative-level proof becomes easier to present."
               />
             )}
-          </div>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <div>
-              <CardDescription>Deep Workspaces</CardDescription>
-              <CardTitle className="mt-3">Open the detailed analysis tools</CardTitle>
-            </div>
-          </CardHeader>
-          <div className="grid gap-3">
-            <Link className={buttonVariants({ variant: "outline" })} href="/weekly-performance">
-              Open weekly covers
-            </Link>
-            <Link className={buttonVariants({ variant: "outline" })} href="/revenue-modeling">
-              Open revenue model
-            </Link>
-            <Link className={buttonVariants({ variant: "outline" })} href="/reporting">
-              Open reporting
-            </Link>
           </div>
         </Card>
       </div>
