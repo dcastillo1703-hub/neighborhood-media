@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import type { Route } from "next";
 import Link from "next/link";
 import { Circle, MessageSquare } from "lucide-react";
@@ -26,7 +27,7 @@ type OperatorQueueCardProps = {
   statusBadge?: string;
 };
 
-export function OperatorQueueCard({
+function OperatorQueueCardComponent({
   item,
   theme,
   eyebrow,
@@ -189,3 +190,24 @@ export function OperatorQueueCard({
     </div>
   );
 }
+
+export const OperatorQueueCard = memo(OperatorQueueCardComponent, (prevProps, nextProps) =>
+  prevProps.item.id === nextProps.item.id &&
+  prevProps.item.status === nextProps.item.status &&
+  prevProps.item.title === nextProps.item.title &&
+  prevProps.item.detail === nextProps.item.detail &&
+  prevProps.item.dateKey === nextProps.item.dateKey &&
+  prevProps.item.campaignName === nextProps.item.campaignName &&
+  prevProps.item.tone === nextProps.item.tone &&
+  prevProps.theme === nextProps.theme &&
+  prevProps.eyebrow === nextProps.eyebrow &&
+  prevProps.className === nextProps.className &&
+  prevProps.compact === nextProps.compact &&
+  prevProps.statusBadge === nextProps.statusBadge &&
+  prevProps.primaryAction?.label === nextProps.primaryAction?.label &&
+  prevProps.primaryAction?.disabled === nextProps.primaryAction?.disabled &&
+  prevProps.primaryAction?.emphasis === nextProps.primaryAction?.emphasis &&
+  prevProps.secondaryAction?.label === nextProps.secondaryAction?.label &&
+  prevProps.secondaryAction?.disabled === nextProps.secondaryAction?.disabled &&
+  prevProps.secondaryAction?.emphasis === nextProps.secondaryAction?.emphasis
+);

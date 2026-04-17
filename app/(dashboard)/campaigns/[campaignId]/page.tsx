@@ -22,6 +22,7 @@ import {
 
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { ListCard } from "@/components/dashboard/list-card";
+import { NextActionPanel } from "@/components/dashboard/next-action-panel";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -814,7 +815,7 @@ export default function CampaignDetailPage() {
             detail: "Current work is moving through the pipeline cleanly.",
             tone: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
           };
-  const nextAction =
+  const nextAction = useMemo(() => (
     !campaignTasks.length && !linkedPosts.length
       ? {
           label: "Create the first campaign step",
@@ -918,7 +919,7 @@ export default function CampaignDetailPage() {
                   timeContext: "This week",
                   actionLabel: "Add next step",
                   onClick: () => setActiveView("overview")
-                };
+                }), [blockedTaskCount, campaignTasks.length, hasMeaningfulResults, linkedPosts.length, missingContentCount, nextScheduledPost, overdueTaskCount, pendingReviews, scheduleGaps.length, setActiveView, setAddTaskOpen, unscheduledReadyCount, websiteReady]);
   const mobileNextActionLabel =
     nextAction.actionLabel.length > 14 ? "Do next" : nextAction.actionLabel;
   const scrollToSection = useCallback((elementId: string) => {
@@ -1927,44 +1928,20 @@ export default function CampaignDetailPage() {
           </div>
         </Card>
 
-        <Card className="p-0">
-          <div className="border-b border-border/70 px-4 py-4 sm:px-5">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Next action</p>
-              <span className="rounded-full border border-border/70 bg-muted/50 px-2.5 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                {nextAction.timeContext}
-              </span>
-            </div>
-            <p className="mt-2 text-lg font-semibold tracking-[-0.03em] text-foreground">{nextAction.label}</p>
-          </div>
-          <div className="space-y-4 px-4 py-4 sm:px-5">
-            <p className="text-sm leading-6 text-muted-foreground">{nextAction.detail}</p>
-            <div className="grid gap-3 rounded-[1rem] border border-border/70 bg-card/55 p-4">
-              <div>
-                <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">Why now</p>
-                <p className="mt-1 text-sm leading-6 text-foreground">{nextAction.reason}</p>
-              </div>
-              <div>
-                <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">What it unlocks</p>
-                <p className="mt-1 text-sm leading-6 text-foreground">{nextAction.impact}</p>
-              </div>
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <span className={["inline-flex rounded-full border px-2.5 py-1 text-xs font-medium", campaignHealth.tone].join(" ")}>
-                {campaignHealth.label}
-              </span>
-              <Button size="sm" type="button" onClick={nextAction.onClick}>
-                {nextAction.actionLabel}
-              </Button>
-            </div>
-            {nextActionFeedback ? (
-              <div className="rounded-[1rem] border border-border/70 bg-card/55 p-4">
-                <p className="text-sm font-medium text-foreground">{nextActionFeedback.label}</p>
-                <p className="mt-1 text-sm leading-6 text-muted-foreground">{nextActionFeedback.detail}</p>
-              </div>
-            ) : null}
-          </div>
-        </Card>
+        <NextActionPanel
+          actionLabel={nextAction.actionLabel}
+          detail={nextAction.detail}
+          feedback={nextActionFeedback}
+          impact={nextAction.impact}
+          label="Next action"
+          onAction={nextAction.onClick}
+          reason={nextAction.reason}
+          statusLabel={campaignHealth.label}
+          statusToneClassName={["inline-flex rounded-full border px-2.5 py-1 text-xs font-medium", campaignHealth.tone].join(" ")}
+          timeContext={nextAction.timeContext}
+          title={nextAction.label}
+          tone="light"
+        />
       </div>
 
       {activeView === "overview" ? (
@@ -2075,41 +2052,18 @@ export default function CampaignDetailPage() {
 
           <div className="mt-10 divide-y divide-white/10 overflow-hidden rounded-[1.35rem] border border-white/10 text-white">
             <div className="px-4 py-4">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <div className="flex items-center gap-3">
-                    <p className="text-sm text-white/45">Next action</p>
-                    <span className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-white/58">
-                      {nextAction.timeContext}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-lg font-semibold text-white">{nextAction.label}</p>
-                  <p className="mt-2 text-sm leading-6 text-white/58">{nextAction.detail}</p>
-                  <div className="mt-4 grid gap-3 rounded-[1rem] border border-white/10 bg-white/[0.03] p-3">
-                    <div>
-                      <p className="text-[0.68rem] uppercase tracking-[0.16em] text-white/40">Why now</p>
-                      <p className="mt-1 text-sm leading-5 text-white/72">{nextAction.reason}</p>
-                    </div>
-                    <div>
-                      <p className="text-[0.68rem] uppercase tracking-[0.16em] text-white/40">What it unlocks</p>
-                      <p className="mt-1 text-sm leading-5 text-white/72">{nextAction.impact}</p>
-                    </div>
-                  </div>
-                </div>
-                <button
-                  className="rounded-full border border-white/10 px-3 py-2 text-xs uppercase tracking-[0.14em] text-white/70"
-                  type="button"
-                  onClick={nextAction.onClick}
-                >
-                  {nextAction.actionLabel}
-                </button>
-              </div>
-              {nextActionFeedback ? (
-                <div className="mt-4 rounded-[1rem] border border-white/10 bg-white/[0.04] p-4">
-                  <p className="text-sm font-medium text-white/82">{nextActionFeedback.label}</p>
-                  <p className="mt-1 text-sm leading-6 text-white/58">{nextActionFeedback.detail}</p>
-                </div>
-              ) : null}
+              <NextActionPanel
+                actionLabel={nextAction.actionLabel}
+                detail={nextAction.detail}
+                feedback={nextActionFeedback}
+                impact={nextAction.impact}
+                label="Next action"
+                onAction={nextAction.onClick}
+                reason={nextAction.reason}
+                timeContext={nextAction.timeContext}
+                title={nextAction.label}
+                tone="dark"
+              />
             </div>
             {[
               { id: "content" as const, label: "Connected content", value: linkedPosts.length },

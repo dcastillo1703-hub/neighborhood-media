@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { ListCard } from "@/components/dashboard/list-card";
@@ -147,9 +147,31 @@ export default function ContentPage() {
     () => [...posts].sort((left, right) => left.publishDate.localeCompare(right.publishDate)),
     [posts]
   );
+  const contentPostsByDate = useMemo(
+    () =>
+      contentPosts.reduce<Map<string, typeof contentPosts>>((map, post) => {
+        const currentPosts = map.get(post.publishDate) ?? [];
+        map.set(post.publishDate, [...currentPosts, post]);
+        return map;
+      }, new Map()),
+    [contentPosts]
+  );
   const campaignPostIds = useMemo(
     () => new Set(campaignPosts.map((post) => post.id)),
     [campaignPosts]
+  );
+  const campaignsById = useMemo(
+    () => new Map(campaigns.map((campaign) => [campaign.id, campaign])),
+    [campaigns]
+  );
+  const approvalsByPostId = useMemo(
+    () =>
+      new Map(
+        approvals
+          .filter((item) => item.entityType === "post")
+          .map((item) => [item.entityId, item])
+      ),
+    [approvals]
   );
   const campaignTasks = useMemo(
     () =>
@@ -191,12 +213,16 @@ export default function ContentPage() {
     [operatorQueue.items, selectedDate]
   );
   const mobileTasks = operatorQueue.items;
+  const mobileTaskDateSet = useMemo(
+    () => new Set(mobileTasks.map((task) => task.dateKey).filter(Boolean) as string[]),
+    [mobileTasks]
+  );
   const todayTasks = operatorQueue.today.slice(0, 8);
   const waitingTasks = operatorQueue.waiting.slice(0, 8);
   const upcomingTasks = operatorQueue.upcoming.slice(0, 8);
   const unscheduledTasks = operatorQueue.unscheduled.slice(0, 8);
 
-  const handleCreateContent = async () => {
+  const handleCreateContent = useCallback(async () => {
     if (!draft.goal.trim() || !draft.content.trim() || !draft.cta.trim()) {
       return;
     }
@@ -229,9 +255,9 @@ export default function ContentPage() {
     } finally {
       setIsCreating(false);
     }
-  };
+  }, [activeClient.id, addPost, draft, prependApproval, prependJob, resetDraft, setContentView]);
 
-  const handleDeletePost = async (postId: string) => {
+  const handleDeletePost = useCallback(async (postId: string) => {
     setDeletingPostId(postId);
 
     try {
@@ -239,9 +265,9 @@ export default function ContentPage() {
     } finally {
       setDeletingPostId(null);
     }
-  };
+  }, [deletePost]);
 
-  const handleQueuePrimaryAction = async (task: OperatorQueueItem) => {
+  const handleQueuePrimaryAction = useCallback(async (task: OperatorQueueItem) => {
     setQueueActioningId(task.id);
 
     try {
@@ -286,9 +312,9 @@ export default function ContentPage() {
     } finally {
       setQueueActioningId(null);
     }
-  };
+  }, [posts, selectedDate, tasks, todayKey, updatePost, updateTaskStatus]);
 
-  const handleQueueReview = async (approvalId: string, status: "Approved" | "Changes Requested") => {
+  const handleQueueReview = useCallback(async (approvalId: string, status: "Approved" | "Changes Requested") => {
     setReviewingApprovalId(approvalId);
 
     try {
@@ -303,9 +329,9 @@ export default function ContentPage() {
     } finally {
       setReviewingApprovalId(null);
     }
-  };
+  }, [reviewApproval]);
 
-  const handleQueueSecondaryAction = async (task: OperatorQueueItem) => {
+  const handleQueueSecondaryAction = useCallback(async (task: OperatorQueueItem) => {
     if (task.entityType !== "approval") {
       return;
     }
@@ -317,9 +343,9 @@ export default function ContentPage() {
 
     setQueueConfirmingId(null);
     await handleQueueReview(task.entityId, "Changes Requested");
-  };
+  }, [handleQueueReview, queueConfirmingId]);
 
-  const handleUndoLastQueueAction = async () => {
+  const handleUndoLastQueueAction = useCallback(async () => {
     if (!lastQueueUndo) {
       return;
     }
@@ -327,7 +353,7 @@ export default function ContentPage() {
     const undoAction = lastQueueUndo;
     setLastQueueUndo(null);
     await undoAction.undo();
-  };
+  }, [lastQueueUndo]);
 
   if (!ready) {
     return <div className="text-sm text-muted-foreground">Loading content workspace...</div>;
@@ -398,7 +424,7 @@ export default function ContentPage() {
               <div className="mt-4 grid grid-cols-7 gap-2">
                 {monthDays.map((day) => {
                   const selected = day.dateKey === selectedDate;
-                  const hasWork = mobileTasks.some((task) => task.dateKey === day.dateKey);
+                  const hasWork = mobileTaskDateSet.has(day.dateKey);
 
                   return (
                     <button
@@ -694,10 +720,8 @@ export default function ContentPage() {
             <div className="divide-y divide-border/70">
               {contentPosts.length ? (
                 contentPosts.map((post) => {
-                  const linkedCampaign = campaigns.find((campaign) => campaign.id === post.campaignId);
-                  const approval = approvals.find(
-                    (item) => item.entityType === "post" && item.entityId === post.id
-                  );
+                  const linkedCampaign = post.campaignId ? campaignsById.get(post.campaignId) : undefined;
+                  const approval = approvalsByPostId.get(post.id);
 
                   return (
                     <ListCard key={post.id} className="rounded-none border-0 bg-transparent px-4 py-4 hover:bg-primary/5 sm:px-5">
@@ -751,7 +775,7 @@ export default function ContentPage() {
                   </div>
                 ))}
                 {monthDays.map((day) => {
-                  const dayPosts = contentPosts.filter((post) => post.publishDate === day.dateKey);
+                  const dayPosts = contentPostsByDate.get(day.dateKey) ?? [];
 
                   return (
                     <button

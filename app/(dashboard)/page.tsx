@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { Route } from "next";
 import Link from "next/link";
 import { motion } from "framer-motion";
@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 
 import { EmptyState } from "@/components/dashboard/empty-state";
+import { NextActionPanel } from "@/components/dashboard/next-action-panel";
 import { OperatorQueueCard } from "@/components/dashboard/operator-queue-card";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { Button } from "@/components/ui/button";
@@ -304,7 +305,7 @@ export default function DashboardPage() {
   );
   const clientActions = operatorQueue.items.slice(0, 4);
   const hasScheduleGap = hasExecutionSetup && !nextScheduledItem;
-  const homeNextAction = !hasExecutionSetup
+  const homeNextAction = useMemo(() => (!hasExecutionSetup
     ? {
         title: "Create the first meaningful step",
         detail: "Start with one campaign task or one content item so this workspace has something concrete to execute.",
@@ -384,7 +385,7 @@ export default function DashboardPage() {
                   timeContext: "This week",
                   href: "/campaigns" as Route,
                   actionLabel: "Add next step"
-                };
+                }), [blockedWorkspaceTask, hasExecutionSetup, hasScheduleGap, nextScheduledItem, overdueWorkspaceTask, pendingApprovals, readyUnscheduledPost]);
 
   const defaultHomeCards = useMemo<OverviewCardDraft[]>(() => [
     {
@@ -521,7 +522,7 @@ export default function DashboardPage() {
     }));
   };
 
-  const handleReview = async (approvalId: string, status: "Approved" | "Changes Requested") => {
+  const handleReview = useCallback(async (approvalId: string, status: "Approved" | "Changes Requested") => {
     setReviewingId(approvalId);
 
     try {
@@ -544,9 +545,9 @@ export default function DashboardPage() {
     } finally {
       setReviewingId(null);
     }
-  };
+  }, [profile?.email, profile?.fullName, reviewApproval]);
 
-  const handleQueuePrimaryAction = async (action: (typeof clientActions)[number]) => {
+  const handleQueuePrimaryAction = useCallback(async (action: (typeof clientActions)[number]) => {
     setQueueActioningId(action.id);
 
     try {
@@ -593,9 +594,9 @@ export default function DashboardPage() {
     } finally {
       setQueueActioningId(null);
     }
-  };
+  }, [currentDateKey, posts, tasks, updatePost, updateTaskStatus]);
 
-  const handleQueueSecondaryAction = async (action: (typeof clientActions)[number]) => {
+  const handleQueueSecondaryAction = useCallback(async (action: (typeof clientActions)[number]) => {
     if (action.entityType !== "approval") {
       return;
     }
@@ -607,9 +608,9 @@ export default function DashboardPage() {
 
     setQueueConfirmingId(null);
     await handleReview(action.entityId, "Changes Requested");
-  };
+  }, [handleReview, queueConfirmingId]);
 
-  const handleUndoLastQueueAction = async () => {
+  const handleUndoLastQueueAction = useCallback(async () => {
     if (!nextActionFeedback?.undo) {
       return;
     }
@@ -621,7 +622,7 @@ export default function DashboardPage() {
       label: "Change undone.",
       detail: "The item is back in its previous state."
     });
-  };
+  }, [nextActionFeedback]);
 
   return (
     <div className="grid gap-6 sm:gap-8">
@@ -667,31 +668,19 @@ export default function DashboardPage() {
           ))}
         </div>
 
-        <div className="mt-3 rounded-[1.35rem] border border-white/10 bg-[#1b1c1f] p-4">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-sm text-white/45">Next action</p>
-            <span className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-white/58">
-              {homeNextAction.timeContext}
-            </span>
-          </div>
-          <p className="mt-1 text-lg font-semibold text-white">{homeNextAction.title}</p>
-          <p className="mt-2 text-sm leading-6 text-white/58">{homeNextAction.detail}</p>
-          <div className="mt-4 grid gap-3 rounded-[1rem] border border-white/10 bg-white/[0.03] p-3">
-            <div>
-              <p className="text-[0.68rem] uppercase tracking-[0.16em] text-white/40">Why now</p>
-              <p className="mt-1 text-sm leading-5 text-white/72">{homeNextAction.reason}</p>
-            </div>
-            <div>
-              <p className="text-[0.68rem] uppercase tracking-[0.16em] text-white/40">What it unlocks</p>
-              <p className="mt-1 text-sm leading-5 text-white/72">{homeNextAction.impact}</p>
-            </div>
-          </div>
-          <Link
-            className="mt-4 inline-flex rounded-full bg-white px-4 py-2 text-sm font-semibold text-[#202124]"
-            href={homeNextAction.href}
-          >
-            {homeNextAction.actionLabel}
-          </Link>
+        <div className="mt-3">
+          <NextActionPanel
+            actionHref={homeNextAction.href}
+            actionLabel={homeNextAction.actionLabel}
+            detail={homeNextAction.detail}
+            feedback={null}
+            impact={homeNextAction.impact}
+            label="Next action"
+            reason={homeNextAction.reason}
+            timeContext={homeNextAction.timeContext}
+            title={homeNextAction.title}
+            tone="dark"
+          />
         </div>
 
         {nextActionFeedback ? (
@@ -983,35 +972,20 @@ export default function DashboardPage() {
         ))}
       </motion.div>
 
-      <Card className="hidden sm:block">
-        <CardHeader>
-          <div>
-            <CardDescription>Next Action</CardDescription>
-            <CardTitle className="mt-3">{homeNextAction.title}</CardTitle>
-          </div>
-          <div className="hidden items-center gap-3 sm:flex">
-            <span className="rounded-full border border-border/70 bg-muted/50 px-2.5 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-              {homeNextAction.timeContext}
-            </span>
-            <Link className="items-center gap-1 text-sm font-medium text-primary sm:flex" href={homeNextAction.href}>
-              {homeNextAction.actionLabel} <ChevronRight className="h-4 w-4" />
-            </Link>
-          </div>
-        </CardHeader>
-        <div className="px-6 pb-6">
-          <p className="text-sm leading-6 text-muted-foreground">{homeNextAction.detail}</p>
-          <div className="mt-4 grid gap-3 rounded-[1rem] border border-border/70 bg-card/55 p-4 sm:grid-cols-2">
-            <div>
-              <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">Why now</p>
-              <p className="mt-1 text-sm leading-6 text-foreground">{homeNextAction.reason}</p>
-            </div>
-            <div>
-              <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">What it unlocks</p>
-              <p className="mt-1 text-sm leading-6 text-foreground">{homeNextAction.impact}</p>
-            </div>
-          </div>
-        </div>
-      </Card>
+      <div className="hidden sm:block">
+        <NextActionPanel
+          actionHref={homeNextAction.href}
+          actionLabel={homeNextAction.actionLabel}
+          detail={homeNextAction.detail}
+          feedback={null}
+          impact={homeNextAction.impact}
+          label="Next Action"
+          reason={homeNextAction.reason}
+          timeContext={homeNextAction.timeContext}
+          title={homeNextAction.title}
+          tone="light"
+        />
+      </div>
 
       {nextActionFeedback ? (
         <Card className="hidden sm:block">

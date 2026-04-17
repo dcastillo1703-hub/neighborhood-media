@@ -1,10 +1,10 @@
 import { motion } from "framer-motion";
-import { ReactNode } from "react";
+import { memo, ReactNode } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
-export function PageHeader({
+function PageHeaderComponent({
   eyebrow,
   title,
   description,
@@ -40,3 +40,5 @@ export function PageHeader({
     </motion.div>
   );
 }
+
+export const PageHeader = memo(PageHeaderComponent);
