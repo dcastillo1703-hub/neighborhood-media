@@ -571,10 +571,8 @@ export default function CampaignDetailPage() {
     () => new Map(campaignPublishJobs.map((job) => [job.postId, job])),
     [campaignPublishJobs]
   );
-  const getPostApproval = (postId: string) =>
-    postApprovalMap.get(postId);
-  const getPostPublishJob = (postId: string) =>
-    postPublishJobMap.get(postId);
+  const getPostApproval = useCallback((postId: string) => postApprovalMap.get(postId), [postApprovalMap]);
+  const getPostPublishJob = useCallback((postId: string) => postPublishJobMap.get(postId), [postPublishJobMap]);
   const scheduledPosts = useMemo(
     () =>
       (overview?.linkedPosts ?? [])
@@ -649,65 +647,95 @@ export default function CampaignDetailPage() {
     setValue: setSelectedNote,
     reset: resetSelectedNote
   } = usePersistentDraft<string>(selectedNoteStorageKey, "");
-  const pendingReviews = campaignApprovals.filter((approval) => approval.status === "Pending").length;
-  const queuedPublishJobs = campaignPublishJobs.filter((job) =>
-    ["Queued", "Processing", "Blocked"].includes(job.status)
-  ).length;
-  const openCampaignTasks = campaignTasks.filter((task) => task.status !== "Done").length;
-  const completedCampaignGoals = campaignGoals.filter((goal) => goal.done).length;
-  const openCampaignGoals = campaignGoals.filter((goal) => !goal.done).length;
-  const nextScheduledPost = scheduledPosts[0] ?? null;
-  const readyToSchedulePosts = linkedPosts.filter(
-    (post) =>
-      post.status === "Draft" &&
-      (getPostApproval(post.id)?.status === "Approved" || post.approvalState === "Approved")
-  );
-  const unifiedCalendarItems = [
-    ...campaignTasks
-      .filter((task) => task.startDate || task.dueDate)
-      .map((task) => ({
-        id: `task-${task.id}`,
-        kind: task.isMilestone ? "milestone" : "task",
-        title: task.title,
-        date: task.dueDate || task.startDate || "",
-        status: getTaskStateLabel(task),
-        detail: task.detail,
-        item: task
+  const campaignExecutionStats = useMemo(() => {
+    const pendingReviews = campaignApprovals.filter((approval) => approval.status === "Pending").length;
+    const queuedPublishJobs = campaignPublishJobs.filter((job) =>
+      ["Queued", "Processing", "Blocked"].includes(job.status)
+    ).length;
+    const openCampaignTasks = campaignTasks.filter((task) => task.status !== "Done").length;
+    const completedCampaignGoals = campaignGoals.filter((goal) => goal.done).length;
+    const openCampaignGoals = campaignGoals.filter((goal) => !goal.done).length;
+    const nextScheduledPost = scheduledPosts[0] ?? null;
+    const readyToSchedulePosts = linkedPosts.filter(
+      (post) =>
+        post.status === "Draft" &&
+        (getPostApproval(post.id)?.status === "Approved" || post.approvalState === "Approved")
+    );
+    const scheduledCountsByDate = scheduledPosts.reduce<Map<string, number>>((counts, post) => {
+      counts.set(post.publishDate, (counts.get(post.publishDate) ?? 0) + 1);
+      return counts;
+    }, new Map());
+    const schedulingDays = Array.from({ length: 7 }, (_, index) => {
+      const nextDate = new Date();
+      nextDate.setDate(nextDate.getDate() + index);
+      const isoDate = nextDate.toISOString().slice(0, 10);
+
+      return {
+        date: isoDate,
+        label: formatShortDate(isoDate),
+        itemCount: scheduledCountsByDate.get(isoDate) ?? 0
+      };
+    });
+    const scheduleGaps = schedulingDays.filter((day) => day.itemCount === 0);
+    const unifiedCalendarItems = [
+      ...campaignTasks
+        .filter((task) => task.startDate || task.dueDate)
+        .map((task) => ({
+          id: `task-${task.id}`,
+          kind: task.isMilestone ? "milestone" : "task",
+          title: task.title,
+          date: task.dueDate || task.startDate || "",
+          status: getTaskStateLabel(task),
+          detail: task.detail,
+          item: task
+        })),
+      ...scheduledPosts.map((post) => ({
+        id: `post-${post.id}`,
+        kind: "content" as const,
+        title: post.goal,
+        date: post.publishDate,
+        status: getPostApproval(post.id)?.status ?? post.status,
+        detail: `${post.platform} · ${post.format ?? "Content"}`,
+        item: post
       })),
-    ...scheduledPosts.map((post) => ({
-      id: `post-${post.id}`,
-      kind: "content" as const,
-      title: post.goal,
-      date: post.publishDate,
-      status: getPostApproval(post.id)?.status ?? post.status,
-      detail: `${post.platform} · ${post.format ?? "Content"}`,
-      item: post
-    })),
-    ...campaignGoals
-      .filter((goal) => goal.dueDate)
-      .map((goal) => ({
-        id: `goal-${goal.id}`,
-        kind: "milestone" as const,
-        title: goal.label,
-        date: goal.dueDate ?? "",
-        status: goal.done ? "Complete" : "Open",
-        detail: goal.assigneeName ?? "Campaign goal",
-        item: goal
-      }))
-  ].sort((left, right) => left.date.localeCompare(right.date));
-  const schedulingDays = Array.from({ length: 7 }, (_, index) => {
-    const nextDate = new Date();
-    nextDate.setDate(nextDate.getDate() + index);
-    const isoDate = nextDate.toISOString().slice(0, 10);
-    const itemCount = scheduledPosts.filter((post) => post.publishDate === isoDate).length;
+      ...campaignGoals
+        .filter((goal) => goal.dueDate)
+        .map((goal) => ({
+          id: `goal-${goal.id}`,
+          kind: "milestone" as const,
+          title: goal.label,
+          date: goal.dueDate ?? "",
+          status: goal.done ? "Complete" : "Open",
+          detail: goal.assigneeName ?? "Campaign goal",
+          item: goal
+        }))
+    ].sort((left, right) => left.date.localeCompare(right.date));
 
     return {
-      date: isoDate,
-      label: formatShortDate(isoDate),
-      itemCount
+      pendingReviews,
+      queuedPublishJobs,
+      openCampaignTasks,
+      completedCampaignGoals,
+      openCampaignGoals,
+      nextScheduledPost,
+      readyToSchedulePosts,
+      schedulingDays,
+      scheduleGaps,
+      unifiedCalendarItems
     };
-  });
-  const scheduleGaps = schedulingDays.filter((day) => day.itemCount === 0);
+  }, [campaignApprovals, campaignGoals, campaignPublishJobs, campaignTasks, getPostApproval, linkedPosts, scheduledPosts]);
+  const {
+    pendingReviews,
+    queuedPublishJobs,
+    openCampaignTasks,
+    completedCampaignGoals,
+    openCampaignGoals,
+    nextScheduledPost,
+    readyToSchedulePosts,
+    schedulingDays,
+    scheduleGaps,
+    unifiedCalendarItems
+  } = campaignExecutionStats;
   const websitePreviewPath = websiteDraft.landingPath.startsWith("/")
     ? websiteDraft.landingPath
     : websiteDraft.landingPath
@@ -3961,7 +3989,7 @@ export default function CampaignDetailPage() {
       ) : null}
 
       {selectedItem ? (
-        <div className="fixed inset-0 z-50 bg-black/25 backdrop-blur-[2px]" onClick={() => resetSelectedItemState(null)}>
+        <div className="fixed inset-0 z-50 bg-black/20" onClick={() => resetSelectedItemState(null)}>
           <aside
             className="absolute inset-x-0 bottom-0 max-h-[88vh] overflow-y-auto overscroll-contain rounded-t-[1.5rem] border border-border bg-card p-4 shadow-[0_-24px_80px_rgba(0,0,0,0.24)] [-webkit-overflow-scrolling:touch] sm:inset-y-4 sm:left-auto sm:right-4 sm:w-[28rem] sm:max-h-none sm:rounded-[1.25rem] sm:p-5"
             onClick={(event) => event.stopPropagation()}

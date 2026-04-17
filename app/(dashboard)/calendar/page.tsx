@@ -54,19 +54,32 @@ export default function CampaignCalendarPage() {
     month: "long",
     year: "numeric"
   });
+  const monthStartKey = useMemo(() => formatDateKey(startOfMonth(monthCursor)), [monthCursor]);
+  const nextMonthStartKey = useMemo(() => formatDateKey(addMonths(monthCursor, 1)), [monthCursor]);
+  const postsByPublishDate = useMemo(
+    () =>
+      posts.reduce<Map<string, typeof posts>>((map, post) => {
+        if (!post.campaignId || !post.publishDate) {
+          return map;
+        }
+
+        const currentPosts = map.get(post.publishDate) ?? [];
+        map.set(post.publishDate, [...currentPosts, post]);
+        return map;
+      }, new Map()),
+    [posts]
+  );
 
   const calendarDays = useMemo(() => {
     const monthStart = startOfMonth(monthCursor);
     const gridStart = new Date(monthStart);
     gridStart.setDate(monthStart.getDate() - monthStart.getDay());
 
-    return Array.from({ length: 42 }, (_, index) => {
-      const date = new Date(gridStart);
-      date.setDate(gridStart.getDate() + index);
-      const dateKey = formatDateKey(date);
-      const scheduledPosts = posts.filter(
-        (post) => post.campaignId && post.publishDate === dateKey
-      );
+      return Array.from({ length: 42 }, (_, index) => {
+        const date = new Date(gridStart);
+        date.setDate(gridStart.getDate() + index);
+        const dateKey = formatDateKey(date);
+      const scheduledPosts = postsByPublishDate.get(dateKey) ?? [];
 
       return {
         date,
@@ -75,59 +88,66 @@ export default function CampaignCalendarPage() {
         scheduledPosts
       };
     });
-  }, [monthCursor, posts]);
+  }, [monthCursor, postsByPublishDate]);
 
-  const visibleCampaigns = campaigns.filter((campaign) => {
-    const monthStartKey = formatDateKey(startOfMonth(monthCursor));
-    const nextMonthStartKey = formatDateKey(addMonths(monthCursor, 1));
-    return campaign.endDate >= monthStartKey && campaign.startDate < nextMonthStartKey;
-  });
-  const visiblePosts = posts.filter((post) => {
-    if (!post.campaignId || !post.publishDate) {
-      return false;
-    }
-
-    const monthStartKey = formatDateKey(startOfMonth(monthCursor));
-    const nextMonthStartKey = formatDateKey(addMonths(monthCursor, 1));
-    return post.publishDate >= monthStartKey && post.publishDate < nextMonthStartKey;
-  });
-  const todayKey = formatDateKey(new Date());
-  const nextCalendarItems = [
-    ...campaigns.flatMap((campaign) => [
-      {
-        id: `${campaign.id}-start`,
-        date: campaign.startDate,
-        label: campaign.name,
-        detail: "Campaign starts",
-        href: `/campaigns/${campaign.id}`
-      },
-      {
-        id: `${campaign.id}-end`,
-        date: campaign.endDate,
-        label: campaign.name,
-        detail: "Campaign ends",
-        href: `/campaigns/${campaign.id}`
-      }
-    ]),
-    ...posts
-      .filter((post) => post.campaignId && post.publishDate)
-      .map((post) => ({
-        id: `${post.id}-post`,
-        date: post.publishDate,
-        label: post.goal || post.platform,
-        detail: `${post.platform} post · ${post.status}`,
-        href: `/campaigns/${post.campaignId}`
-      }))
-  ]
-    .filter((item) => item.date >= todayKey)
-    .sort((left, right) => left.date.localeCompare(right.date))
-    .slice(0, 4);
-  const scheduledDays = calendarDays.filter(
-    (day) => day.inCurrentMonth && day.scheduledPosts.length
+  const visibleCampaigns = useMemo(
+    () =>
+      campaigns.filter((campaign) => campaign.endDate >= monthStartKey && campaign.startDate < nextMonthStartKey),
+    [campaigns, monthStartKey, nextMonthStartKey]
   );
-  const openExecutionDays = calendarDays.filter(
-    (day) => day.inCurrentMonth && !day.scheduledPosts.length
-  ).length;
+  const visiblePosts = useMemo(
+    () =>
+      posts.filter(
+        (post) =>
+          Boolean(post.campaignId && post.publishDate) &&
+          post.publishDate >= monthStartKey &&
+          post.publishDate < nextMonthStartKey
+      ),
+    [monthStartKey, nextMonthStartKey, posts]
+  );
+  const todayKey = formatDateKey(new Date());
+  const nextCalendarItems = useMemo(
+    () =>
+      [
+        ...campaigns.flatMap((campaign) => [
+          {
+            id: `${campaign.id}-start`,
+            date: campaign.startDate,
+            label: campaign.name,
+            detail: "Campaign starts",
+            href: `/campaigns/${campaign.id}`
+          },
+          {
+            id: `${campaign.id}-end`,
+            date: campaign.endDate,
+            label: campaign.name,
+            detail: "Campaign ends",
+            href: `/campaigns/${campaign.id}`
+          }
+        ]),
+        ...posts
+          .filter((post) => post.campaignId && post.publishDate)
+          .map((post) => ({
+            id: `${post.id}-post`,
+            date: post.publishDate,
+            label: post.goal || post.platform,
+            detail: `${post.platform} post · ${post.status}`,
+            href: `/campaigns/${post.campaignId}`
+          }))
+      ]
+        .filter((item) => item.date >= todayKey)
+        .sort((left, right) => left.date.localeCompare(right.date))
+        .slice(0, 4),
+    [campaigns, posts, todayKey]
+  );
+  const scheduledDays = useMemo(
+    () => calendarDays.filter((day) => day.inCurrentMonth && day.scheduledPosts.length),
+    [calendarDays]
+  );
+  const openExecutionDays = useMemo(
+    () => calendarDays.filter((day) => day.inCurrentMonth && !day.scheduledPosts.length).length,
+    [calendarDays]
+  );
 
   if (!ready || !postsReady) {
     return <div className="text-sm text-muted-foreground">Loading campaign calendar...</div>;

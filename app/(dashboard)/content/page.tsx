@@ -135,18 +135,39 @@ export default function ContentPage() {
     year: "numeric"
   });
 
-  const campaignPosts = posts.filter((post) => Boolean(post.campaignId));
-  const scheduledPosts = getScheduledPosts(campaignPosts);
-  const contentPosts = [...posts].sort((left, right) => left.publishDate.localeCompare(right.publishDate));
-  const campaignPostIds = new Set(campaignPosts.map((post) => post.id));
-  const campaignTasks = tasks.filter(
-    (task) => task.linkedEntityType === "campaign" && task.linkedEntityId && task.status !== "Done"
+  const campaignPosts = useMemo(
+    () => posts.filter((post) => Boolean(post.campaignId)),
+    [posts]
   );
-  const pendingApprovals = approvals.filter(
-    (approval) => approval.status === "Pending" && campaignPostIds.has(approval.entityId)
+  const scheduledPosts = useMemo(
+    () => getScheduledPosts(campaignPosts),
+    [campaignPosts]
   );
-  const queuedPublishJobs = jobs.filter((job) =>
-    ["Queued", "Processing", "Blocked"].includes(job.status) && campaignPostIds.has(job.postId)
+  const contentPosts = useMemo(
+    () => [...posts].sort((left, right) => left.publishDate.localeCompare(right.publishDate)),
+    [posts]
+  );
+  const campaignPostIds = useMemo(
+    () => new Set(campaignPosts.map((post) => post.id)),
+    [campaignPosts]
+  );
+  const campaignTasks = useMemo(
+    () =>
+      tasks.filter(
+        (task) => task.linkedEntityType === "campaign" && task.linkedEntityId && task.status !== "Done"
+      ),
+    [tasks]
+  );
+  const pendingApprovals = useMemo(
+    () => approvals.filter((approval) => approval.status === "Pending" && campaignPostIds.has(approval.entityId)),
+    [approvals, campaignPostIds]
+  );
+  const queuedPublishJobs = useMemo(
+    () =>
+      jobs.filter(
+        (job) => ["Queued", "Processing", "Blocked"].includes(job.status) && campaignPostIds.has(job.postId)
+      ),
+    [campaignPostIds, jobs]
   );
   const selectedDayLabel = new Date(`${selectedDate}T00:00:00`).toLocaleDateString("en-US", {
     month: "long",
@@ -165,7 +186,10 @@ export default function ContentPage() {
       }),
     [approvals, campaignGoals, campaignPosts, campaignTasks, campaigns, jobs, todayKey]
   );
-  const selectedDayTasks = operatorQueue.items.filter((item) => item.dateKey === selectedDate);
+  const selectedDayTasks = useMemo(
+    () => operatorQueue.items.filter((item) => item.dateKey === selectedDate),
+    [operatorQueue.items, selectedDate]
+  );
   const mobileTasks = operatorQueue.items;
   const todayTasks = operatorQueue.today.slice(0, 8);
   const waitingTasks = operatorQueue.waiting.slice(0, 8);

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { ListCard } from "@/components/dashboard/list-card";
@@ -51,38 +51,69 @@ export default function PerformancePage() {
   const [syncingGoogleAnalytics, setSyncingGoogleAnalytics] = useState(false);
   const [googleAnalyticsMessage, setGoogleAnalyticsMessage] = useState<string | null>(null);
 
-  const revenueModel = calculateRevenueModel(revenueModelDefaults);
-  const latestWeek = getLatestWeekSummary(metrics, settings.averageCheck);
-  const toastOpportunities = buildToastOpportunitySummary(metrics, settings.averageCheck);
-  const monthlyPerformance = buildMonthlyPerformance(
-    metrics,
-    settings.averageCheck,
-    settings.guestsPerTable,
-    6,
-    false
+  const revenueModel = useMemo(
+    () => calculateRevenueModel(revenueModelDefaults),
+    [revenueModelDefaults]
   );
-  const roiSummary = summarizeRoi(analyticsSnapshots);
-  const channelContribution = summarizeChannelContribution(analyticsSnapshots);
-  const campaignRecaps = summarizeCampaignRecaps(campaigns, analyticsSnapshots);
+  const latestWeek = useMemo(
+    () => getLatestWeekSummary(metrics, settings.averageCheck),
+    [metrics, settings.averageCheck]
+  );
+  const toastOpportunities = useMemo(
+    () => buildToastOpportunitySummary(metrics, settings.averageCheck),
+    [metrics, settings.averageCheck]
+  );
+  const monthlyPerformance = useMemo(
+    () =>
+      buildMonthlyPerformance(
+        metrics,
+        settings.averageCheck,
+        settings.guestsPerTable,
+        6,
+        false
+      ),
+    [metrics, settings.averageCheck, settings.guestsPerTable]
+  );
+  const roiSummary = useMemo(
+    () => summarizeRoi(analyticsSnapshots),
+    [analyticsSnapshots]
+  );
+  const channelContribution = useMemo(
+    () => summarizeChannelContribution(analyticsSnapshots),
+    [analyticsSnapshots]
+  );
+  const campaignRecaps = useMemo(
+    () => summarizeCampaignRecaps(campaigns, analyticsSnapshots),
+    [analyticsSnapshots, campaigns]
+  );
   const currentMonth = monthlyPerformance[monthlyPerformance.length - 1] ?? null;
   const topCampaign = [...campaignRecaps].sort((left, right) => right.revenue - left.revenue)[0] ?? null;
-  const connectedMetaProviders = new Set(
-    (metaSummary?.channels ?? [])
-      .filter((channel) => channel.authStatus === "connected")
-      .map((channel) => channel.provider)
+  const connectedMetaProviders = useMemo(
+    () =>
+      new Set(
+        (metaSummary?.channels ?? [])
+          .filter((channel) => channel.authStatus === "connected")
+          .map((channel) => channel.provider)
+      ),
+    [metaSummary?.channels]
   );
-  const fallbackManualChannels = manualMetaChannels.filter(
-    (channel) => !connectedMetaProviders.has(channel.provider)
+  const fallbackManualChannels = useMemo(
+    () => manualMetaChannels.filter((channel) => !connectedMetaProviders.has(channel.provider)),
+    [connectedMetaProviders, manualMetaChannels]
   );
-  const fallbackManualTotals = fallbackManualChannels.reduce(
-    (totals, channel) => ({
-      impressions: totals.impressions + channel.impressions,
-      clicks: totals.clicks + channel.clicks,
-      reach: totals.reach + channel.reach,
-      attributedRevenue: totals.attributedRevenue + channel.attributedRevenue,
-      attributedCovers: totals.attributedCovers + channel.attributedCovers
-    }),
-    { impressions: 0, clicks: 0, reach: 0, attributedRevenue: 0, attributedCovers: 0 }
+  const fallbackManualTotals = useMemo(
+    () =>
+      fallbackManualChannels.reduce(
+        (totals, channel) => ({
+          impressions: totals.impressions + channel.impressions,
+          clicks: totals.clicks + channel.clicks,
+          reach: totals.reach + channel.reach,
+          attributedRevenue: totals.attributedRevenue + channel.attributedRevenue,
+          attributedCovers: totals.attributedCovers + channel.attributedCovers
+        }),
+        { impressions: 0, clicks: 0, reach: 0, attributedRevenue: 0, attributedCovers: 0 }
+      ),
+    [fallbackManualChannels]
   );
   const displayedMetaRevenue =
     (metaSummary?.totalAttributedRevenue ?? 0) + fallbackManualTotals.attributedRevenue;
@@ -113,10 +144,13 @@ export default function PerformancePage() {
           source: "manual" as const
         }
       : null;
-  const performanceStory =
-    roiSummary.revenue > 0
-      ? `${activeClient.name} has ${currency(roiSummary.revenue)} in attributed campaign revenue across ${number(roiSummary.covers)} covers. ${topCampaign?.revenue ? `${topCampaign.name} is currently the strongest performer.` : "Keep tying posts and campaigns to weekly metrics to sharpen the picture."}`
-      : `No campaign revenue is attributed yet. Start by adding ROI snapshots inside campaigns, then use this page to see which growth efforts are actually moving covers and revenue.`;
+  const performanceStory = useMemo(
+    () =>
+      roiSummary.revenue > 0
+        ? `${activeClient.name} has ${currency(roiSummary.revenue)} in attributed campaign revenue across ${number(roiSummary.covers)} covers. ${topCampaign?.revenue ? `${topCampaign.name} is currently the strongest performer.` : "Keep tying posts and campaigns to weekly metrics to sharpen the picture."}`
+        : "No campaign revenue is attributed yet. Start by adding ROI snapshots inside campaigns, then use this page to see which growth efforts are actually moving covers and revenue.",
+    [activeClient.name, roiSummary.covers, roiSummary.revenue, topCampaign?.name, topCampaign?.revenue]
+  );
 
   const syncFacebookInsights = async () => {
     setSyncingFacebook(true);
