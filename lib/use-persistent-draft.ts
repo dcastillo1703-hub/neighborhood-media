@@ -19,6 +19,14 @@ function getStorageKey(key: string) {
   return `${draftStoragePrefix}${key}`;
 }
 
+function serializeDraftValue<T>(value: T) {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return null;
+  }
+}
+
 function readDraftValue<T>(key: string): T | null {
   if (typeof window === "undefined") {
     return null;
@@ -77,23 +85,72 @@ export function usePersistentDraft<T>(key: string, initialValue: InitialValue<T>
   const [hydrated, setHydrated] = useState(typeof window === "undefined");
   const [isDirty, setIsDirty] = useState(false);
   const dirtyRef = useRef(false);
+  const latestValueRef = useRef(value);
+  const lastWrittenValueRef = useRef<string | null>(serializeDraftValue(value));
+  const pendingWriteHandleRef = useRef<number | null>(null);
+
+  latestValueRef.current = value;
+
+  const flushDraftWrite = useCallback(
+    (targetKey = key) => {
+      if (typeof window === "undefined" || !dirtyRef.current) {
+        return;
+      }
+
+      const serializedValue = serializeDraftValue(latestValueRef.current);
+
+      if (serializedValue === null || serializedValue === lastWrittenValueRef.current) {
+        return;
+      }
+
+      writeDraftValue(targetKey, latestValueRef.current);
+      lastWrittenValueRef.current = serializedValue;
+    },
+    [key]
+  );
+
+  const cancelPendingWrite = useCallback(() => {
+    if (pendingWriteHandleRef.current === null || typeof window === "undefined") {
+      return;
+    }
+
+    const idleWindow = window as Window & {
+      requestIdleCallback?: typeof requestIdleCallback;
+      cancelIdleCallback?: typeof cancelIdleCallback;
+    };
+
+    if (idleWindow.cancelIdleCallback) {
+      idleWindow.cancelIdleCallback(pendingWriteHandleRef.current);
+    } else {
+      window.clearTimeout(pendingWriteHandleRef.current);
+    }
+
+    pendingWriteHandleRef.current = null;
+  }, []);
 
   useEffect(() => {
     const storedDraft = readDraftValue<T>(key);
 
     if (storedDraft !== null) {
+      cancelPendingWrite();
       dirtyRef.current = true;
       setIsDirty(true);
       setValueState(storedDraft);
+      latestValueRef.current = storedDraft;
+      lastWrittenValueRef.current = serializeDraftValue(storedDraft);
       setHydrated(true);
       return;
     }
 
+    cancelPendingWrite();
     dirtyRef.current = false;
     setIsDirty(false);
-    setValueState(resolveInitialValue(initialValueRef.current));
+    const resolvedValue = resolveInitialValue(initialValueRef.current);
+    setValueState(resolvedValue);
+    latestValueRef.current = resolvedValue;
+    lastWrittenValueRef.current = serializeDraftValue(resolvedValue);
     setHydrated(true);
-  }, [key]);
+  }, [cancelPendingWrite, key]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -108,20 +165,73 @@ export function usePersistentDraft<T>(key: string, initialValue: InitialValue<T>
       const storedDraft = readDraftValue<T>(key);
 
       if (storedDraft === null) {
+        cancelPendingWrite();
         dirtyRef.current = false;
         setIsDirty(false);
-        setValueState(resolveInitialValue(initialValueRef.current));
+        const resolvedValue = resolveInitialValue(initialValueRef.current);
+        setValueState(resolvedValue);
+        latestValueRef.current = resolvedValue;
+        lastWrittenValueRef.current = serializeDraftValue(resolvedValue);
         return;
       }
 
+      cancelPendingWrite();
       dirtyRef.current = true;
       setIsDirty(true);
       setValueState(storedDraft);
+      latestValueRef.current = storedDraft;
+      lastWrittenValueRef.current = serializeDraftValue(storedDraft);
     };
 
     window.addEventListener("storage", syncFromStorage);
     return () => window.removeEventListener("storage", syncFromStorage);
-  }, [key]);
+  }, [cancelPendingWrite, key]);
+
+  useEffect(() => {
+    if (!hydrated || !dirtyRef.current || typeof window === "undefined") {
+      return;
+    }
+
+    cancelPendingWrite();
+
+    const scheduleWrite = () => {
+      flushDraftWrite();
+      pendingWriteHandleRef.current = null;
+    };
+
+    const idleWindow = window as Window & {
+      requestIdleCallback?: typeof requestIdleCallback;
+    };
+
+    if (idleWindow.requestIdleCallback) {
+      pendingWriteHandleRef.current = idleWindow.requestIdleCallback(scheduleWrite, {
+        timeout: 250
+      });
+    } else {
+      pendingWriteHandleRef.current = window.setTimeout(scheduleWrite, 120);
+    }
+
+    return () => {
+      cancelPendingWrite();
+    };
+  }, [cancelPendingWrite, flushDraftWrite, hydrated, key, value]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const flushBeforeUnload = () => {
+      flushDraftWrite();
+    };
+
+    window.addEventListener("beforeunload", flushBeforeUnload);
+
+    return () => {
+      flushDraftWrite();
+      window.removeEventListener("beforeunload", flushBeforeUnload);
+    };
+  }, [flushDraftWrite]);
 
   const setValue = useCallback(
     (nextValue: SetStateAction<T>) => {
@@ -133,16 +243,24 @@ export function usePersistentDraft<T>(key: string, initialValue: InitialValue<T>
 
         dirtyRef.current = true;
         setIsDirty(true);
-        writeDraftValue(key, resolvedValue);
+        latestValueRef.current = resolvedValue;
 
         return resolvedValue;
       });
     },
-    [key]
+    []
   );
 
   const syncFromSource = useCallback((nextValue: T) => {
-    setValueState((currentValue) => (dirtyRef.current ? currentValue : nextValue));
+    setValueState((currentValue) => {
+      if (dirtyRef.current) {
+        return currentValue;
+      }
+
+      latestValueRef.current = nextValue;
+      lastWrittenValueRef.current = serializeDraftValue(nextValue);
+      return nextValue;
+    });
   }, []);
 
   const reset = useCallback(
@@ -152,12 +270,15 @@ export function usePersistentDraft<T>(key: string, initialValue: InitialValue<T>
           ? resolveInitialValue(initialValueRef.current)
           : resolveInitialValue(nextValue);
 
+      cancelPendingWrite();
       clearPersistentDraft(key);
       dirtyRef.current = false;
       setIsDirty(false);
       setValueState(resolvedValue);
+      latestValueRef.current = resolvedValue;
+      lastWrittenValueRef.current = serializeDraftValue(resolvedValue);
     },
-    [key]
+    [cancelPendingWrite, key]
   );
 
   return {

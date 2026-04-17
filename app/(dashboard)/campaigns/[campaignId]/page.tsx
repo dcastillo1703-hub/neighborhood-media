@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, type DragEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition, type DragEvent } from "react";
 import { useParams } from "next/navigation";
 import {
   ArrowRight,
@@ -418,14 +418,14 @@ export default function CampaignDetailPage() {
   } = usePersistentDraft<PostStatus>(`campaign:${campaignDraftNamespace}:composer:status`, "Draft");
   const {
     value: activeView,
-    setValue: setActiveView
+    setValue: setStoredActiveView
   } = usePersistentDraft<CampaignWorkspaceView>(
     `campaign:${campaignDraftNamespace}:view`,
     () => (routeView ? normalizeCampaignView(routeView) : campaignDefaultView ?? "overview")
   );
   const {
     value: selectedItemState,
-    setValue: setSelectedItemState,
+    setValue: setStoredSelectedItemState,
     reset: resetSelectedItemState
   } = usePersistentDraft<SelectedCampaignItemState | null>(
     `campaign:${campaignDraftNamespace}:selected-item`,
@@ -486,6 +486,8 @@ export default function CampaignDetailPage() {
   const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [processingJobId, setProcessingJobId] = useState<string | null>(null);
   const [nextActionFeedback, setNextActionFeedback] = useState<null | { label: string; detail: string }>(null);
+  const [, startViewTransition] = useTransition();
+  const [, startSelectionTransition] = useTransition();
   const [mobileViewMenuOpen, setMobileViewMenuOpen] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [openOverviewSections, setOpenOverviewSections] = useState<CampaignOverviewSection[]>([]);
@@ -505,6 +507,24 @@ export default function CampaignDetailPage() {
     setValue: setGoalAssigneeDraft,
     reset: resetGoalAssigneeDraft
   } = usePersistentDraft<string>(`campaign:${campaignDraftNamespace}:goal:assignee`, "");
+
+  const setActiveView = useCallback(
+    (nextView: CampaignWorkspaceView) => {
+      startViewTransition(() => {
+        setStoredActiveView(nextView);
+      });
+    },
+    [setStoredActiveView]
+  );
+
+  const setSelectedItemState = useCallback(
+    (nextState: SelectedCampaignItemState | null) => {
+      startSelectionTransition(() => {
+        setStoredSelectedItemState(nextState);
+      });
+    },
+    [setStoredSelectedItemState]
+  );
   const [savingWebsite, setSavingWebsite] = useState(false);
   const [websiteError, setWebsiteError] = useState<string | null>(null);
   const [websiteNotice, setWebsiteNotice] = useState<string | null>(null);
@@ -873,6 +893,20 @@ export default function CampaignDetailPage() {
                 };
   const mobileNextActionLabel =
     nextAction.actionLabel.length > 14 ? "Do next" : nextAction.actionLabel;
+  const scrollToSection = useCallback((elementId: string) => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        document.getElementById(elementId)?.scrollIntoView({
+          behavior: "smooth",
+          block: "start"
+        });
+      });
+    });
+  }, []);
   const pipelineStages: Array<{
     id: CampaignPipelineStageId;
     label: string;
@@ -892,7 +926,7 @@ export default function CampaignDetailPage() {
             : "In Progress",
       onClick: () => {
         setActiveView("overview");
-        window.setTimeout(() => document.getElementById("campaign-goals")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+        scrollToSection("campaign-goals");
       }
     },
     {
@@ -923,11 +957,11 @@ export default function CampaignDetailPage() {
               : unscheduledReadyCount
                 ? "Ready"
                 : scheduledPosts.length
-                  ? "Scheduled"
+                ? "Scheduled"
                   : "In Progress",
       onClick: () => {
         setActiveView("overview");
-        window.setTimeout(() => document.getElementById(contentComposerId)?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+        scrollToSection(contentComposerId);
       }
     },
     {
@@ -975,12 +1009,7 @@ export default function CampaignDetailPage() {
   ];
 
   const scrollToComposer = () => {
-    window.setTimeout(() => {
-      document.getElementById(contentComposerId)?.scrollIntoView({
-        behavior: "smooth",
-        block: "start"
-      });
-    }, 80);
+    scrollToSection(contentComposerId);
   };
 
   const resetComposer = () => {
@@ -1697,12 +1726,7 @@ export default function CampaignDetailPage() {
                     onClick={() => {
                       setActiveView("overview");
                       setMobileMoreOpen(false);
-                      window.setTimeout(() => {
-                        document.getElementById("campaign-goals")?.scrollIntoView({
-                          behavior: "smooth",
-                          block: "start"
-                        });
-                      }, 80);
+                      scrollToSection("campaign-goals");
                     }}
                   >
                     <Target className="h-4 w-4" />
