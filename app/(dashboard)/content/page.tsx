@@ -1,10 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/dashboard/empty-state";
-import { ListCard } from "@/components/dashboard/list-card";
-import { OperatorQueueCard } from "@/components/dashboard/operator-queue-card";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,34 +14,48 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useActiveClient } from "@/lib/client-context";
 import { getScheduledPosts } from "@/lib/domain/content";
-import { buildOperatorQueue } from "@/lib/domain/operator-queue";
-import type { OperatorQueueItem } from "@/lib/domain/operator-queue";
-import {
-  getQueuePrimaryActionLabel,
-  getQueueSecondaryActionLabel,
-  getQueueToneLabel,
-  isQueueUndoable,
-} from "@/lib/domain/operator-queue-actions";
-import { useAssets } from "@/lib/repositories/use-assets";
-import { useClientCampaignGoals } from "@/lib/repositories/use-campaign-goals";
+import { getContentExecutionState } from "@/lib/domain/execution-state";
 import { useCampaigns } from "@/lib/repositories/use-campaigns";
 import { usePosts } from "@/lib/repositories/use-posts";
 import { useApprovalsApi } from "@/lib/use-approvals-api";
 import { useOperationsApi } from "@/lib/use-operations-api";
 import { usePersistentDraft } from "@/lib/use-persistent-draft";
-import { usePublishingApi } from "@/lib/use-publishing-api";
 import { number } from "@/lib/utils";
 import { useWorkspaceContext } from "@/lib/workspace-context";
-import type { Platform, PostStatus } from "@/types";
+import type { ApprovalRequest, OperationalTask, Platform, Post } from "@/types";
 
 type ContentDraft = {
   platform: Platform;
+  format: NonNullable<Post["format"]>;
   content: string;
   cta: string;
   publishDate: string;
   goal: string;
-  status: PostStatus;
   campaignId?: string;
+  linkedTaskId?: string;
+  destinationUrl: string;
+  assetState: NonNullable<Post["assetState"]>;
+};
+
+type ContentWorkflowStage = "planning" | "review" | "ready" | "scheduled" | "live";
+
+type ContentWorkflowItem = {
+  post: Post;
+  approval?: ApprovalRequest;
+  campaignName?: string;
+  campaignObjective?: string;
+  linkedTaskTitle?: string;
+  stage: ContentWorkflowStage;
+  stageLabel: string;
+  toneClassName: string;
+  approvalLabel: string;
+  assetLabel: string;
+  timingLabel: string;
+  nextStepLabel: string;
+  nextStepDetail: string;
+  actionLabel?: string;
+  secondaryActionLabel?: string;
+  isReadyForReview: boolean;
 };
 
 const platformOptions: Array<{ label: string; value: Platform }> = [
@@ -53,10 +66,63 @@ const platformOptions: Array<{ label: string; value: Platform }> = [
   { label: "Email", value: "Email" }
 ];
 
-const statusOptions: Array<{ label: string; value: PostStatus }> = [
-  { label: "Draft", value: "Draft" },
-  { label: "Scheduled", value: "Scheduled" },
-  { label: "Published", value: "Published" }
+const formatOptions: Array<{ label: string; value: NonNullable<Post["format"]> }> = [
+  { label: "Static post", value: "Static" },
+  { label: "Carousel", value: "Carousel" },
+  { label: "Reel", value: "Reel" },
+  { label: "Story", value: "Story" },
+  { label: "Email", value: "Email" },
+  { label: "Offer", value: "Offer" }
+];
+
+const assetStateOptions: Array<{ label: string; value: NonNullable<Post["assetState"]> }> = [
+  { label: "Missing", value: "Missing" },
+  { label: "In progress", value: "In Progress" },
+  { label: "Ready", value: "Ready" }
+];
+
+const stageConfig: Array<{
+  id: ContentWorkflowStage;
+  label: string;
+  description: string;
+  emptyTitle: string;
+  emptyDescription: string;
+}> = [
+  {
+    id: "planning",
+    label: "Building now",
+    description: "Ideas, missing assets, or items that need revisions before review.",
+    emptyTitle: "Nothing is being built right now",
+    emptyDescription: "Add the next campaign idea below so production has a clear next step."
+  },
+  {
+    id: "review",
+    label: "Waiting on approval",
+    description: "Content that is written and ready for a yes / no decision.",
+    emptyTitle: "No content is waiting on approval",
+    emptyDescription: "Send the next ready item into review so scheduling does not stall."
+  },
+  {
+    id: "ready",
+    label: "Ready to schedule",
+    description: "Approved content that is clear to place on the calendar.",
+    emptyTitle: "Nothing is ready to schedule",
+    emptyDescription: "Approve the next strong item so the calendar can keep moving."
+  },
+  {
+    id: "scheduled",
+    label: "Scheduled",
+    description: "Content already committed to a publish date.",
+    emptyTitle: "Nothing is scheduled yet",
+    emptyDescription: "Use the ready queue to place the next post on the calendar."
+  },
+  {
+    id: "live",
+    label: "Live",
+    description: "Published content that should roll into campaign and performance review.",
+    emptyTitle: "Nothing is live yet",
+    emptyDescription: "The first published item will appear here once it goes live."
+  }
 ];
 
 function formatDateKey(date: Date) {
@@ -65,15 +131,29 @@ function formatDateKey(date: Date) {
   return `${date.getFullYear()}-${month}-${day}`;
 }
 
+function formatShortDate(dateKey?: string) {
+  if (!dateKey) {
+    return "No date set";
+  }
+
+  return new Date(`${dateKey}T00:00:00`).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric"
+  });
+}
+
 function createContentDraft(date = new Date()): ContentDraft {
   return {
     platform: "Instagram",
+    format: "Static",
     content: "",
     cta: "",
     publishDate: formatDateKey(date),
     goal: "",
-    status: "Draft",
-    campaignId: undefined
+    campaignId: undefined,
+    linkedTaskId: undefined,
+    destinationUrl: "",
+    assetState: "Missing"
   };
 }
 
@@ -94,25 +174,259 @@ function getMonthDays(anchorDate: Date) {
   });
 }
 
+function getStageLabel(stage: ContentWorkflowStage) {
+  switch (stage) {
+    case "review":
+      return "In review";
+    case "ready":
+      return "Ready";
+    case "scheduled":
+      return "Scheduled";
+    case "live":
+      return "Live";
+    case "planning":
+    default:
+      return "Planning";
+  }
+}
+
+function getStageTone(stage: ContentWorkflowStage) {
+  switch (stage) {
+    case "review":
+      return "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+    case "ready":
+      return "border-[var(--app-accent-bg)]/20 bg-[var(--app-accent-soft)] text-foreground";
+    case "scheduled":
+      return "border-sky-500/20 bg-sky-500/10 text-sky-700 dark:text-sky-300";
+    case "live":
+      return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+    case "planning":
+    default:
+      return "border-border bg-card/80 text-muted-foreground";
+  }
+}
+
+function isReadyForReview(post: Post) {
+  return Boolean(
+    post.campaignId &&
+      post.goal.trim() &&
+      post.content.trim() &&
+      post.cta.trim() &&
+      post.assetState === "Ready"
+  );
+}
+
+function resolveWorkflowStage(post: Post, approval?: ApprovalRequest): ContentWorkflowStage {
+  const executionState = getContentExecutionState(post, approval?.status, post.publishState);
+
+  if (executionState === "Published") {
+    return "live";
+  }
+
+  if (executionState === "Scheduled") {
+    return "scheduled";
+  }
+
+  if (executionState === "Approved") {
+    return "ready";
+  }
+
+  if (executionState === "In Review") {
+    return "review";
+  }
+
+  return "planning";
+}
+
+function buildWorkflowItem(
+  post: Post,
+  approval: ApprovalRequest | undefined,
+  linkedTask: OperationalTask | undefined,
+  campaignName: string | undefined,
+  campaignObjective: string | undefined,
+  todayKey: string
+): ContentWorkflowItem {
+  const stage = resolveWorkflowStage(post, approval);
+  const readyForReview = isReadyForReview(post);
+  const approvalLabel =
+    approval?.status ?? post.approvalState ?? (readyForReview ? "Ready for review" : "Not requested");
+  const assetLabel = post.assetState ?? "Missing";
+  const publishDateLabel = formatShortDate(post.publishDate);
+  const isPastOrToday = Boolean(post.publishDate && post.publishDate <= todayKey);
+  let nextStepLabel = "Finish the content brief";
+  let nextStepDetail = "Add the campaign, objective, CTA, and assets so this can move into review.";
+  let actionLabel: string | undefined;
+  let secondaryActionLabel: string | undefined;
+
+  if (stage === "planning") {
+    if (!post.campaignId) {
+      nextStepLabel = "Link this to a campaign";
+      nextStepDetail = "Content should belong to a live campaign before it moves into review.";
+    } else if (assetLabel !== "Ready") {
+      nextStepLabel = "Finish the assets";
+      nextStepDetail = "Design or assets still need to be ready before review can happen cleanly.";
+      actionLabel = "Mark assets ready";
+    } else if (post.approvalState === "Changes Requested") {
+      nextStepLabel = "Resend for review";
+      nextStepDetail = "Requested edits are holding this item out of scheduling.";
+      actionLabel = "Send to review";
+    } else if (readyForReview) {
+      nextStepLabel = "Send to review";
+      nextStepDetail = "The content is fully built and can move into approval now.";
+      actionLabel = "Send to review";
+    }
+  }
+
+  if (stage === "review") {
+    nextStepLabel = "Clear approval";
+    nextStepDetail = "A fast approval decision unlocks scheduling immediately.";
+    actionLabel = "Approve";
+    secondaryActionLabel = "Request changes";
+  }
+
+  if (stage === "ready") {
+    nextStepLabel = "Place it on the calendar";
+    nextStepDetail = "This item is approved and only needs a publish slot.";
+    actionLabel = "Schedule";
+  }
+
+  if (stage === "scheduled") {
+    nextStepLabel = isPastOrToday ? "Mark it live" : "Protect the publish date";
+    nextStepDetail = isPastOrToday
+      ? "This content should now move into live tracking and campaign review."
+      : `This is already set for ${publishDateLabel}. Keep supporting assets and campaign timing aligned.`;
+    actionLabel = isPastOrToday ? "Mark live" : undefined;
+  }
+
+  if (stage === "live") {
+    nextStepLabel = "Review campaign performance";
+    nextStepDetail = campaignName
+      ? `Use ${campaignName} performance to see whether this content helped move covers, traffic, or revenue.`
+      : "Check Performance once campaign and website signals have updated.";
+  }
+
+  return {
+    post,
+    approval,
+    campaignName,
+    campaignObjective,
+    linkedTaskTitle: linkedTask?.title,
+    stage,
+    stageLabel: getStageLabel(stage),
+    toneClassName: getStageTone(stage),
+    approvalLabel,
+    assetLabel,
+    timingLabel:
+      stage === "ready"
+        ? "Ready to place"
+        : stage === "planning" && !post.publishDate
+          ? "Date not set"
+          : publishDateLabel,
+    nextStepLabel,
+    nextStepDetail,
+    actionLabel,
+    secondaryActionLabel,
+    isReadyForReview: readyForReview
+  };
+}
+
+function ContentWorkflowCard({
+  item,
+  actioning,
+  reviewing,
+  onPrimaryAction,
+  onSecondaryAction
+}: {
+  item: ContentWorkflowItem;
+  actioning: boolean;
+  reviewing: boolean;
+  onPrimaryAction?: () => void;
+  onSecondaryAction?: () => void;
+}) {
+  return (
+    <div className="rounded-[1.2rem] border border-border/70 bg-card/70 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={["rounded-full border px-2.5 py-1 text-[0.7rem] font-semibold uppercase tracking-[0.16em]", item.toneClassName].join(" ")}>
+              {item.stageLabel}
+            </span>
+            <span className="rounded-full bg-accent px-2.5 py-1 text-xs text-muted-foreground">
+              {item.post.platform}
+            </span>
+            <span className="rounded-full bg-accent px-2.5 py-1 text-xs text-muted-foreground">
+              {item.post.format ?? "Static"}
+            </span>
+            <DatePill value={item.post.publishDate} />
+          </div>
+          <p className="mt-3 text-base font-semibold text-foreground">{item.post.goal}</p>
+          <p className="mt-2 line-clamp-3 text-sm leading-6 text-muted-foreground">{item.post.content}</p>
+        </div>
+        {item.stage === "live" && item.post.campaignId ? (
+          <Link
+            className="inline-flex h-9 items-center justify-center rounded-full border border-border px-3 text-sm font-medium text-foreground transition hover:bg-accent/40"
+            href="/performance"
+          >
+            View results
+          </Link>
+        ) : null}
+      </div>
+
+      <div className="mt-4 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2 xl:grid-cols-3">
+        <span>Campaign: {item.campaignName ?? "Not linked yet"}</span>
+        <span>Objective: {item.campaignObjective ?? item.post.goal}</span>
+        <span>Offer / CTA: {item.post.cta}</span>
+        <span>Assets: {item.assetLabel}</span>
+        <span>Approval: {item.approvalLabel}</span>
+        <span>Timing: {item.timingLabel}</span>
+        {item.post.destinationUrl ? <span>Destination: {item.post.destinationUrl}</span> : null}
+        {item.linkedTaskTitle ? <span>Task: {item.linkedTaskTitle}</span> : null}
+      </div>
+
+      <div className="mt-4 rounded-[1rem] border border-border/70 bg-background/65 px-3 py-3">
+        <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">Next step</p>
+        <p className="mt-1 text-sm font-medium text-foreground">{item.nextStepLabel}</p>
+        <p className="mt-1 text-sm leading-6 text-muted-foreground">{item.nextStepDetail}</p>
+      </div>
+
+      {onPrimaryAction || onSecondaryAction ? (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {onPrimaryAction ? (
+            <Button disabled={actioning || reviewing} size="sm" onClick={onPrimaryAction} type="button">
+              {actioning || reviewing ? "Updating..." : item.actionLabel}
+            </Button>
+          ) : null}
+          {onSecondaryAction ? (
+            <Button disabled={reviewing || actioning} size="sm" variant="outline" onClick={onSecondaryAction} type="button">
+              {item.secondaryActionLabel}
+            </Button>
+          ) : null}
+          {item.post.campaignId ? (
+            <Link
+              className="inline-flex h-9 items-center justify-center rounded-full px-3 text-sm font-medium text-muted-foreground transition hover:bg-accent/40 hover:text-foreground"
+              href={`/campaigns/${item.post.campaignId}`}
+            >
+              Open campaign
+            </Link>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function ContentPage() {
   const { activeClient } = useActiveClient();
   const { workspace } = useWorkspaceContext();
   const { campaigns } = useCampaigns(activeClient.id);
-  const { goals: campaignGoals } = useClientCampaignGoals(activeClient.id);
-  const { assets } = useAssets(activeClient.id);
-  const { posts, ready, error, addPost, updatePost, deletePost } = usePosts(activeClient.id);
-  const { tasks, updateTaskStatus } = useOperationsApi(workspace.id, activeClient.id);
+  const { posts, ready, error, addPost, updatePost } = usePosts(activeClient.id);
+  const { tasks } = useOperationsApi(workspace.id, activeClient.id);
   const { approvals, prependApproval, reviewApproval } = useApprovalsApi(activeClient.id);
-  const { jobs, prependJob } = usePublishingApi(activeClient.id);
   const todayKey = formatDateKey(new Date());
   const contentDraftNamespace = `content:${activeClient.id}`;
   const { value: selectedDate, setValue: setSelectedDate } = usePersistentDraft<string>(
     `${contentDraftNamespace}:selected-date`,
     todayKey
-  );
-  const { value: mobileTaskView, setValue: setMobileTaskView } = usePersistentDraft<"list" | "calendar">(
-    `${contentDraftNamespace}:mobile-task-view`,
-    "calendar"
   );
   const { value: contentView, setValue: setContentView } = usePersistentDraft<"list" | "calendar">(
     `${contentDraftNamespace}:content-view`,
@@ -124,45 +438,37 @@ export default function ContentPage() {
     reset: resetDraft
   } = usePersistentDraft<ContentDraft>(`${contentDraftNamespace}:draft`, () => createContentDraft());
   const [isCreating, setIsCreating] = useState(false);
-  const [deletingPostId, setDeletingPostId] = useState<string | null>(null);
-  const [queueActioningId, setQueueActioningId] = useState<string | null>(null);
+  const [actioningPostId, setActioningPostId] = useState<string | null>(null);
   const [reviewingApprovalId, setReviewingApprovalId] = useState<string | null>(null);
-  const [queueConfirmingId, setQueueConfirmingId] = useState<string | null>(null);
-  const [lastQueueUndo, setLastQueueUndo] = useState<null | { label: string; undo: () => Promise<void> }>(null);
-  const monthDays = useMemo(() => getMonthDays(new Date(selectedDate)), [selectedDate]);
-  const monthLabel = new Date(selectedDate).toLocaleDateString("en-US", {
+  const [actionFeedback, setActionFeedback] = useState<null | { label: string; detail: string }>(null);
+
+  const selectedDateObject = useMemo(
+    () => new Date(`${selectedDate}T00:00:00`),
+    [selectedDate]
+  );
+  const monthDays = useMemo(() => getMonthDays(selectedDateObject), [selectedDateObject]);
+  const monthLabel = selectedDateObject.toLocaleDateString("en-US", {
     month: "long",
     year: "numeric"
   });
 
-  const campaignPosts = useMemo(
-    () => posts.filter((post) => Boolean(post.campaignId)),
-    [posts]
-  );
-  const scheduledPosts = useMemo(
-    () => getScheduledPosts(campaignPosts),
-    [campaignPosts]
-  );
-  const contentPosts = useMemo(
-    () => [...posts].sort((left, right) => left.publishDate.localeCompare(right.publishDate)),
-    [posts]
-  );
-  const contentPostsByDate = useMemo(
-    () =>
-      contentPosts.reduce<Map<string, typeof contentPosts>>((map, post) => {
-        const currentPosts = map.get(post.publishDate) ?? [];
-        map.set(post.publishDate, [...currentPosts, post]);
-        return map;
-      }, new Map()),
-    [contentPosts]
-  );
-  const campaignPostIds = useMemo(
-    () => new Set(campaignPosts.map((post) => post.id)),
-    [campaignPosts]
-  );
   const campaignsById = useMemo(
     () => new Map(campaigns.map((campaign) => [campaign.id, campaign])),
     [campaigns]
+  );
+  const contentTasks = useMemo(
+    () =>
+      tasks.filter(
+        (task) =>
+          task.taskType === "Content" ||
+          task.linkedEntityType === "campaign" ||
+          task.linkedEntityType === "post"
+      ),
+    [tasks]
+  );
+  const tasksById = useMemo(
+    () => new Map(contentTasks.map((task) => [task.id, task])),
+    [contentTasks]
   );
   const approvalsByPostId = useMemo(
     () =>
@@ -173,187 +479,319 @@ export default function ContentPage() {
       ),
     [approvals]
   );
-  const campaignTasks = useMemo(
+
+  const workflowItems = useMemo(() => {
+    const items = posts.map((post) => {
+      const linkedCampaign = post.campaignId ? campaignsById.get(post.campaignId) : undefined;
+      const approval = approvalsByPostId.get(post.id);
+      const linkedTask = post.linkedTaskId ? tasksById.get(post.linkedTaskId) : undefined;
+
+      return buildWorkflowItem(
+        post,
+        approval,
+        linkedTask,
+        linkedCampaign?.name,
+        linkedCampaign?.objective,
+        todayKey
+      );
+    });
+
+    const stageOrder: Record<ContentWorkflowStage, number> = {
+      planning: 0,
+      review: 1,
+      ready: 2,
+      scheduled: 3,
+      live: 4
+    };
+
+    return items.sort((left, right) => {
+      const stageDelta = stageOrder[left.stage] - stageOrder[right.stage];
+
+      if (stageDelta !== 0) {
+        return stageDelta;
+      }
+
+      return left.post.publishDate.localeCompare(right.post.publishDate);
+    });
+  }, [approvalsByPostId, campaignsById, posts, tasksById, todayKey]);
+
+  const workflowSections = useMemo(
     () =>
-      tasks.filter(
-        (task) => task.linkedEntityType === "campaign" && task.linkedEntityId && task.status !== "Done"
-      ),
-    [tasks]
+      stageConfig.map((section) => ({
+        ...section,
+        items: workflowItems.filter((item) => item.stage === section.id)
+      })),
+    [workflowItems]
   );
-  const pendingApprovals = useMemo(
-    () => approvals.filter((approval) => approval.status === "Pending" && campaignPostIds.has(approval.entityId)),
-    [approvals, campaignPostIds]
-  );
-  const queuedPublishJobs = useMemo(
+
+  const workflowCounts = useMemo(
     () =>
-      jobs.filter(
-        (job) => ["Queued", "Processing", "Blocked"].includes(job.status) && campaignPostIds.has(job.postId)
+      workflowSections.reduce<Record<ContentWorkflowStage, number>>(
+        (counts, section) => {
+          counts[section.id] = section.items.length;
+          return counts;
+        },
+        {
+          planning: 0,
+          review: 0,
+          ready: 0,
+          scheduled: 0,
+          live: 0
+        }
       ),
-    [campaignPostIds, jobs]
+    [workflowSections]
   );
-  const selectedDayLabel = new Date(`${selectedDate}T00:00:00`).toLocaleDateString("en-US", {
+
+  const scheduledAndLiveItems = useMemo(
+    () => workflowItems.filter((item) => item.stage === "scheduled" || item.stage === "live"),
+    [workflowItems]
+  );
+  const contentItemsByDate = useMemo(
+    () =>
+      scheduledAndLiveItems.reduce<Map<string, ContentWorkflowItem[]>>((map, item) => {
+        const currentItems = map.get(item.post.publishDate) ?? [];
+        map.set(item.post.publishDate, [...currentItems, item]);
+        return map;
+      }, new Map()),
+    [scheduledAndLiveItems]
+  );
+  const selectedDayItems = useMemo(
+    () => contentItemsByDate.get(selectedDate) ?? [],
+    [contentItemsByDate, selectedDate]
+  );
+  const selectedDayLabel = selectedDateObject.toLocaleDateString("en-US", {
     month: "long",
     day: "numeric"
   });
-  const operatorQueue = useMemo(
+  const scheduledPosts = useMemo(
+    () => getScheduledPosts(posts.filter((post) => Boolean(post.campaignId))),
+    [posts]
+  );
+  const readyItems = workflowSections.find((section) => section.id === "ready")?.items ?? [];
+  const liveItems = workflowSections.find((section) => section.id === "live")?.items ?? [];
+
+  const plannerTaskOptions = useMemo(
     () =>
-      buildOperatorQueue({
-        campaigns,
-        posts: campaignPosts,
-        approvals,
-        jobs,
-        tasks: campaignTasks,
-        goals: campaignGoals.filter((goal) => !goal.done),
-        todayKey
-      }),
-    [approvals, campaignGoals, campaignPosts, campaignTasks, campaigns, jobs, todayKey]
+      [
+        { label: "No linked task", value: "none" },
+        ...contentTasks.map((task) => ({ label: task.title, value: task.id }))
+      ],
+    [contentTasks]
   );
-  const selectedDayTasks = useMemo(
-    () => operatorQueue.items.filter((item) => item.dateKey === selectedDate),
-    [operatorQueue.items, selectedDate]
+
+  const scrollToPlanner = useCallback(() => {
+    document.getElementById("content-planner")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
+  const shiftMonth = useCallback(
+    (direction: -1 | 1) => {
+      const nextDate = new Date(`${selectedDate}T00:00:00`);
+      nextDate.setMonth(nextDate.getMonth() + direction);
+      setSelectedDate(formatDateKey(nextDate));
+    },
+    [selectedDate, setSelectedDate]
   );
-  const mobileTasks = operatorQueue.items;
-  const mobileTaskDateSet = useMemo(
-    () => new Set(mobileTasks.map((task) => task.dateKey).filter(Boolean) as string[]),
-    [mobileTasks]
-  );
-  const todayTasks = operatorQueue.today.slice(0, 8);
-  const waitingTasks = operatorQueue.waiting.slice(0, 8);
-  const upcomingTasks = operatorQueue.upcoming.slice(0, 8);
-  const unscheduledTasks = operatorQueue.unscheduled.slice(0, 8);
 
   const handleCreateContent = useCallback(async () => {
-    if (!draft.goal.trim() || !draft.content.trim() || !draft.cta.trim()) {
+    if (!draft.campaignId || !draft.goal.trim() || !draft.content.trim() || !draft.cta.trim()) {
       return;
     }
 
     setIsCreating(true);
 
     try {
-      const payload = await addPost({
+      await addPost({
         clientId: activeClient.id,
         platform: draft.platform,
+        format: draft.format,
         content: draft.content.trim(),
         cta: draft.cta.trim(),
+        destinationUrl: draft.destinationUrl.trim() || undefined,
         publishDate: draft.publishDate,
         goal: draft.goal.trim(),
-        status: draft.status,
+        status: "Draft",
+        assetState: draft.assetState,
+        linkedTaskId: draft.linkedTaskId,
         campaignId: draft.campaignId,
         assetIds: []
       });
 
-      if (payload.approval) {
-        prependApproval(payload.approval);
-      }
-
-      if (payload.publishJob) {
-        prependJob(payload.publishJob);
-      }
-
+      setActionFeedback({
+        label: "Content saved to planning.",
+        detail: "It is now tied to the campaign and ready to move through review and scheduling."
+      });
       resetDraft(() => createContentDraft(new Date(draft.publishDate)));
       setContentView("list");
     } finally {
       setIsCreating(false);
     }
-  }, [activeClient.id, addPost, draft, prependApproval, prependJob, resetDraft, setContentView]);
+  }, [activeClient.id, addPost, draft, resetDraft, setContentView]);
 
-  const handleDeletePost = useCallback(async (postId: string) => {
-    setDeletingPostId(postId);
+  const handleSendToReview = useCallback(
+    async (item: ContentWorkflowItem) => {
+      setActioningPostId(item.post.id);
 
-    try {
-      await deletePost(postId);
-    } finally {
-      setDeletingPostId(null);
-    }
-  }, [deletePost]);
-
-  const handleQueuePrimaryAction = useCallback(async (task: OperatorQueueItem) => {
-    setQueueActioningId(task.id);
-
-    try {
-      if (task.entityType === "task") {
-        const linkedTask = tasks.find((entry) => entry.id === task.entityId);
-        await updateTaskStatus(task.entityId, "Done");
-        if (linkedTask && isQueueUndoable(task)) {
-          setLastQueueUndo({
-            label: `${task.title} marked done.`,
-            undo: async () => {
-              await updateTaskStatus(task.entityId, linkedTask.status);
-            }
-          });
-        }
-        return;
-      }
-
-      if (task.entityType === "post" && task.tone === "schedule") {
-        const linkedPost = posts.find((post) => post.id === task.entityId);
-
-        if (!linkedPost) {
-          return;
-        }
-
-        await updatePost(task.entityId, {
-          ...linkedPost,
-          publishDate: linkedPost.publishDate || selectedDate || todayKey,
-          status: "Scheduled",
-          approvalState: linkedPost.approvalState ?? "Approved"
+      try {
+        const payload = await updatePost(item.post.id, {
+          ...item.post,
+          approvalState: "Pending"
         });
-        if (isQueueUndoable(task)) {
-          setLastQueueUndo({
-            label: `${task.title} scheduled.`,
-            undo: async () => {
-              await updatePost(task.entityId, {
-                ...linkedPost
-              });
-            }
+
+        if (payload.approval && !approvalsByPostId.has(payload.approval.entityId)) {
+          prependApproval(payload.approval);
+        }
+
+        setActionFeedback({
+          label: "Sent for approval.",
+          detail: "The next step is a quick approval decision so this can move into scheduling."
+        });
+      } finally {
+        setActioningPostId(null);
+      }
+    },
+    [approvalsByPostId, prependApproval, updatePost]
+  );
+
+  const handleMarkAssetsReady = useCallback(
+    async (item: ContentWorkflowItem) => {
+      setActioningPostId(item.post.id);
+
+      try {
+        await updatePost(item.post.id, {
+          ...item.post,
+          assetState: "Ready"
+        });
+        setActionFeedback({
+          label: "Assets marked ready.",
+          detail: "This content can now move into review as soon as the brief is complete."
+        });
+      } finally {
+        setActioningPostId(null);
+      }
+    },
+    [updatePost]
+  );
+
+  const handleReview = useCallback(
+    async (item: ContentWorkflowItem, status: "Approved" | "Changes Requested") => {
+      setReviewingApprovalId(item.approval?.id ?? item.post.id);
+
+      try {
+        if (item.approval) {
+          await reviewApproval(item.approval.id, {
+            status,
+            note:
+              status === "Approved"
+                ? "Approved from the content workflow."
+                : "Changes requested from the content workflow.",
+            approverName: "Operator"
           });
         }
+
+        await updatePost(item.post.id, {
+          ...item.post,
+          approvalState: status
+        });
+
+        setActionFeedback({
+          label: status === "Approved" ? "Approval cleared." : "Changes requested.",
+          detail:
+            status === "Approved"
+              ? "This content can move straight into scheduling now."
+              : "The item has moved back into production so edits can happen before review."
+        });
+      } finally {
+        setReviewingApprovalId(null);
       }
-    } finally {
-      setQueueActioningId(null);
-    }
-  }, [posts, selectedDate, tasks, todayKey, updatePost, updateTaskStatus]);
+    },
+    [reviewApproval, updatePost]
+  );
 
-  const handleQueueReview = useCallback(async (approvalId: string, status: "Approved" | "Changes Requested") => {
-    setReviewingApprovalId(approvalId);
+  const handleSchedule = useCallback(
+    async (item: ContentWorkflowItem, publishDate?: string) => {
+      const nextDate = publishDate ?? item.post.publishDate ?? selectedDate ?? todayKey;
+      setActioningPostId(item.post.id);
 
-    try {
-      await reviewApproval(approvalId, {
-        status,
-        note:
-          status === "Approved"
-            ? "Approved from the operator queue."
-            : "Changes requested from the operator queue.",
-        approverName: "Operator"
-      });
-    } finally {
-      setReviewingApprovalId(null);
-    }
-  }, [reviewApproval]);
+      try {
+        await updatePost(item.post.id, {
+          ...item.post,
+          publishDate: nextDate,
+          status: "Scheduled",
+          approvalState: item.post.approvalState ?? "Approved"
+        });
+        setActionFeedback({
+          label: `Scheduled for ${formatShortDate(nextDate)}.`,
+          detail: "The publish date is now set and this item is visible in the execution calendar."
+        });
+      } finally {
+        setActioningPostId(null);
+      }
+    },
+    [selectedDate, todayKey, updatePost]
+  );
 
-  const handleQueueSecondaryAction = useCallback(async (task: OperatorQueueItem) => {
-    if (task.entityType !== "approval") {
-      return;
-    }
+  const handleMarkLive = useCallback(
+    async (item: ContentWorkflowItem) => {
+      setActioningPostId(item.post.id);
 
-    if (queueConfirmingId !== task.id) {
-      setQueueConfirmingId(task.id);
-      return;
-    }
+      try {
+        await updatePost(item.post.id, {
+          ...item.post,
+          status: "Published",
+          publishState: "Published"
+        });
+        setActionFeedback({
+          label: "Marked live.",
+          detail: "This content now rolls into campaign and performance review."
+        });
+      } finally {
+        setActioningPostId(null);
+      }
+    },
+    [updatePost]
+  );
 
-    setQueueConfirmingId(null);
-    await handleQueueReview(task.entityId, "Changes Requested");
-  }, [handleQueueReview, queueConfirmingId]);
+  const getPrimaryAction = useCallback(
+    (item: ContentWorkflowItem) => {
+      if (!item.actionLabel) {
+        return undefined;
+      }
 
-  const handleUndoLastQueueAction = useCallback(async () => {
-    if (!lastQueueUndo) {
-      return;
-    }
+      if (item.actionLabel === "Mark assets ready") {
+        return () => void handleMarkAssetsReady(item);
+      }
 
-    const undoAction = lastQueueUndo;
-    setLastQueueUndo(null);
-    await undoAction.undo();
-  }, [lastQueueUndo]);
+      if (item.actionLabel === "Send to review") {
+        return () => void handleSendToReview(item);
+      }
+
+      if (item.actionLabel === "Approve") {
+        return () => void handleReview(item, "Approved");
+      }
+
+      if (item.actionLabel === "Schedule") {
+        return () => void handleSchedule(item);
+      }
+
+      if (item.actionLabel === "Mark live") {
+        return () => void handleMarkLive(item);
+      }
+
+      return undefined;
+    },
+    [handleMarkAssetsReady, handleMarkLive, handleReview, handleSchedule, handleSendToReview]
+  );
+
+  const getSecondaryAction = useCallback(
+    (item: ContentWorkflowItem) => {
+      if (item.secondaryActionLabel === "Request changes") {
+        return () => void handleReview(item, "Changes Requested");
+      }
+
+      return undefined;
+    },
+    [handleReview]
+  );
 
   if (!ready) {
     return <div className="text-sm text-muted-foreground">Loading content workspace...</div>;
@@ -366,239 +804,70 @@ export default function ContentPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        className="hidden sm:flex"
         eyebrow="Content"
-        title="Plan, review, and schedule content"
-        description="Keep the restaurant content pipeline in one place: what is drafted, what is scheduled, and what is still waiting on approval."
+        title="Run content like campaign work"
+        description="Every item should show why it exists, where it is blocked, and what the next move is before it goes live."
       />
 
-      <div className="-mx-3 -mt-3 min-h-[calc(100vh-4rem)] bg-[#202024] px-4 pb-28 pt-7 text-white sm:hidden">
-        <div>
-          <p className="text-sm font-semibold text-white/55">
-            {new Date().toLocaleDateString("en-US", { weekday: "short", month: "long", day: "2-digit" })}
-          </p>
-          <h1 className="mt-2 text-4xl font-semibold tracking-[-0.06em]">My tasks</h1>
-        </div>
-
-        <div className="mt-6 inline-flex rounded-[1.15rem] border border-white/12 bg-white/[0.04] p-1">
-          {(["list", "calendar"] as const).map((view) => (
-            <button
-              className={[
-                "rounded-[0.9rem] px-5 py-2 text-sm font-semibold capitalize transition",
-                mobileTaskView === view ? "bg-white text-[#202024]" : "text-white/55"
-              ].join(" ")}
-              key={view}
-              type="button"
-              onClick={() => setMobileTaskView(view)}
-            >
-              {view}
-            </button>
-          ))}
-        </div>
-
-        {lastQueueUndo ? (
-          <div className="mt-4 flex items-center justify-between gap-3 rounded-[1rem] border border-white/10 bg-white/[0.04] px-4 py-3">
-            <p className="text-sm text-white/72">{lastQueueUndo.label}</p>
-            <button
-              className="shrink-0 rounded-full border border-white/12 px-3 py-1.5 text-xs font-semibold text-white"
-              type="button"
-              onClick={() => void handleUndoLastQueueAction()}
-            >
-              Undo
-            </button>
-          </div>
-        ) : null}
-
-        {mobileTaskView === "calendar" ? (
-          <>
-            <div className="mt-6 rounded-[1.65rem] border border-white/12 bg-white/[0.035] p-4">
-              <div className="flex items-center justify-between">
-                <p className="text-lg font-semibold">{monthLabel}</p>
-                <p className="text-sm text-white/45">{number(mobileTasks.length)} total</p>
-              </div>
-              <div className="mt-4 grid grid-cols-7 text-center text-[0.68rem] font-semibold uppercase text-white/35">
-                {["S", "M", "T", "W", "T", "F", "S"].map((day, index) => (
-                  <span key={`${day}-${index}`}>{day}</span>
-                ))}
-              </div>
-              <div className="mt-4 grid grid-cols-7 gap-2">
-                {monthDays.map((day) => {
-                  const selected = day.dateKey === selectedDate;
-                  const hasWork = mobileTaskDateSet.has(day.dateKey);
-
-                  return (
-                    <button
-                      className={[
-                        "rounded-2xl px-1 py-2.5 text-center transition",
-                        selected ? "bg-white text-[#202024]" : "bg-white/[0.04]",
-                        day.isCurrentMonth ? "text-white/70" : "text-white/28"
-                      ].join(" ")}
-                      key={day.dateKey}
-                      type="button"
-                      onClick={() => setSelectedDate(day.dateKey)}
-                    >
-                      <span className="block text-lg font-semibold">{day.date.getDate()}</span>
-                      <span className={["mx-auto mt-1 block h-1.5 w-1.5 rounded-full", hasWork ? "bg-current" : "bg-transparent"].join(" ")} />
-                    </button>
-                  );
-                })}
-              </div>
+      {actionFeedback ? (
+        <Card>
+          <div className="flex flex-col gap-1 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-medium text-foreground">{actionFeedback.label}</p>
+              <p className="text-sm text-muted-foreground">{actionFeedback.detail}</p>
             </div>
-
-            <div className="mt-7">
-              <p className="text-sm font-semibold text-[var(--app-accent)]">
-                {selectedDate === todayKey ? "Today" : selectedDayLabel}
-              </p>
-              <h2 className="mt-2 text-3xl font-semibold tracking-[-0.04em]">
-                {selectedDayTasks.length ? "Scheduled for this day" : "Nothing due here"}
-              </h2>
-              <div className="mt-5 space-y-3">
-                {selectedDayTasks.length ? (
-                  selectedDayTasks.map((task) => {
-                    return (
-                      <OperatorQueueCard
-                        eyebrow={getQueueToneLabel(task)}
-                        item={task}
-                        key={task.id}
-                        primaryAction={
-                          task.entityType === "approval"
-                            ? {
-                                label: getQueuePrimaryActionLabel(task),
-                                disabled: reviewingApprovalId === task.entityId,
-                                onClick: () => void handleQueueReview(task.entityId, "Approved"),
-                              }
-                            : task.entityType === "task" || (task.entityType === "post" && task.tone === "schedule")
-                              ? {
-                                  label: getQueuePrimaryActionLabel(task),
-                                  disabled: queueActioningId === task.id,
-                                  onClick: () => void handleQueuePrimaryAction(task),
-                                }
-                              : null
-                        }
-                        secondaryAction={
-                          task.entityType === "approval"
-                            ? {
-                                label: queueConfirmingId === task.id ? "Confirm" : (getQueueSecondaryActionLabel(task) ?? "Request changes"),
-                                disabled: reviewingApprovalId === task.entityId,
-                                emphasis: queueConfirmingId === task.id ? "default" : "subtle",
-                                onClick: () => void handleQueueSecondaryAction(task),
-                              }
-                            : null
-                        }
-                        theme="dark"
-                      />
-                    );
-                  })
-                ) : (
-                  <div className="rounded-[1.65rem] border border-white/12 p-6 text-white/58">
-                    <p className="text-lg text-white">No tasks for this date</p>
-                    <p className="mt-2 text-sm leading-6">Pick another day above, or add content inside a campaign.</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          </>
-        ) : (
-          <div className="mt-7 space-y-7">
-            {[
-              ["Today", todayTasks],
-              ["Waiting on", waitingTasks],
-              ["Upcoming", upcomingTasks],
-              ["Unscheduled", unscheduledTasks]
-            ].map(([section, sectionTasks]) => (
-              <section key={String(section)}>
-                <div className="flex items-center justify-between">
-                  <h2 className="text-2xl font-semibold tracking-[-0.04em]">{String(section)}</h2>
-                  <span className="rounded-full bg-white/[0.06] px-2.5 py-1 text-xs text-white/48">
-                    {Array.isArray(sectionTasks) ? number(sectionTasks.length) : 0}
-                  </span>
-                </div>
-                <div className="mt-3 space-y-2">
-                  {Array.isArray(sectionTasks) && sectionTasks.length ? (
-                    sectionTasks.map((task) => {
-                      return (
-                        <OperatorQueueCard
-                          className="px-4 py-3"
-                          compact
-                          eyebrow={getQueueToneLabel(task)}
-                          item={task}
-                          key={task.id}
-                          primaryAction={
-                            task.entityType === "approval"
-                              ? {
-                                  label: getQueuePrimaryActionLabel(task),
-                                  disabled: reviewingApprovalId === task.entityId,
-                                  onClick: () => void handleQueueReview(task.entityId, "Approved"),
-                                }
-                              : task.entityType === "task" || (task.entityType === "post" && task.tone === "schedule")
-                                ? {
-                                    label: getQueuePrimaryActionLabel(task),
-                                    disabled: queueActioningId === task.id,
-                                    onClick: () => void handleQueuePrimaryAction(task),
-                                  }
-                                : null
-                          }
-                          secondaryAction={
-                            task.entityType === "approval"
-                              ? {
-                                  label: queueConfirmingId === task.id ? "Confirm" : (getQueueSecondaryActionLabel(task) ?? "Request changes"),
-                                  disabled: reviewingApprovalId === task.entityId,
-                                  emphasis: queueConfirmingId === task.id ? "default" : "subtle",
-                                  onClick: () => void handleQueueSecondaryAction(task),
-                                }
-                              : null
-                          }
-                          theme="dark"
-                        />
-                      );
-                    })
-                  ) : (
-                    <p className="rounded-[1.2rem] border border-white/10 px-4 py-3 text-sm text-white/45">
-                      Nothing here.
-                    </p>
-                  )}
-                </div>
-              </section>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="hidden flex-wrap gap-x-5 gap-y-2 rounded-[1rem] border border-border/70 bg-card/70 px-4 py-3 text-sm text-muted-foreground sm:flex">
-        <span><strong className="font-medium text-foreground">{number(posts.length)}</strong> content items</span>
-        <span><strong className="font-medium text-foreground">{number(scheduledPosts.length)}</strong> scheduled</span>
-        <span><strong className="font-medium text-foreground">{number(pendingApprovals.length)}</strong> pending approval</span>
-        <span><strong className="font-medium text-foreground">{number(queuedPublishJobs.length)}</strong> publish jobs</span>
-        <span><strong className="font-medium text-foreground">{number(assets.filter((asset) => asset.status === "Ready").length)}</strong> ready assets</span>
-      </div>
-
-      {lastQueueUndo ? (
-        <Card className="hidden sm:block">
-          <div className="flex items-center justify-between gap-4 px-5 py-4">
-            <p className="text-sm text-muted-foreground">{lastQueueUndo.label}</p>
-            <Button size="sm" variant="outline" onClick={() => void handleUndoLastQueueAction()}>
-              Undo
+            <Button size="sm" variant="ghost" onClick={() => setActionFeedback(null)} type="button">
+              Dismiss
             </Button>
           </div>
         </Card>
       ) : null}
 
-      <div className="hidden gap-5 sm:grid xl:grid-cols-[0.82fr_1.18fr]">
-        <Card id="create-content" className="p-5">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        {stageConfig.map((section) => (
+          <Card key={section.id} className="p-4">
+            <p className="text-[0.68rem] uppercase tracking-[0.18em] text-muted-foreground">{section.label}</p>
+            <p className="mt-2 text-3xl font-semibold tracking-[-0.05em] text-foreground">
+              {number(workflowCounts[section.id])}
+            </p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{section.description}</p>
+          </Card>
+        ))}
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-[0.82fr_1.18fr]">
+        <Card id="content-planner" className="p-5">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <CardDescription>Create Content</CardDescription>
-              <CardTitle className="mt-2">Draft and schedule from here</CardTitle>
+              <CardDescription>Plan content</CardDescription>
+              <CardTitle className="mt-2">Build the next campaign asset</CardTitle>
             </div>
             <span className="rounded-full border border-border bg-background px-3 py-1 text-xs text-muted-foreground">
-              Operator
+              Starts in planning
             </span>
           </div>
 
           <div className="mt-5 grid gap-4">
-            <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <Label>Campaign</Label>
+              <Select
+                value={draft.campaignId ?? "none"}
+                onChange={(value) =>
+                  setDraft((current) => ({
+                    ...current,
+                    campaignId: value === "none" ? undefined : value
+                  }))
+                }
+                options={[
+                  { label: "Choose campaign", value: "none" },
+                  ...campaigns.map((campaign) => ({ label: campaign.name, value: campaign.id }))
+                ]}
+              />
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <Label htmlFor="content-platform">Platform</Label>
+                <Label>Platform</Label>
                 <Select
                   value={draft.platform}
                   onChange={(value) => setDraft((current) => ({ ...current, platform: value as Platform }))}
@@ -606,208 +875,372 @@ export default function ContentPage() {
                 />
               </div>
               <div>
-                <Label htmlFor="content-date">Publish date</Label>
-                <Input
-                  id="content-date"
-                  type="date"
-                  value={draft.publishDate}
-                  onChange={(event) => setDraft((current) => ({ ...current, publishDate: event.target.value }))}
+                <Label>Content type</Label>
+                <Select
+                  value={draft.format}
+                  onChange={(value) =>
+                    setDraft((current) => ({ ...current, format: value as NonNullable<Post["format"]> }))
+                  }
+                  options={formatOptions}
                 />
               </div>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <Label>Campaign</Label>
+                <Label>Linked task</Label>
                 <Select
-                  value={draft.campaignId ?? "none"}
+                  value={draft.linkedTaskId ?? "none"}
                   onChange={(value) =>
                     setDraft((current) => ({
                       ...current,
-                      campaignId: value === "none" ? undefined : value
+                      linkedTaskId: value === "none" ? undefined : value
                     }))
                   }
-                  options={[
-                    { label: "No campaign", value: "none" },
-                    ...campaigns.map((campaign) => ({ label: campaign.name, value: campaign.id }))
-                  ]}
+                  options={plannerTaskOptions}
                 />
               </div>
               <div>
-                <Label>Status</Label>
-                <div className="flex rounded-[1rem] border border-border bg-card/70 p-1">
-                  {statusOptions.map((option) => (
-                    <button
-                      className={[
-                        "flex-1 rounded-[0.75rem] px-3 py-2 text-xs font-semibold transition",
-                        draft.status === option.value ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent/40"
-                      ].join(" ")}
-                      key={option.value}
-                      type="button"
-                      onClick={() => setDraft((current) => ({ ...current, status: option.value }))}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
+                <Label>Asset state</Label>
+                <Select
+                  value={draft.assetState}
+                  onChange={(value) =>
+                    setDraft((current) => ({
+                      ...current,
+                      assetState: value as NonNullable<Post["assetState"]>
+                    }))
+                  }
+                  options={assetStateOptions}
+                />
               </div>
             </div>
 
             <div>
-              <Label htmlFor="content-goal">Goal</Label>
+              <Label htmlFor="content-goal">Objective</Label>
               <Input
                 id="content-goal"
-                placeholder="Example: Drive Thursday dinner reservations"
+                placeholder="Drive Thursday reservations"
                 value={draft.goal}
                 onChange={(event) => setDraft((current) => ({ ...current, goal: event.target.value }))}
               />
             </div>
+
             <div>
-              <Label htmlFor="content-cta">Call to action</Label>
+              <Label htmlFor="content-cta">Offer / CTA</Label>
               <Input
                 id="content-cta"
-                placeholder="Example: Reserve a table"
+                placeholder="Reserve a table"
                 value={draft.cta}
                 onChange={(event) => setDraft((current) => ({ ...current, cta: event.target.value }))}
               />
             </div>
+
             <div>
-              <Label htmlFor="content-body">Post content</Label>
+              <Label htmlFor="content-destination">Destination</Label>
+              <Input
+                id="content-destination"
+                placeholder="https://restaurant.com/reservations"
+                value={draft.destinationUrl}
+                onChange={(event) => setDraft((current) => ({ ...current, destinationUrl: event.target.value }))}
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="content-publish-date">Preferred publish date</Label>
+              <Input
+                id="content-publish-date"
+                type="date"
+                value={draft.publishDate}
+                onChange={(event) => setDraft((current) => ({ ...current, publishDate: event.target.value }))}
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="content-body">Message / angle</Label>
               <Textarea
                 id="content-body"
-                placeholder="Write the caption, email, or post copy here."
+                placeholder="What is the hook, offer, and reason this should matter to the guest right now?"
                 value={draft.content}
                 onChange={(event) => setDraft((current) => ({ ...current, content: event.target.value }))}
               />
             </div>
 
             <Button
-              disabled={isCreating || !draft.goal.trim() || !draft.content.trim() || !draft.cta.trim()}
+              disabled={isCreating || !draft.campaignId || !draft.goal.trim() || !draft.content.trim() || !draft.cta.trim()}
               onClick={() => void handleCreateContent()}
               type="button"
             >
-              {isCreating ? "Creating..." : "Create content"}
+              {isCreating ? "Saving..." : "Save content"}
             </Button>
           </div>
         </Card>
 
-        <Card id="content-workspace" className="overflow-hidden p-0">
-          <CardHeader className="border-b border-border/70 px-4 py-4 sm:px-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <CardDescription>Content Workspace</CardDescription>
-                <CardTitle className="mt-2">List and calendar</CardTitle>
-              </div>
-              <div className="inline-flex rounded-full border border-border bg-card/80 p-1">
-                {(["list", "calendar"] as const).map((view) => (
-                  <button
-                    className={[
-                      "rounded-full px-4 py-2 text-xs font-semibold capitalize transition",
-                      contentView === view ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent/40"
-                    ].join(" ")}
-                    key={view}
-                    type="button"
-                    onClick={() => setContentView(view)}
-                  >
-                    {view}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </CardHeader>
-
-          {contentView === "list" ? (
-            <div className="divide-y divide-border/70">
-              {contentPosts.length ? (
-                contentPosts.map((post) => {
-                  const linkedCampaign = post.campaignId ? campaignsById.get(post.campaignId) : undefined;
-                  const approval = approvalsByPostId.get(post.id);
-
-                  return (
-                    <ListCard key={post.id} className="rounded-none border-0 bg-transparent px-4 py-4 hover:bg-primary/5 sm:px-5">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="font-medium text-foreground">{post.platform}</p>
-                            <DatePill value={post.publishDate} />
-                            <span className="rounded-full bg-accent px-2.5 py-1 text-xs text-muted-foreground">
-                              {post.status}
-                            </span>
-                          </div>
-                          <p className="mt-2 text-sm font-medium text-foreground">{post.goal}</p>
-                          <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{post.content}</p>
-                          <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                            {linkedCampaign ? <span>Campaign: {linkedCampaign.name}</span> : null}
-                            <span>CTA: {post.cta}</span>
-                            <span>{approval?.status ?? "No approval"}</span>
-                          </div>
-                        </div>
-                        <Button
-                          disabled={deletingPostId === post.id}
-                          onClick={() => void handleDeletePost(post.id)}
-                          size="sm"
-                          type="button"
-                          variant="ghost"
-                        >
-                          Delete
-                        </Button>
-                      </div>
-                    </ListCard>
-                  );
-                })
-              ) : (
-                <EmptyState
-                  title="No content yet"
-                  description="Create the first content item on the left, then schedule it here."
-                />
-              )}
-            </div>
-          ) : (
-            <div className="p-4 sm:p-5">
-              <div className="mb-4 flex items-center justify-between">
-                <p className="text-sm font-semibold text-foreground">{monthLabel}</p>
-                <p className="text-xs text-muted-foreground">Posts are shown on publish date.</p>
-              </div>
-              <div className="grid grid-cols-7 border-l border-t border-border/70 text-xs text-muted-foreground">
-                {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
-                  <div className="border-b border-r border-border/70 px-2 py-2 font-medium" key={day}>
-                    {day}
-                  </div>
-                ))}
-                {monthDays.map((day) => {
-                  const dayPosts = contentPostsByDate.get(day.dateKey) ?? [];
-
-                  return (
+        <div className="space-y-5">
+          <Card className="overflow-hidden p-0">
+            <CardHeader className="border-b border-border/70 px-4 py-4 sm:px-5">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <CardDescription>Execution view</CardDescription>
+                  <CardTitle className="mt-2">Content workflow</CardTitle>
+                </div>
+                <div className="inline-flex rounded-full border border-border bg-card/80 p-1">
+                  {(["list", "calendar"] as const).map((view) => (
                     <button
                       className={[
-                        "min-h-28 border-b border-r border-border/70 p-2 text-left transition hover:bg-accent/30",
-                        day.isCurrentMonth ? "bg-card/40" : "bg-muted/20 text-muted-foreground/50"
+                        "rounded-full px-4 py-2 text-xs font-semibold capitalize transition",
+                        contentView === view ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent/40"
                       ].join(" ")}
-                      key={day.dateKey}
+                      key={view}
                       type="button"
-                      onClick={() => setDraft((current) => ({ ...current, publishDate: day.dateKey }))}
+                      onClick={() => setContentView(view)}
                     >
-                      <span className="font-medium">{day.date.getDate()}</span>
-                      <div className="mt-2 space-y-1">
-                        {dayPosts.slice(0, 3).map((post) => (
-                          <span
-                            className="block truncate rounded-md bg-primary/12 px-2 py-1 text-[0.68rem] text-primary"
-                            key={post.id}
-                          >
-                            {post.platform}: {post.goal}
-                          </span>
-                        ))}
-                        {dayPosts.length > 3 ? (
-                          <span className="block text-[0.68rem] text-muted-foreground">+{dayPosts.length - 3} more</span>
-                        ) : null}
-                      </div>
+                      {view}
                     </button>
-                  );
-                })}
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
-        </Card>
+            </CardHeader>
+
+            {contentView === "list" ? (
+              <div className="space-y-4 p-4 sm:p-5">
+                {workflowSections.map((section) => (
+                  <Card key={section.id} className="overflow-hidden border border-border/70 bg-background/40 shadow-none">
+                    <div className="border-b border-border/70 px-4 py-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-foreground">{section.label}</p>
+                          <p className="mt-1 text-sm text-muted-foreground">{section.description}</p>
+                        </div>
+                        <span className="rounded-full bg-accent px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                          {number(section.items.length)}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="space-y-3 px-4 py-4">
+                      {section.items.length ? (
+                        section.items.map((item) => (
+                          <ContentWorkflowCard
+                            actioning={actioningPostId === item.post.id}
+                            item={item}
+                            key={item.post.id}
+                            onPrimaryAction={getPrimaryAction(item)}
+                            onSecondaryAction={getSecondaryAction(item)}
+                            reviewing={reviewingApprovalId === (item.approval?.id ?? item.post.id)}
+                          />
+                        ))
+                      ) : (
+                        <EmptyState
+                          title={section.emptyTitle}
+                          description={section.emptyDescription}
+                          action={
+                            <Button size="sm" variant="outline" onClick={scrollToPlanner} type="button">
+                              Plan content
+                            </Button>
+                          }
+                        />
+                      )}
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-5 p-4 sm:p-5">
+                <Card className="border border-border/70 bg-background/40 shadow-none">
+                  <div className="border-b border-border/70 px-4 py-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">Ready to schedule</p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          Approved content should move onto the calendar quickly so momentum does not slip.
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-accent px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                        {number(readyItems.length)}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="space-y-3 px-4 py-4">
+                    {readyItems.length ? (
+                      readyItems.map((item) => (
+                        <ContentWorkflowCard
+                          actioning={actioningPostId === item.post.id}
+                          item={item}
+                          key={item.post.id}
+                          onPrimaryAction={getPrimaryAction(item)}
+                          reviewing={false}
+                        />
+                      ))
+                    ) : (
+                      <EmptyState
+                        title="No approved content is waiting"
+                        description="Clear the next approval and it will appear here ready for scheduling."
+                        action={
+                          <Button size="sm" variant="outline" onClick={() => setContentView("list")} type="button">
+                            Back to workflow
+                          </Button>
+                        }
+                      />
+                    )}
+                  </div>
+                </Card>
+
+                <Card className="overflow-hidden border border-border/70 bg-background/40 shadow-none">
+                  <div className="border-b border-border/70 px-4 py-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">{monthLabel}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          The calendar only shows real scheduled or live content.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button size="sm" variant="outline" onClick={() => shiftMonth(-1)} type="button">
+                          Prev
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => shiftMonth(1)} type="button">
+                          Next
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="p-4">
+                    <div className="grid grid-cols-7 gap-1 text-center text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                      {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+                        <span key={day}>{day}</span>
+                      ))}
+                    </div>
+                    <div className="mt-3 grid grid-cols-7 gap-2">
+                      {monthDays.map((day) => {
+                        const dayItems = contentItemsByDate.get(day.dateKey) ?? [];
+                        const selected = day.dateKey === selectedDate;
+
+                        return (
+                          <button
+                            className={[
+                              "min-h-24 rounded-[1rem] border px-2 py-2 text-left transition",
+                              selected ? "border-primary bg-primary/8" : "border-border/70 bg-card/60 hover:bg-accent/25",
+                              day.isCurrentMonth ? "text-foreground" : "text-muted-foreground/50"
+                            ].join(" ")}
+                            key={day.dateKey}
+                            type="button"
+                            onClick={() => setSelectedDate(day.dateKey)}
+                          >
+                            <span className="text-sm font-semibold">{day.date.getDate()}</span>
+                            <div className="mt-2 space-y-1">
+                              {dayItems.slice(0, 2).map((item) => (
+                                <span
+                                  className={[
+                                    "block truncate rounded-md px-2 py-1 text-[0.68rem] font-medium",
+                                    item.stage === "live"
+                                      ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                                      : "bg-sky-500/10 text-sky-700 dark:text-sky-300"
+                                  ].join(" ")}
+                                  key={item.post.id}
+                                >
+                                  {item.post.platform}: {item.post.goal}
+                                </span>
+                              ))}
+                              {!dayItems.length && day.isCurrentMonth ? (
+                                <span className="block text-[0.68rem] text-muted-foreground">Open</span>
+                              ) : null}
+                              {dayItems.length > 2 ? (
+                                <span className="block text-[0.68rem] text-muted-foreground">
+                                  +{dayItems.length - 2} more
+                                </span>
+                              ) : null}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </Card>
+
+                <Card className="border border-border/70 bg-background/40 shadow-none">
+                  <div className="border-b border-border/70 px-4 py-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">{selectedDayLabel}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          Scheduled content should reflect real execution, not placeholders.
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setDraft((current) => ({ ...current, publishDate: selectedDate }));
+                          scrollToPlanner();
+                        }}
+                        type="button"
+                      >
+                        Plan for this day
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="space-y-3 px-4 py-4">
+                    {selectedDayItems.length ? (
+                      selectedDayItems.map((item) => (
+                        <ContentWorkflowCard
+                          actioning={actioningPostId === item.post.id}
+                          item={item}
+                          key={item.post.id}
+                          onPrimaryAction={getPrimaryAction(item)}
+                          reviewing={false}
+                        />
+                      ))
+                    ) : (
+                      <EmptyState
+                        title="No scheduled content for this day"
+                        description="Use a ready item above or plan a new one for this slot."
+                        action={
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={readyItems.length ? () => setContentView("calendar") : scrollToPlanner}
+                            type="button"
+                          >
+                            {readyItems.length ? "Schedule ready content" : "Plan content"}
+                          </Button>
+                        }
+                      />
+                    )}
+                  </div>
+                </Card>
+              </div>
+            )}
+          </Card>
+
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Card className="p-4">
+              <p className="text-[0.68rem] uppercase tracking-[0.18em] text-muted-foreground">Campaign-linked</p>
+              <p className="mt-2 text-3xl font-semibold tracking-[-0.05em] text-foreground">
+                {number(posts.filter((post) => Boolean(post.campaignId)).length)}
+              </p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                Every new content item now starts tied to a campaign, so intent is visible from the start.
+              </p>
+            </Card>
+            <Card className="p-4">
+              <p className="text-[0.68rem] uppercase tracking-[0.18em] text-muted-foreground">Scheduled</p>
+              <p className="mt-2 text-3xl font-semibold tracking-[-0.05em] text-foreground">
+                {number(scheduledPosts.length)}
+              </p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                The calendar only counts real scheduled posts, not placeholders or campaign spans.
+              </p>
+            </Card>
+            <Card className="p-4">
+              <p className="text-[0.68rem] uppercase tracking-[0.18em] text-muted-foreground">Live and measurable</p>
+              <p className="mt-2 text-3xl font-semibold tracking-[-0.05em] text-foreground">
+                {number(liveItems.length)}
+              </p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                Live content can now point back into campaign and performance review without mixing analytics into planning.
+              </p>
+            </Card>
+          </div>
+        </div>
       </div>
     </div>
   );
