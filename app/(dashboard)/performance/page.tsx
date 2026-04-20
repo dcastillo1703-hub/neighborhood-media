@@ -336,6 +336,52 @@ export default function PerformancePage() {
   const decisionTitle = topCampaign
     ? `Use ${topCampaign.name} as the proof point, then push ${toastOpportunities.weakestDay.day.toLowerCase()} next`
     : `Push ${toastOpportunities.weakestDay.day.toLowerCase()} next and build cleaner proof`;
+  const clientHeadline = currentMonth && previousMonth
+    ? `${activeClient.name} ${monthRevenueDelta >= 0 ? "grew" : "dipped"} by ${currency(Math.abs(monthRevenueDelta))} compared with ${previousMonth.monthLabel}`
+    : `${activeClient.name} performance is ready to review`;
+  const clientHeadlineDetail = currentMonth && previousMonth
+    ? `${currentMonth.monthLabel} landed at ${currency(currentMonth.revenue)} in confirmed POS revenue.`
+    : "Confirmed POS performance is loaded, but the longer comparison window is still limited.";
+  const clientMovementTitle = topIntentSignal
+    ? `${topIntentSignal.label} became the clearest guest-action signal`
+    : topSource
+      ? `${topSource.label} was the clearest traffic move`
+      : "Guest response is starting to take shape";
+  const clientMovementDetail = googleAnalyticsSummary
+    ? topIntentSignal
+      ? `${number(topIntentSignal.count)} tracked guest actions were recorded in the current reporting window, alongside ${number(googleAnalyticsSummary.sessions)} website sessions.`
+      : `${number(googleAnalyticsSummary.sessions)} website sessions were recorded, with ${topSource ? `${topSource.label} leading the traffic mix.` : "traffic beginning to form a usable pattern."}`
+    : "Website tracking is still incomplete, so this read leans more heavily on campaign snapshots and POS movement.";
+  const clientDriverTitle = topCampaign
+    ? `${topCampaign.name} is the clearest driver right now`
+    : "The work is active, but proof is still early";
+  const clientDriverDetail = topContentItem?.post
+    ? `${topContentItem.post.platform} content tied to ${topContentItem.campaign?.name ?? "the active campaign"} is the strongest supporting proof point so far.`
+    : topCampaign
+      ? `${topCampaign.name} currently has the strongest link between campaign work and business movement.`
+      : "We still need more linked campaign and content evidence before the story becomes stronger.";
+  const clientWorthTitle = `${currency(roiSummary.revenue)} in estimated contribution`;
+  const clientWorthDetail = roiSummary.revenue > 0
+    ? `This is an estimate, not confirmed POS revenue. Confidence is ${attributionConfidence.label.toLowerCase()} because ${attributionConfidence.detail.toLowerCase()}`
+    : `Confirmed revenue comes from Toast. Estimated contribution will become more useful once more work is linked cleanly to traffic and outcomes.`;
+  const clientNextActions = [
+    {
+      title: `Push ${toastOpportunities.weakestDay.day}`,
+      detail: `That is still the softest recurring revenue window at about ${currency(toastOpportunities.weakestDay.averageRevenue)}.`
+    },
+    {
+      title: topCampaign ? `Repeat what worked in ${topCampaign.name}` : "Keep building a stronger proof point",
+      detail: topCampaign
+        ? `${topCampaign.name} is the easiest campaign to defend in the next client conversation.`
+        : "We need one more cleanly linked campaign proof point to make the revenue story stronger."
+    },
+    {
+      title: googleAnalyticsSummary ? "Tighten tracking quality" : "Finish website tracking",
+      detail: googleAnalyticsSummary
+        ? `Reducing unattributed traffic will make the next report more credible.`
+        : "Connecting GA4 fully will make the contribution story easier to trust."
+    }
+  ];
   const decisionItems = [
     {
       label: "Where to push",
@@ -405,6 +451,81 @@ export default function PerformancePage() {
         title="Understand what changed, what likely caused it, and what to do next"
         description="This page turns Toast, campaign activity, Google Analytics, and Meta into one performance story you can use internally or in a client conversation."
       />
+
+      <Card className="overflow-hidden border-border/70 bg-card/95">
+        <div className="border-b border-border/70 px-5 py-5 sm:px-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-[0.68rem] uppercase tracking-[0.18em] text-muted-foreground">Client summary</p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-foreground">
+                The simplest version of what changed and why it matters
+              </h2>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
+                This is the presentation layer for a live client conversation: clear outcome, clearest driver, estimated value, and next move.
+              </p>
+            </div>
+            <span className={["inline-flex w-fit rounded-full border px-3 py-1.5 text-sm font-medium", attributionConfidence.tone].join(" ")}>
+              Confidence: {attributionConfidence.label}
+            </span>
+          </div>
+        </div>
+
+        <div className="grid gap-4 px-5 py-5 sm:px-6 xl:grid-cols-2">
+          <div className="rounded-[1.2rem] border border-border/70 bg-background/60 p-4">
+            <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">1. Headline result</p>
+            <p className="mt-2 text-xl font-semibold text-foreground">{clientHeadline}</p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{clientHeadlineDetail}</p>
+          </div>
+
+          <div className="rounded-[1.2rem] border border-border/70 bg-background/60 p-4">
+            <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">2. What moved</p>
+            <p className="mt-2 text-xl font-semibold text-foreground">{clientMovementTitle}</p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{clientMovementDetail}</p>
+          </div>
+
+          <div className="rounded-[1.2rem] border border-border/70 bg-background/60 p-4">
+            <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">3. What drove it</p>
+            <p className="mt-2 text-xl font-semibold text-foreground">{clientDriverTitle}</p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{clientDriverDetail}</p>
+            {topCampaign ? (
+              <Link className="mt-3 inline-flex text-sm font-medium text-primary hover:underline" href={`/campaigns/${topCampaign.id}`}>
+                View the campaign proof
+              </Link>
+            ) : null}
+          </div>
+
+          <div className="rounded-[1.2rem] border border-border/70 bg-background/60 p-4">
+            <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">4. What it’s worth</p>
+            <p className="mt-2 text-xl font-semibold text-foreground">{clientWorthTitle}</p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{clientWorthDetail}</p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-[1rem] border border-border/70 bg-card/60 px-3 py-3">
+                <p className="text-xs text-muted-foreground">Confirmed POS revenue</p>
+                <p className="mt-2 text-lg font-medium text-foreground">{currency(currentMonth?.revenue ?? 0)}</p>
+              </div>
+              <div className="rounded-[1rem] border border-border/70 bg-card/60 px-3 py-3">
+                <p className="text-xs text-muted-foreground">Estimated contribution</p>
+                <p className="mt-2 text-lg font-medium text-foreground">{currency(roiSummary.revenue)}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="border-t border-border/70 px-5 py-5 sm:px-6">
+          <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">5. What we’re doing next</p>
+          <div className="mt-4 grid gap-3 lg:grid-cols-3">
+            {clientNextActions.map((item) => (
+              <div className="rounded-[1.1rem] border border-border/70 bg-background/60 p-4" key={item.title}>
+                <p className="font-medium text-foreground">{item.title}</p>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">{item.detail}</p>
+              </div>
+            ))}
+          </div>
+          <p className="mt-4 text-sm leading-6 text-muted-foreground">
+            Why this estimate is believable: Toast confirms the business result, and the contribution estimate is based on linked campaign activity, tracked content proof, and current traffic signals.
+          </p>
+        </div>
+      </Card>
 
       <Card className="p-5 sm:p-6">
         <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr] xl:items-start">
