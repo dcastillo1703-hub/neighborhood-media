@@ -230,6 +230,47 @@ export type WeeklyMetric = {
   createdAt?: string;
 };
 
+export type ToastImportFileType = "csv" | "xlsx" | "pdf";
+export type ToastImportConfidence = "High" | "Medium" | "Low";
+export type ToastImportStatus = "staged" | "approved";
+
+export type ToastImportedMetric = Omit<WeeklyMetric, "id" | "clientId" | "createdAt"> & {
+  sourceRowNumber: number;
+};
+
+export type ToastPerformanceImport = {
+  id: string;
+  clientId: string;
+  fileName: string;
+  fileType: ToastImportFileType;
+  uploadedAt: string;
+  status: ToastImportStatus;
+  reportingPeriodLabel: string;
+  rawSnapshot: {
+    fileSize: number;
+    rowCount: number;
+    textPreview?: string;
+  };
+  parsedSnapshot: {
+    metrics: ToastImportedMetric[];
+    totals: {
+      covers: number;
+      netSales: number;
+      totalOrders: number;
+    };
+  };
+  review: {
+    confidence: ToastImportConfidence;
+    warnings: string[];
+    missingFields: string[];
+    addedCount: number;
+    updatedCount: number;
+    removedCount: number;
+  };
+  approvedAt?: string;
+  appliedMetricIds?: string[];
+};
+
 export type PlannerItem = {
   id: string;
   clientId: string;

@@ -38,14 +38,14 @@ export function Sidebar() {
   const { activeClient, clients } = useActiveClient();
 
   return (
-    <aside className="sticky top-0 hidden h-screen w-[16rem] flex-col border-r border-[rgba(132,108,65,0.14)] bg-[rgba(247,242,234,0.94)] lg:flex">
+    <aside className="sticky top-0 hidden h-screen w-[16rem] flex-col border-r border-[color:var(--surface-border-soft)] bg-[color:var(--surface-sidebar)] lg:flex">
       <div className="flex-1 overflow-y-auto px-3 py-4">
         <div className="space-y-7">
           <div>
             <p className="px-3 text-[0.66rem] uppercase tracking-[0.26em] text-muted-foreground">
               Meama OS
             </p>
-            <div className="mt-3 flex justify-center rounded-[1rem] border border-[rgba(146,124,73,0.12)] bg-[rgba(255,252,247,0.8)] px-3 py-4">
+            <div className="mt-3 flex justify-center rounded-[1rem] border border-[color:var(--surface-border-soft)] bg-[color:var(--surface-soft)] px-3 py-4">
               <Image
                 alt={`${activeClient.name} logo`}
                 className="h-auto w-auto max-w-[170px] object-contain"
@@ -71,10 +71,10 @@ export function Sidebar() {
               return (
                 <Link
                   className={cn(
-                    "group flex items-center gap-3 rounded-[1.2rem] px-4 py-3 text-sm transition",
+                    "group flex items-center gap-3 rounded-[1.1rem] px-4 py-3 text-sm transition duration-200",
                     active
-                      ? "bg-[rgba(189,156,87,0.16)] text-foreground"
-                      : "text-foreground/72 hover:bg-[rgba(189,156,87,0.08)] hover:text-foreground"
+                      ? "bg-[var(--app-accent-soft)] text-foreground"
+                      : "text-foreground/72 hover:bg-accent/20 hover:text-foreground"
                   )}
                   href={item.href}
                   key={item.href}
@@ -83,8 +83,8 @@ export function Sidebar() {
                     className={cn(
                       "flex h-8 w-8 items-center justify-center rounded-full transition",
                       active
-                        ? "bg-[rgba(189,156,87,0.18)] text-foreground"
-                        : "bg-[rgba(189,156,87,0.08)] text-muted-foreground group-hover:bg-[rgba(189,156,87,0.14)] group-hover:text-foreground"
+                        ? "bg-[var(--app-accent-panel)] text-foreground"
+                        : "bg-accent/16 text-muted-foreground group-hover:bg-accent/22 group-hover:text-foreground"
                     )}
                   >
                     <Icon className="h-4 w-4" />

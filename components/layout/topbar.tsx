@@ -4,6 +4,7 @@ import { Bell, LogOut, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { useAuth } from "@/lib/auth-context";
 import { useActiveClient } from "@/lib/client-context";
 
@@ -53,6 +54,7 @@ export function Topbar() {
             {profile?.email ?? "Authenticated"}
           </div>
         ) : null}
+        <ThemeToggle />
         {mode === "supabase" ? (
           <Button size="sm" variant="ghost" onClick={() => void signOut()}>
             <LogOut className="mr-2 h-4 w-4" />

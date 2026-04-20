@@ -22,6 +22,38 @@
   --app-accent-text: #21301f;
   --app-accent-soft: rgba(184, 196, 160, 0.18);
   --app-accent-panel: rgba(184, 196, 160, 0.28);
+  --surface-elevated: rgba(253, 251, 247, 0.92);
+  --surface-soft: rgba(255, 252, 247, 0.72);
+  --surface-sidebar: rgba(247, 242, 234, 0.94);
+  --surface-border-strong: rgba(146, 124, 73, 0.16);
+  --surface-border-soft: rgba(146, 124, 73, 0.1);
+  --surface-shadow: 0 14px 34px rgba(91, 72, 42, 0.06);
+  --shell-glow-top: rgba(185, 151, 83, 0.08);
+  --shell-nav: rgba(33, 32, 36, 0.94);
+}
+
+:root[data-theme="dark"] {
+  --background: 215 26% 9%;
+  --foreground: 42 22% 92%;
+  --card: 220 20% 12%;
+  --card-foreground: 42 22% 92%;
+  --border: 220 14% 23%;
+  --input: 220 16% 14%;
+  --ring: 38 46% 58%;
+  --secondary: 218 14% 18%;
+  --secondary-foreground: 42 22% 92%;
+  --muted: 220 14% 15%;
+  --muted-foreground: 38 12% 68%;
+  --accent: 218 14% 20%;
+  --accent-foreground: 42 22% 92%;
+  --surface-elevated: rgba(18, 22, 29, 0.9);
+  --surface-soft: rgba(22, 27, 36, 0.74);
+  --surface-sidebar: rgba(14, 18, 24, 0.94);
+  --surface-border-strong: rgba(186, 163, 117, 0.16);
+  --surface-border-soft: rgba(186, 163, 117, 0.08);
+  --surface-shadow: 0 16px 36px rgba(0, 0, 0, 0.28);
+  --shell-glow-top: rgba(184, 160, 94, 0.05);
+  --shell-nav: rgba(12, 16, 22, 0.94);
 }
 
 * {
@@ -43,6 +75,15 @@ body {
   font-feature-settings: "liga" 1, "kern" 1;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  transition: background-color 180ms ease, color 180ms ease;
+}
+
+:root[data-theme="dark"] body {
+  background:
+    radial-gradient(circle at 16% 0%, rgba(201, 170, 97, 0.08), transparent 26%),
+    radial-gradient(circle at 86% 4%, rgba(94, 112, 87, 0.06), transparent 28%),
+    radial-gradient(circle at 52% 100%, rgba(81, 93, 118, 0.08), transparent 40%),
+    linear-gradient(180deg, #0f1318 0%, #11161d 55%, #0f141a 100%);
 }
 
 a {
@@ -53,4 +94,18 @@ a {
 ::selection {
   background: rgba(189, 156, 87, 0.2);
   color: hsl(var(--foreground));
+}
+
+@layer base {
+  * {
+    @apply transition-colors duration-150;
+  }
+
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    -webkit-tap-highlight-color: transparent;
+  }
 }

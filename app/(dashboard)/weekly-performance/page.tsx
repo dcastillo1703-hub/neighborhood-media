@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { Pencil, Trash2 } from "lucide-react";
 import { Brush, CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
 
@@ -19,12 +19,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { useActiveClient } from "@/lib/client-context";
 import { meamaToastMonthlySnapshots } from "@/data/toast";
 import { buildMonthlyPerformance, getLatestWeekSummary } from "@/lib/domain/performance";
+import { compareImportedMetrics, parseToastPerformanceFile } from "@/lib/imports/toast-performance";
 import { useCampaigns } from "@/lib/repositories/use-campaigns";
 import { useClientSettings } from "@/lib/repositories/use-client-settings";
+import { useToastPerformanceImports } from "@/lib/repositories/use-toast-performance-imports";
 import { useWeeklyMetrics } from "@/lib/repositories/use-weekly-metrics";
 import { currency, number } from "@/lib/utils";
 import { validateWeeklyMetric } from "@/lib/validation";
-import { WeeklyMetric } from "@/types";
+import { ToastPerformanceImport, WeeklyMetric } from "@/types";
 
 const createEmptyMetric = (clientId: string): WeeklyMetric => ({
   id: "",
@@ -41,11 +43,24 @@ export default function WeeklyPerformancePage() {
   const { activeClient } = useActiveClient();
   const { settings } = useClientSettings(activeClient.id);
   const { campaigns } = useCampaigns(activeClient.id);
-  const { metrics, saveMetric: persistMetric, deleteMetric, ready, error } = useWeeklyMetrics(activeClient.id);
+  const {
+    metrics,
+    saveMetric: persistMetric,
+    deleteMetric,
+    replaceMetrics,
+    ready,
+    error
+  } = useWeeklyMetrics(activeClient.id);
+  const { imports, upsertImport, approveImport } = useToastPerformanceImports(activeClient.id);
   const [draft, setDraft] = useState<WeeklyMetric>(createEmptyMetric(activeClient.id));
   const [editingId, setEditingId] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showFullMonthlyTimeline, setShowFullMonthlyTimeline] = useState(false);
+  const [reviewImportId, setReviewImportId] = useState<string | null>(null);
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const [applyingImportId, setApplyingImportId] = useState<string | null>(null);
+  const [importNotice, setImportNotice] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     setDraft(createEmptyMetric(activeClient.id));
@@ -68,11 +83,95 @@ export default function WeeklyPerformancePage() {
   );
   const latestToastMonthlySnapshot =
     meamaToastMonthlySnapshots[meamaToastMonthlySnapshots.length - 1] ?? null;
+  const reviewedImport = useMemo(
+    () => imports.find((item) => item.id === reviewImportId) ?? null,
+    [imports, reviewImportId]
+  );
+  const approvedImports = useMemo(
+    () => imports.filter((item) => item.status === "approved"),
+    [imports]
+  );
+  const reviewChanges = useMemo(
+    () =>
+      reviewedImport
+        ? compareImportedMetrics(metrics, reviewedImport.parsedSnapshot.metrics)
+        : { addedMetrics: [], updatedMetrics: [], removedMetrics: [] },
+    [metrics, reviewedImport]
+  );
 
   const resetDraft = () => {
     setDraft(createEmptyMetric(activeClient.id));
     setEditingId(null);
     setErrors({});
+  };
+
+  const applyImport = async (importRecord: ToastPerformanceImport) => {
+    if (!importRecord.parsedSnapshot.metrics.length) {
+      setImportNotice("This import does not contain any valid rows yet.");
+      return;
+    }
+
+    const currentByWeekLabel = new Map(metrics.map((metric) => [metric.weekLabel, metric]));
+    const nextMetrics: WeeklyMetric[] = importRecord.parsedSnapshot.metrics.map((metric, index) => {
+      const existing = currentByWeekLabel.get(metric.weekLabel);
+
+      return {
+        id: existing?.id ?? `wm-${Date.now()}-${index}`,
+        clientId: activeClient.id,
+        weekLabel: metric.weekLabel,
+        covers: metric.covers,
+        netSales: metric.netSales,
+        totalOrders: metric.totalOrders,
+        notes: metric.notes,
+        campaignAttribution: metric.campaignAttribution,
+        campaignId: metric.campaignId,
+        createdAt: existing?.createdAt ?? new Date().toISOString()
+      };
+    });
+
+    setApplyingImportId(importRecord.id);
+    setImportNotice(null);
+
+    try {
+      const payload = await replaceMetrics(nextMetrics, importRecord.fileName);
+      approveImport(importRecord.id, payload.metrics.map((metric) => metric.id));
+      setImportNotice(
+        `${payload.metrics.length} Toast row${payload.metrics.length === 1 ? "" : "s"} are now active across performance, campaigns, and reporting.`
+      );
+      setReviewImportId(importRecord.id);
+    } catch (importError) {
+      setImportNotice(
+        importError instanceof Error ? importError.message : "The upload could not be applied."
+      );
+    } finally {
+      setApplyingImportId(null);
+    }
+  };
+
+  const handleFileSelection = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    setUploadingFile(true);
+    setImportNotice(null);
+
+    try {
+      const nextImport = await parseToastPerformanceFile(file, activeClient.id, metrics);
+      upsertImport(nextImport);
+      setReviewImportId(nextImport.id);
+    } catch (uploadError) {
+      setImportNotice(
+        uploadError instanceof Error ? uploadError.message : "The file could not be parsed."
+      );
+    } finally {
+      setUploadingFile(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
   };
 
   const saveMetric = () => {
@@ -134,8 +233,205 @@ export default function WeeklyPerformancePage() {
       <PageHeader
         eyebrow="Weekly performance"
         title="Weekly covers"
-        description="Track covers, revenue, and week-over-week changes against campaign activity."
+        description="Upload Toast snapshots, review what changed, and update the active performance record without touching backend values manually."
       />
+
+      <div className="grid gap-6 xl:grid-cols-[0.86fr_1.14fr]">
+        <Card>
+          <CardHeader>
+            <div>
+              <CardDescription>Toast import</CardDescription>
+              <CardTitle className="mt-3">Upload a performance snapshot</CardTitle>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
+                Upload CSV or XLSX for the cleanest result. PDF is supported as a lower-confidence backup and always needs closer review.
+              </p>
+            </div>
+          </CardHeader>
+          <div className="space-y-4">
+            <div className="rounded-[1.1rem] border border-border/70 bg-card/55 p-4">
+              <p className="text-sm font-medium text-foreground">How this works</p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-4">
+                {[
+                  "1. Upload",
+                  "2. Review changes",
+                  "3. Confirm import",
+                  "4. Update live metrics"
+                ].map((step) => (
+                  <div className="rounded-[1rem] border border-border/70 bg-background/60 px-3 py-3 text-sm text-muted-foreground" key={step}>
+                    {step}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <input
+                ref={fileInputRef}
+                accept=".csv,.xlsx,.xls,.pdf"
+                className="hidden"
+                id="toast-file-upload"
+                type="file"
+                onChange={(event) => void handleFileSelection(event)}
+              />
+              <Button disabled={uploadingFile} onClick={() => fileInputRef.current?.click()} type="button">
+                {uploadingFile ? "Parsing upload..." : "Upload Toast snapshot"}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setReviewImportId(approvedImports[0]?.id ?? null)}
+                type="button"
+                disabled={!approvedImports.length}
+              >
+                Review latest approved snapshot
+              </Button>
+            </div>
+
+            {importNotice ? (
+              <div className="rounded-[1rem] border border-border/70 bg-card/55 p-4 text-sm text-muted-foreground">
+                {importNotice}
+              </div>
+            ) : null}
+          </div>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div>
+              <CardDescription>Review</CardDescription>
+              <CardTitle className="mt-3">Review before applying</CardTitle>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
+                Nothing changes live until this review is approved. The card below shows the detected period, parsed values, and what would change in the active snapshot.
+              </p>
+            </div>
+          </CardHeader>
+          {reviewedImport ? (
+            <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <ListCard>
+                  <p className="text-sm text-muted-foreground">File</p>
+                  <p className="mt-2 text-lg text-foreground">{reviewedImport.fileName}</p>
+                  <p className="mt-2 text-sm text-muted-foreground">{reviewedImport.fileType.toUpperCase()}</p>
+                </ListCard>
+                <ListCard>
+                  <p className="text-sm text-muted-foreground">Reporting period</p>
+                  <p className="mt-2 text-lg text-foreground">{reviewedImport.reportingPeriodLabel}</p>
+                  <p className="mt-2 text-sm text-muted-foreground">{number(reviewedImport.rawSnapshot.rowCount)} rows detected</p>
+                </ListCard>
+                <ListCard>
+                  <p className="text-sm text-muted-foreground">Import confidence</p>
+                  <p className="mt-2 text-lg text-foreground">{reviewedImport.review.confidence}</p>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    {reviewedImport.review.warnings.length ? reviewedImport.review.warnings[0] : "Structured file with review-ready field detection."}
+                  </p>
+                </ListCard>
+                <ListCard>
+                  <p className="text-sm text-muted-foreground">Change summary</p>
+                  <p className="mt-2 text-lg text-foreground">
+                    +{number(reviewedImport.review.addedCount)} / ~{number(reviewedImport.review.updatedCount)} / -{number(reviewedImport.review.removedCount)}
+                  </p>
+                  <p className="mt-2 text-sm text-muted-foreground">Added / updated / removed week rows.</p>
+                </ListCard>
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+                <div className="space-y-3">
+                  <ListCard>
+                    <p className="font-medium text-foreground">Parsed metrics</p>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Covers</p>
+                        <p className="mt-2 text-lg text-foreground">{number(reviewedImport.parsedSnapshot.totals.covers)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Net sales</p>
+                        <p className="mt-2 text-lg text-foreground">{currency(reviewedImport.parsedSnapshot.totals.netSales)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Orders / tables</p>
+                        <p className="mt-2 text-lg text-foreground">{number(reviewedImport.parsedSnapshot.totals.totalOrders)}</p>
+                      </div>
+                    </div>
+                  </ListCard>
+                  <ListCard>
+                    <p className="font-medium text-foreground">Warnings and missing fields</p>
+                    <div className="mt-3 space-y-2 text-sm text-muted-foreground">
+                      {reviewedImport.review.warnings.length ? reviewedImport.review.warnings.map((warning) => (
+                        <p key={warning}>{warning}</p>
+                      )) : <p>No parsing warnings.</p>}
+                      {reviewedImport.review.missingFields.length ? (
+                        <p>Missing fields: {reviewedImport.review.missingFields.join(", ")}.</p>
+                      ) : null}
+                    </div>
+                  </ListCard>
+                  {reviewedImport.rawSnapshot.textPreview ? (
+                    <ListCard>
+                      <p className="font-medium text-foreground">PDF text preview</p>
+                      <p className="mt-2 text-sm leading-6 text-muted-foreground">{reviewedImport.rawSnapshot.textPreview}</p>
+                    </ListCard>
+                  ) : null}
+                </div>
+
+                <ListCard>
+                  <p className="font-medium text-foreground">What changes vs the active snapshot</p>
+                  <div className="mt-4 space-y-4">
+                    {reviewChanges.updatedMetrics.slice(0, 6).map((metric) => {
+                      const previous = metrics.find((entry) => entry.weekLabel === metric.weekLabel);
+                      return (
+                        <div className="border-b border-border/60 pb-3 last:border-b-0 last:pb-0" key={metric.weekLabel}>
+                          <p className="font-medium text-foreground">{metric.weekLabel}</p>
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            Covers {number(previous?.covers ?? 0)} {"->"} {number(metric.covers)}
+                            {metric.netSales !== undefined || previous?.netSales !== undefined
+                              ? ` · Sales ${currency(previous?.netSales ?? 0)} -> ${currency(metric.netSales ?? 0)}`
+                              : ""}
+                          </p>
+                        </div>
+                      );
+                    })}
+                    {reviewChanges.addedMetrics.slice(0, 4).map((metric) => (
+                      <div className="border-b border-border/60 pb-3 last:border-b-0 last:pb-0" key={`add-${metric.weekLabel}`}>
+                        <p className="font-medium text-foreground">{metric.weekLabel}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          New row: {number(metric.covers)} covers{metric.netSales !== undefined ? ` · ${currency(metric.netSales)}` : ""}
+                        </p>
+                      </div>
+                    ))}
+                    {reviewChanges.removedMetrics.slice(0, 4).map((metric) => (
+                      <div className="border-b border-border/60 pb-3 last:border-b-0 last:pb-0" key={`remove-${metric.id}`}>
+                        <p className="font-medium text-foreground">{metric.weekLabel}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          This active row would be removed by the new snapshot.
+                        </p>
+                      </div>
+                    ))}
+                    {!reviewChanges.updatedMetrics.length && !reviewChanges.addedMetrics.length && !reviewChanges.removedMetrics.length ? (
+                      <p className="text-sm text-muted-foreground">No differences detected against the active snapshot.</p>
+                    ) : null}
+                  </div>
+                </ListCard>
+              </div>
+
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  disabled={applyingImportId === reviewedImport.id || !reviewedImport.parsedSnapshot.metrics.length}
+                  onClick={() => void applyImport(reviewedImport)}
+                  type="button"
+                >
+                  {applyingImportId === reviewedImport.id ? "Applying snapshot..." : "Approve and apply snapshot"}
+                </Button>
+                <Button variant="outline" onClick={() => setReviewImportId(null)} type="button">
+                  Close review
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <EmptyState
+              title="No staged upload yet"
+              description="Upload a Toast snapshot to review the parsed metrics before anything changes live."
+            />
+          )}
+        </Card>
+      </div>
       <StatGrid>
         <MetricCard label="Rolling Average Covers" value={number(summary.average, 1)} detail="Average weekly traffic across all entered weeks." />
         <MetricCard label="Best Week" value={summary.best ? summary.best.weekLabel : "N/A"} detail={summary.best ? `${number(summary.best.covers)} covers achieved.` : "No data yet."} />
@@ -148,12 +444,49 @@ export default function WeeklyPerformancePage() {
         />
       </StatGrid>
 
+      {approvedImports.length ? (
+        <Card>
+          <CardHeader>
+            <div>
+              <CardDescription>Approved snapshot history</CardDescription>
+              <CardTitle className="mt-3">Reapply a prior approved import if needed</CardTitle>
+            </div>
+          </CardHeader>
+          <div className="grid gap-3 lg:grid-cols-3">
+            {approvedImports.slice(0, 6).map((item) => (
+              <ListCard key={item.id}>
+                <p className="font-medium text-foreground">{item.fileName}</p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {item.reportingPeriodLabel} · approved {item.approvedAt ? new Date(item.approvedAt).toLocaleDateString("en-US") : "just now"}
+                </p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {number(item.parsedSnapshot.metrics.length)} rows · {currency(item.parsedSnapshot.totals.netSales)} net sales
+                </p>
+                <div className="mt-4 flex gap-2">
+                  <Button size="sm" variant="outline" onClick={() => setReviewImportId(item.id)} type="button">
+                    Review
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => void applyImport(item)}
+                    type="button"
+                    disabled={applyingImportId === item.id}
+                  >
+                    {applyingImportId === item.id ? "Applying..." : "Apply again"}
+                  </Button>
+                </div>
+              </ListCard>
+            ))}
+          </div>
+        </Card>
+      ) : null}
+
       <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
         <Card>
           <CardHeader>
             <div>
-              <CardDescription>Weekly Metrics</CardDescription>
-              <CardTitle className="mt-3">{editingId ? "Edit week" : "Add new week"}</CardTitle>
+              <CardDescription>Manual correction</CardDescription>
+              <CardTitle className="mt-3">{editingId ? "Edit week" : "Add or correct one week"}</CardTitle>
             </div>
           </CardHeader>
           <div className="grid gap-4">

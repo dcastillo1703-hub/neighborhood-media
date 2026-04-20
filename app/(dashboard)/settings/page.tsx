@@ -33,7 +33,7 @@ type MetaConnectionNotice = {
 
 export default function SettingsPage() {
   const { activeClient } = useActiveClient();
-  const { accent, accentKey, setAccentKey } = useTheme();
+  const { accent, accentKey, setAccentKey, mode, setMode } = useTheme();
   const {
     syncJobs,
     updateSyncJob,
@@ -306,21 +306,38 @@ export default function SettingsPage() {
         <CardHeader>
           <div>
             <CardDescription>Account Appearance</CardDescription>
-            <CardTitle className="mt-3">Customize the workspace accent</CardTitle>
+            <CardTitle className="mt-3">Customize the workspace look and feel</CardTitle>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
-              This updates the app&apos;s actual CSS variables, so buttons, highlights, campaign headers, and mobile controls inherit the selected accent.
+              Accent and theme both update the shared app variables, so navigation, cards, buttons, and reporting surfaces stay visually consistent everywhere.
             </p>
           </div>
         </CardHeader>
         <div className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
           <div className="rounded-[1.75rem] border border-border bg-card/65 p-5">
-            <p className="text-sm font-medium text-foreground">Current accent</p>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-medium text-foreground">Current appearance</p>
+              <div className="inline-flex rounded-full border border-border bg-card/75 p-1">
+                {(["light", "dark"] as const).map((themeOption) => (
+                  <button
+                    className={[
+                      "rounded-full px-3 py-1.5 text-xs font-semibold capitalize transition",
+                      mode === themeOption ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent/30"
+                    ].join(" ")}
+                    key={themeOption}
+                    type="button"
+                    onClick={() => setMode(themeOption)}
+                  >
+                    {themeOption}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="mt-5 overflow-hidden rounded-[1.5rem] border border-border">
               <div className="px-5 py-6" style={{ backgroundColor: accent.bg, color: accent.text }}>
                 <p className="text-xs uppercase tracking-[0.18em] opacity-70">Preview</p>
-                <p className="mt-3 text-3xl font-semibold tracking-[-0.04em]">{accent.label} workspace</p>
+                <p className="mt-3 text-3xl font-semibold tracking-[-0.04em]">{accent.label} {mode} workspace</p>
               </div>
-              <div className="space-y-3 bg-[#202024] p-5 text-white">
+              <div className={mode === "dark" ? "space-y-3 bg-[#171b22] p-5 text-white" : "space-y-3 bg-[#202024] p-5 text-white"}>
                 <div className="rounded-2xl bg-white/5 px-4 py-3">
                   Campaign controls use this accent.
                 </div>

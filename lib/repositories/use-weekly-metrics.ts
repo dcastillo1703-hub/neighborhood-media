@@ -104,6 +104,31 @@ export function useWeeklyMetrics(clientId: string) {
       }
 
       setMetrics((current) => current.filter((item) => item.id !== id));
+    },
+    async replaceMetrics(nextMetrics: WeeklyMetric[], importLabel?: string) {
+      const response = await fetch("/api/weekly-metrics/import", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          clientId,
+          metrics: nextMetrics,
+          importLabel
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to apply imported weekly metrics.");
+      }
+
+      const payload = (await response.json()) as {
+        metrics: WeeklyMetric[];
+        event: ActivityEvent;
+      };
+
+      setMetrics(payload.metrics);
+      return payload;
     }
   };
 }

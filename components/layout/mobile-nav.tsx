@@ -64,7 +64,7 @@ export function MobileNav() {
   }, []);
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-white/10 bg-[#202024]/95 px-2 pb-[max(0.65rem,env(safe-area-inset-bottom))] pt-1.5 text-white shadow-[0_-18px_45px_rgba(0,0,0,0.25)] backdrop-blur lg:hidden">
+    <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-[color:var(--surface-border-soft)] bg-[color:var(--shell-nav)]/95 px-2 pb-[max(0.65rem,env(safe-area-inset-bottom))] pt-1.5 text-foreground shadow-[0_-18px_45px_rgba(0,0,0,0.18)] backdrop-blur lg:hidden">
       <div
         className="grid"
         style={{ gridTemplateColumns: `repeat(${mobileNavigation.length}, minmax(0, 1fr))` }}
@@ -77,7 +77,7 @@ export function MobileNav() {
             <Link
               className={cn(
                 "flex min-w-0 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 py-1.5 text-[0.66rem] font-medium transition",
-                active ? "text-white" : "text-white/50"
+                active ? "text-foreground" : "text-foreground/52"
               )}
               href={item.href as never}
               key={item.href}

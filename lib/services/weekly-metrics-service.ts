@@ -224,3 +224,77 @@ export async function removeWeeklyMetric(clientId: string, metricId: string) {
 
   return { metricId, event };
 }
+
+export async function replaceWeeklyMetricsSnapshot(
+  clientId: string,
+  metrics: WeeklyMetric[],
+  importLabel?: string
+) {
+  const workspaceId = await getWorkspaceId(clientId);
+  const serverModule = await import("@/lib/supabase/server");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const supabase = (await serverModule.getSupabaseServerClient()) as any;
+  const nextMetrics = metrics.map((metric) => ({
+    ...metric,
+    clientId,
+    createdAt: metric.createdAt ?? new Date().toISOString()
+  }));
+
+  if (supabase) {
+    const { error: deleteError } = await supabase
+      .from("weekly_metrics")
+      .delete()
+      .eq("client_id", clientId);
+
+    if (deleteError) {
+      throw deleteError;
+    }
+
+    if (nextMetrics.length) {
+      const { error: insertError } = await supabase
+        .from("weekly_metrics")
+        .insert(nextMetrics.map(mapWeeklyMetricInsert));
+
+      if (insertError) {
+        throw insertError;
+      }
+    }
+
+    const event = await recordMetricEvent({
+      id: `evt-${Date.now()}`,
+      workspaceId,
+      clientId,
+      actorName: "Workspace operator",
+      actionLabel: "imported",
+      subjectType: "campaign",
+      subjectName: importLabel ?? "Toast snapshot",
+      detail: `${nextMetrics.length} weekly metric row${nextMetrics.length === 1 ? "" : "s"} applied from the reviewed upload.`,
+      createdAt: new Date().toISOString()
+    });
+
+    return {
+      metrics: nextMetrics,
+      event
+    };
+  }
+
+  const snapshot = getClientSnapshot(clientId);
+  snapshot.metrics = nextMetrics;
+
+  const event: ActivityEvent = {
+    id: `evt-${Date.now()}`,
+    workspaceId,
+    clientId,
+    actorName: "Workspace operator",
+    actionLabel: "imported",
+    subjectType: "campaign",
+    subjectName: importLabel ?? "Toast snapshot",
+    detail: `${nextMetrics.length} weekly metric row${nextMetrics.length === 1 ? "" : "s"} applied from the reviewed upload.`,
+    createdAt: new Date().toISOString()
+  };
+
+  return {
+    metrics: nextMetrics,
+    event
+  };
+}

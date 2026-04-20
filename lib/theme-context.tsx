@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
 export type AppAccentKey = "sage" | "rose" | "brass" | "tomato" | "ink";
+export type ThemeMode = "light" | "dark";
 
 export type AppAccent = {
   key: AppAccentKey;
@@ -84,12 +85,18 @@ type ThemeContextValue = {
   accent: AppAccent;
   accentKey: AppAccentKey;
   setAccentKey: (key: AppAccentKey) => void;
+  mode: ThemeMode;
+  setMode: (mode: ThemeMode) => void;
+  toggleMode: () => void;
 };
 
 const ThemeContext = createContext<ThemeContextValue>({
   accent: appAccents[0],
   accentKey: "sage",
-  setAccentKey: () => undefined
+  setAccentKey: () => undefined,
+  mode: "light",
+  setMode: () => undefined,
+  toggleMode: () => undefined
 });
 
 function applyAccent(accent: AppAccent) {
@@ -102,36 +109,64 @@ function applyAccent(accent: AppAccent) {
   document.documentElement.style.setProperty("--app-accent-panel", accent.panel);
 }
 
+function applyMode(mode: ThemeMode) {
+  document.documentElement.dataset.theme = mode;
+}
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [accentKey, setAccentKeyState] = useState<AppAccentKey>("sage");
+  const [mode, setModeState] = useState<ThemeMode>("light");
 
   const accent = appAccents.find((item) => item.key === accentKey) ?? appAccents[0];
 
   useEffect(() => {
     const savedAccent = window.localStorage.getItem("nmos-app-accent") as AppAccentKey | null;
+    const savedMode = window.localStorage.getItem("nmos-theme-mode") as ThemeMode | null;
 
     if (savedAccent && appAccents.some((item) => item.key === savedAccent)) {
       setAccentKeyState(savedAccent);
-      return;
     }
 
-    applyAccent(appAccents[0]);
+    if (savedMode === "dark" || savedMode === "light") {
+      setModeState(savedMode);
+      applyMode(savedMode);
+    } else {
+      applyMode("light");
+    }
+
+    applyAccent(savedAccent && appAccents.some((item) => item.key === savedAccent) ? appAccents.find((item) => item.key === savedAccent) ?? appAccents[0] : appAccents[0]);
   }, []);
 
   useEffect(() => {
     applyAccent(accent);
   }, [accent]);
 
+  useEffect(() => {
+    applyMode(mode);
+  }, [mode]);
+
   const value = useMemo<ThemeContextValue>(
     () => ({
       accent,
       accentKey,
+      mode,
       setAccentKey(nextAccentKey) {
         setAccentKeyState(nextAccentKey);
         window.localStorage.setItem("nmos-app-accent", nextAccentKey);
+      },
+      setMode(nextMode) {
+        setModeState(nextMode);
+        window.localStorage.setItem("nmos-theme-mode", nextMode);
+      },
+      toggleMode() {
+        setModeState((current) => {
+          const nextMode = current === "light" ? "dark" : "light";
+          window.localStorage.setItem("nmos-theme-mode", nextMode);
+          return nextMode;
+        });
       }
     }),
-    [accent, accentKey]
+    [accent, accentKey, mode]
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { Globe2, Menu, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 import {
   mobileNavOptions,
   readMobileNavKeys,
@@ -50,7 +51,8 @@ export function MobileTopMenu() {
   }
 
   return (
-    <div className="fixed right-4 top-4 z-40 lg:hidden">
+    <div className="fixed right-4 top-4 z-40 flex items-center gap-2 lg:hidden">
+      <ThemeToggle compact />
       <div className="relative">
         <Button
           aria-expanded={open}
@@ -77,7 +79,7 @@ export function MobileTopMenu() {
               type="button"
               onClick={() => setOpen(false)}
             />
-            <div className="fixed inset-x-3 top-16 z-[69] rounded-[1.5rem] border border-border bg-card p-3 shadow-[0_24px_60px_rgba(0,0,0,0.28)]">
+            <div className="fixed inset-x-3 top-16 z-[69] rounded-[1.5rem] border border-border bg-card p-3 shadow-[var(--surface-shadow)]">
               <div className="mb-2 flex items-center justify-between px-1">
                 <div>
                   <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">

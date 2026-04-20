@@ -35,8 +35,20 @@ export default function RootLayout({
   children: ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              try {
+                var savedMode = window.localStorage.getItem("nmos-theme-mode");
+                if (savedMode === "dark" || savedMode === "light") {
+                  document.documentElement.dataset.theme = savedMode;
+                }
+              } catch (error) {}
+            `
+          }}
+        />
         <ThemeProvider>
           <AuthProvider>
             <ServiceWorkerRegister />

@@ -29,10 +29,10 @@ function PageHeaderComponent({
     >
       <div className="max-w-3xl">
         {eyebrow ? <Badge>{eyebrow}</Badge> : null}
-        <h1 className="mt-3 max-w-4xl font-display text-[2rem] leading-[1] tracking-[-0.035em] text-foreground sm:text-[2.75rem] lg:mt-4 lg:text-5xl">
+        <h1 className="mt-3 max-w-4xl font-display text-[1.92rem] leading-[0.98] tracking-[-0.04em] text-foreground sm:text-[2.65rem] lg:mt-4 lg:text-[4.2rem]">
           {title}
         </h1>
-        <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-[0.98rem] sm:leading-7">
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-[0.96rem] sm:leading-7">
           {description}
         </p>
       </div>
