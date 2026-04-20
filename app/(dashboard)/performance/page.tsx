@@ -36,6 +36,7 @@ import {
 import { useAnalyticsSnapshots } from "@/lib/repositories/use-analytics-snapshots";
 import { useCampaigns } from "@/lib/repositories/use-campaigns";
 import { useClientSettings } from "@/lib/repositories/use-client-settings";
+import { usePosts } from "@/lib/repositories/use-posts";
 import { useWeeklyMetrics } from "@/lib/repositories/use-weekly-metrics";
 import { useGoogleAnalytics } from "@/lib/use-google-analytics";
 import { useManualMetaPerformance } from "@/lib/use-manual-meta-performance";
@@ -53,6 +54,7 @@ export default function PerformancePage() {
   const { settings, revenueModelDefaults } = useClientSettings(activeClient.id);
   const { metrics } = useWeeklyMetrics(activeClient.id);
   const { campaigns } = useCampaigns(activeClient.id);
+  const { posts } = usePosts(activeClient.id);
   const { analyticsSnapshots, refreshAnalyticsSnapshots } = useAnalyticsSnapshots(activeClient.id);
   const {
     summary: googleAnalyticsSummary,
@@ -138,6 +140,58 @@ export default function PerformancePage() {
     .sort((left, right) => right.revenue - left.revenue)
     .slice(0, 4);
   const topCampaign = topCampaigns[0] ?? null;
+  const postsById = useMemo(
+    () => new Map(posts.map((post) => [post.id, post])),
+    [posts]
+  );
+  const topContentProof = useMemo(() => {
+    const grouped = new Map<
+      string,
+      {
+        revenue: number;
+        covers: number;
+        tables: number;
+        conversions: number;
+      }
+    >();
+
+    analyticsSnapshots.forEach((snapshot) => {
+      if (!snapshot.linkedPostId) {
+        return;
+      }
+
+      const current = grouped.get(snapshot.linkedPostId) ?? {
+        revenue: 0,
+        covers: 0,
+        tables: 0,
+        conversions: 0
+      };
+      current.revenue += snapshot.attributedRevenue;
+      current.covers += snapshot.attributedCovers;
+      current.tables += snapshot.attributedTables;
+      current.conversions += snapshot.conversions;
+      grouped.set(snapshot.linkedPostId, current);
+    });
+
+    return Array.from(grouped.entries())
+      .map(([postId, totals]) => {
+        const post = postsById.get(postId);
+        const campaign = post?.campaignId
+          ? campaigns.find((entry) => entry.id === post.campaignId)
+          : undefined;
+
+        return {
+          postId,
+          post,
+          campaign,
+          ...totals
+        };
+      })
+      .filter((item) => item.post)
+      .sort((left, right) => right.revenue - left.revenue)
+      .slice(0, 3);
+  }, [analyticsSnapshots, campaigns, postsById]);
+  const topContentItem = topContentProof[0] ?? null;
   const topChannels = [...channelContribution]
     .sort((left, right) => right.revenue - left.revenue)
     .slice(0, 4);
@@ -209,14 +263,56 @@ export default function PerformancePage() {
   const topSource = googleAnalyticsSummary?.topSources[0] ?? null;
   const topLandingPage = googleAnalyticsSummary?.topPages[0] ?? null;
   const topIntentSignal = googleAnalyticsSummary?.keyEvents[0] ?? null;
+  const reservationClicks =
+    googleAnalyticsSummary?.keyEvents.find((event) => event.label === "Reservation clicks")?.count ?? 0;
+  const orderClicks =
+    googleAnalyticsSummary?.keyEvents.find((event) => event.label === "Order clicks")?.count ?? 0;
+  const callClicks =
+    googleAnalyticsSummary?.keyEvents.find((event) => event.label === "Call clicks")?.count ?? 0;
+  const menuViews =
+    googleAnalyticsSummary?.keyEvents.find((event) => event.label === "Menu views")?.count ?? 0;
+  const intentActions = reservationClicks + orderClicks + callClicks;
   const unattributedSessions = googleAnalyticsSummary?.sourceQuality.notSetSessions ?? 0;
-  const attributionConfidenceLabel = !googleAnalyticsSummary
-    ? "Partial"
+  const supportedSnapshotCount = analyticsSnapshots.filter(
+    (snapshot) => snapshot.linkedCampaignId || snapshot.linkedPostId
+  ).length;
+  const attributionConfidence = !googleAnalyticsSummary || !supportedSnapshotCount
+    ? {
+        label: "Low",
+        detail: "Toast is solid, but the attribution layer is still thin.",
+        tone: "border-rose-500/20 bg-rose-500/10 text-rose-700 dark:text-rose-300"
+      }
     : unattributedSessions > (googleAnalyticsSummary.sessions || 0) * 0.35
-      ? "Needs tagging cleanup"
-      : connectedFacebook
-        ? "Reportable"
-        : "Directional";
+      ? {
+          label: "Medium",
+          detail: "There is enough evidence to report directionally, but UTMs still need cleanup.",
+          tone: "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+        }
+      : {
+          label: "High",
+          detail: "Tracked traffic, linked work, and POS movement are aligned well enough to defend the read.",
+          tone: "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+        };
+  const confidenceSupport = [
+    `${number(supportedSnapshotCount)} linked snapshot${supportedSnapshotCount === 1 ? "" : "s"} tie work to outcomes.`,
+    googleAnalyticsSummary
+      ? `${number(unattributedSessions)} unattributed session${unattributedSessions === 1 ? "" : "s"} still dilute precision.`
+      : "GA4 is not connected yet, so website support is still incomplete.",
+    connectedFacebook
+      ? "Facebook is supplying live platform evidence."
+      : manualFacebook
+        ? "Facebook is still running on manual fallback evidence."
+        : "No Facebook evidence is supporting the read yet."
+  ];
+  const attributedSessionsEstimate = supportedSnapshotCount
+    ? Math.round((googleAnalyticsSummary?.sessions ?? 0) * Math.max(0.12, Math.min(0.6, supportedSnapshotCount / Math.max(1, analyticsSnapshots.length))))
+    : 0;
+  const estimatedVisitRate = googleAnalyticsSummary?.sessions
+    ? intentActions / googleAnalyticsSummary.sessions
+    : 0;
+  const proofPointTitle = topContentItem?.post
+    ? `${topContentItem.post.platform} ${topContentItem.post.format?.toLowerCase() ?? "post"} tied to ${topContentItem.campaign?.name ?? "a campaign"}`
+    : topCampaign?.name ?? "Build the first proof point";
   const summaryHeadline =
     currentMonth && previousMonth
       ? `${currentMonth.monthLabel} ${monthRevenueDelta >= 0 ? "outpaced" : "trailed"} ${previousMonth.monthLabel} by ${currency(Math.abs(monthRevenueDelta))}`
@@ -255,7 +351,7 @@ export default function PerformancePage() {
     },
     {
       label: "What to tighten",
-      value: attributionConfidenceLabel,
+      value: attributionConfidence.label,
       detail: googleAnalyticsSummary
         ? `Unattributed traffic is ${number(unattributedSessions)} sessions. Cleaner UTMs will make the next reporting cycle more credible.`
         : "Connect and sync GA4 so website traffic can support the business story."
@@ -387,26 +483,77 @@ export default function PerformancePage() {
           <div className="space-y-3">
             <div className="grid gap-3 sm:grid-cols-3">
               <ListCard>
-                <p className="text-sm text-muted-foreground">Attributed revenue</p>
+                <p className="text-sm text-muted-foreground">Estimated contribution</p>
                 <p className="mt-2 text-2xl text-foreground">{currency(roiSummary.revenue)}</p>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  About {percent(attributedRevenueShare)} of the current monthly run-rate read.
+                  Directional revenue estimate backed by tracked work and platform signals.
                 </p>
               </ListCard>
               <ListCard>
-                <p className="text-sm text-muted-foreground">Attributed covers</p>
-                <p className="mt-2 text-2xl text-foreground">{number(roiSummary.covers)}</p>
+                <p className="text-sm text-muted-foreground">Confirmed POS revenue</p>
+                <p className="mt-2 text-2xl text-foreground">{currency(currentMonth?.revenue ?? 0)}</p>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  {number(roiSummary.tables, 1)} tables attached to tracked activity.
+                  Toast remains the source of truth for the business result.
                 </p>
               </ListCard>
               <ListCard>
-                <p className="text-sm text-muted-foreground">Strongest proof point</p>
-                <p className="mt-2 text-2xl text-foreground">{topCampaign?.name ?? "No proof yet"}</p>
+                <p className="text-sm text-muted-foreground">Attribution confidence</p>
+                <p className="mt-2 text-2xl text-foreground">{attributionConfidence.label}</p>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  {topCampaign
-                    ? `${currency(topCampaign.revenue)} across ${number(topCampaign.covers)} covers.`
-                    : "Start tying more campaign activity to revenue snapshots."}
+                  {attributionConfidence.detail}
+                </p>
+              </ListCard>
+            </div>
+            <div className="grid gap-3 lg:grid-cols-[0.95fr_1.05fr]">
+              <ListCard>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-medium text-foreground">Trust layer</p>
+                  <span className={["rounded-full border px-2.5 py-1 text-xs font-medium", attributionConfidence.tone].join(" ")}>
+                    {attributionConfidence.label}
+                  </span>
+                </div>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  Keep the business result and the attribution read separate: Toast confirms the revenue, while linked campaigns, posts, and platform data explain likely contribution.
+                </p>
+                <div className="mt-4 space-y-2 text-sm text-muted-foreground">
+                  {confidenceSupport.map((item) => (
+                    <p key={item}>{item}</p>
+                  ))}
+                </div>
+              </ListCard>
+              <ListCard>
+                <p className="font-medium text-foreground">Revenue translation</p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  This is the visible chain from attention to estimated value. It is intentionally simple so the story stays believable.
+                </p>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <div>
+                    <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">Sessions</p>
+                    <p className="mt-2 text-xl text-foreground">{number(attributedSessionsEstimate || googleAnalyticsSummary?.sessions || 0)}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Tracked website attention tied to this reporting window.</p>
+                  </div>
+                  <div>
+                    <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">Intent</p>
+                    <p className="mt-2 text-xl text-foreground">{number(intentActions || menuViews)}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {intentActions ? "Reservation, order, and call actions." : "Menu views or other tracked actions."}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">Covers</p>
+                    <p className="mt-2 text-xl text-foreground">{number(roiSummary.covers)}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Attributed covers tied back to campaign evidence.</p>
+                  </div>
+                  <div>
+                    <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">Revenue</p>
+                    <p className="mt-2 text-xl text-foreground">{currency(roiSummary.revenue)}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Using the current {currency(assumptions.averageCheck)} average-check assumption.
+                    </p>
+                  </div>
+                </div>
+                <p className="mt-4 text-sm text-muted-foreground">
+                  Current intent-to-session rate: {googleAnalyticsSummary?.sessions ? percent(estimatedVisitRate) : "Not enough GA4 data yet"}.
                 </p>
               </ListCard>
             </div>
@@ -438,6 +585,40 @@ export default function PerformancePage() {
                 )}
               </div>
             </ListCard>
+            <div className="grid gap-3 lg:grid-cols-2">
+              <ListCard>
+                <p className="font-medium text-foreground">Strongest campaign proof</p>
+                <p className="mt-2 text-lg text-foreground">{topCampaign?.name ?? "No campaign proof yet"}</p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {topCampaign
+                    ? `${topCampaign.name} currently carries ${currency(topCampaign.revenue)} in estimated contribution across ${number(topCampaign.covers)} covers.`
+                    : "Add more linked snapshots so campaign-level proof becomes easier to defend."}
+                </p>
+                {topCampaign ? (
+                  <div className="mt-4 flex items-center justify-between gap-3 text-sm">
+                    <span className="text-muted-foreground">Best current campaign proof point</span>
+                    <Link className="font-medium text-primary hover:underline" href={`/campaigns/${topCampaign.id}`}>
+                      Open campaign
+                    </Link>
+                  </div>
+                ) : null}
+              </ListCard>
+              <ListCard>
+                <p className="font-medium text-foreground">Top content proof point</p>
+                <p className="mt-2 text-lg text-foreground">{proofPointTitle}</p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {topContentItem?.post
+                    ? `${currency(topContentItem.revenue)} in estimated contribution, ${number(topContentItem.covers)} covers, and ${number(topContentItem.conversions)} tracked actions tied back to one content item.`
+                    : "No content-level proof point is strong enough yet. Keep linking content, campaigns, and snapshots."}
+                </p>
+                {topContentItem?.post ? (
+                  <div className="mt-4 space-y-2 text-sm text-muted-foreground">
+                    <p>Objective: <span className="text-foreground">{topContentItem.post.goal}</span></p>
+                    <p>CTA: <span className="text-foreground">{topContentItem.post.cta}</span></p>
+                  </div>
+                ) : null}
+              </ListCard>
+            </div>
           </div>
         </Card>
 
@@ -711,9 +892,9 @@ export default function PerformancePage() {
           <CardHeader>
             <div>
               <CardDescription>Campaign proof</CardDescription>
-              <CardTitle className="mt-3">Which initiatives are easiest to explain</CardTitle>
+              <CardTitle className="mt-3">Which work is easiest to explain to the client</CardTitle>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
-                These are the strongest campaign-level proof points to use in a restaurant conversation right now.
+                This is the simplest answer to “what did you actually do, what changed, and what is that worth?”
               </p>
             </div>
           </CardHeader>
@@ -729,6 +910,11 @@ export default function PerformancePage() {
                       <p className="mt-1 text-sm text-muted-foreground">
                         {currency(campaign.revenue)} · {number(campaign.covers)} covers · {number(campaign.tables, 1)} tables
                       </p>
+                      {topContentItem?.campaign?.id === campaign.id && topContentItem.post ? (
+                        <p className="mt-2 text-sm text-muted-foreground">
+                          Strongest supporting content: {topContentItem.post.platform} · {topContentItem.post.goal}
+                        </p>
+                      ) : null}
                     </div>
                     <p className="text-xs uppercase tracking-[0.16em] text-primary">
                       {campaign.revenue > 0 ? "Usable proof" : "Early"}
