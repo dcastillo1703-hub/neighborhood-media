@@ -1,4 +1,4 @@
-import { ChevronDown, Target } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 
 import { ListCard } from "@/components/dashboard/list-card";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -47,14 +47,31 @@ export function CampaignStrategyPanel({
         {strategy ? (
           <>
             <div className="rounded-[1.35rem] border border-border/70 bg-background/75 p-4 sm:p-5">
-              <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">
-                Opportunity
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-full border border-primary/20 bg-primary/8 px-3 py-1 text-[0.68rem] font-medium uppercase tracking-[0.16em] text-primary">
+                  {strategy.priorityLabel}
+                </span>
+                <span className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">
+                  Opportunity
+                </span>
+              </div>
+              <p className="mt-3 text-xl font-semibold tracking-[-0.03em] text-foreground sm:text-[1.8rem]">
+                {strategy.opportunity.title}
               </p>
-              <p className="mt-2 text-xl font-semibold tracking-[-0.03em] text-foreground sm:text-[1.8rem]">
-                {strategy.opportunity}
-              </p>
-              <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div className="mt-4 grid gap-3">
                 <div>
+                  <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">Evidence</p>
+                  <p className="mt-1 max-w-2xl text-sm leading-6 text-foreground">
+                    {strategy.opportunity.evidence}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">Why now</p>
+                  <p className="mt-1 max-w-2xl text-sm leading-6 text-foreground">
+                    {strategy.opportunity.whyNow}
+                  </p>
+                </div>
+                <div className="rounded-[1rem] border border-border/70 bg-card/75 p-4">
                   <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">
                     Campaign
                   </p>
@@ -63,10 +80,6 @@ export function CampaignStrategyPanel({
                     {strategy.campaign.description}
                   </p>
                 </div>
-                <span className="inline-flex w-fit items-center gap-2 rounded-full border border-primary/20 bg-primary/8 px-3 py-1.5 text-xs font-medium text-primary">
-                  <Target className="h-3.5 w-3.5" />
-                  Opportunity-driven test
-                </span>
               </div>
               <div className="mt-5 rounded-[1rem] border border-border/70 bg-card/75 p-4">
                 <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">
@@ -78,12 +91,30 @@ export function CampaignStrategyPanel({
 
             <div className="grid gap-4 lg:grid-cols-2">
               <ListCard>
-                <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">Why it matters</p>
-                <p className="mt-2 text-sm leading-6 text-foreground">{strategy.whyItMatters}</p>
+                <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">
+                  Expected impact
+                </p>
+                <p className="mt-2 text-sm leading-6 text-foreground">
+                  {strategy.expectedImpact.summary}
+                </p>
+                <p className="mt-3 text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                  Metric to watch
+                </p>
+                <p className="mt-1 text-sm font-medium text-foreground">
+                  {strategy.expectedImpact.metricToWatch}
+                </p>
               </ListCard>
               <ListCard>
-                <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">Expected impact</p>
-                <p className="mt-2 text-sm leading-6 text-foreground">{strategy.expectedImpact}</p>
+                <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">
+                  Owner explanation
+                </p>
+                <p className="mt-2 text-sm leading-6 text-foreground">
+                  {strategy.ownerExplanation}
+                </p>
+                <p className="mt-4 text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                  Confidence note
+                </p>
+                <p className="mt-1 text-sm leading-6 text-muted-foreground">{strategy.confidenceNote}</p>
               </ListCard>
             </div>
 
@@ -112,7 +143,7 @@ export function CampaignStrategyPanel({
             </details>
 
             <div className="rounded-[1rem] border border-dashed border-border/70 bg-background/55 p-4 text-xs leading-5 text-muted-foreground">
-              This is a directional strategy test, not a guaranteed revenue promise.
+              This is a strategy test, not a guaranteed revenue promise.
             </div>
           </>
         ) : (
