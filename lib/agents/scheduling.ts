@@ -112,6 +112,11 @@ function clean(value: string) {
   return value.replace(/\s+/g, " ").trim();
 }
 
+function cleanOrFallback(value: string | undefined | null, fallback: string) {
+  const cleaned = typeof value === "string" ? clean(value) : "";
+  return cleaned || fallback;
+}
+
 function formatDateKey(date: Date) {
   const month = `${date.getMonth() + 1}`.padStart(2, "0");
   const day = `${date.getDate()}`.padStart(2, "0");
@@ -311,9 +316,22 @@ export function buildSchedulingPlanContext(context: SchedulingPlanContext) {
 
 export function buildSchedulingPlanContextFromInput(input: SchedulingPlanContextInput) {
   return buildSchedulingPlanContext({
-    client: input.client,
-    selectedCampaign: input.selectedCampaign,
-    campaignObjective: input.campaignObjective,
+    client: {
+      id: cleanOrFallback(input.client.id, "client"),
+      name: cleanOrFallback(input.client.name, "Unknown client"),
+      segment: cleanOrFallback(input.client.segment, "Restaurant"),
+      location: cleanOrFallback(input.client.location, "Unknown location")
+    },
+    selectedCampaign: {
+      id: cleanOrFallback(input.selectedCampaign.id, "campaign"),
+      name: cleanOrFallback(input.selectedCampaign.name, "Untitled campaign"),
+      objective: cleanOrFallback(
+        input.selectedCampaign.objective,
+        cleanOrFallback(input.campaignObjective, "Keep the schedule moving")
+      ),
+      status: cleanOrFallback(input.selectedCampaign.status, "Planning")
+    },
+    campaignObjective: cleanOrFallback(input.campaignObjective, input.selectedCampaign.objective || input.selectedCampaign.name),
     readyContentItems: input.readyContentItems ?? [],
     currentCalendar: input.currentCalendar,
     openScheduleGaps: input.openScheduleGaps ?? [],
