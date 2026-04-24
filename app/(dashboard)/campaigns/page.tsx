@@ -7,6 +7,7 @@ import { motion } from "framer-motion";
 import { LayoutList, Plus, Star, Trash2, X } from "lucide-react";
 
 import { CampaignStrategyPanel } from "@/components/dashboard/campaign-strategy-panel";
+import { ContentPlanPanel } from "@/components/dashboard/content-plan-panel";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { ListCard } from "@/components/dashboard/list-card";
@@ -17,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { buildCampaignStrategyContext } from "@/lib/agents/campaign-strategy";
+import { buildContentPlanContextFromInput } from "@/lib/agents/content-plan";
 import { useActiveClient } from "@/lib/client-context";
 import { buildMonthlyPerformance, buildToastOpportunitySummary, getLatestWeekSummary } from "@/lib/domain/performance";
 import { composeCampaignMetadata } from "@/lib/domain/campaign-metadata";
@@ -29,6 +31,7 @@ import { useClientSettings } from "@/lib/repositories/use-client-settings";
 import { usePosts } from "@/lib/repositories/use-posts";
 import { useWeeklyMetrics } from "@/lib/repositories/use-weekly-metrics";
 import { useCampaignStrategy } from "@/lib/use-campaign-strategy";
+import { useContentPlan } from "@/lib/use-content-plan";
 import { usePersistentDraft } from "@/lib/use-persistent-draft";
 import { currency, formatShortDate, number } from "@/lib/utils";
 import { validateCampaign } from "@/lib/validation";
@@ -264,6 +267,94 @@ export default function CampaignsPage() {
     generating: generatingCampaignStrategy,
     generate: generateCampaignStrategy
   } = useCampaignStrategy(activeClient.id, campaignStrategyContext);
+  const selectedCampaignForPlan = useMemo(
+    () =>
+      campaignStrategy
+        ? campaignOverviews.find((entry) => entry.campaign.name === campaignStrategy.campaign.name) ??
+          campaignOverviews[0] ??
+          null
+        : campaignOverviews.find((entry) => entry.attributedRevenue > 0 || entry.linkedPosts.length > 0) ??
+          campaignOverviews[0] ??
+          null,
+    [campaignOverviews, campaignStrategy]
+  );
+  const contentPlanContext = useMemo(() => {
+    if (!selectedCampaignForPlan) {
+      return null;
+    }
+
+    return buildContentPlanContextFromInput({
+      client: {
+        id: activeClient.id,
+        name: activeClient.name,
+        segment: activeClient.segment,
+        location: activeClient.location
+      },
+      selectedCampaign: {
+        id: selectedCampaignForPlan.campaign.id,
+        name: selectedCampaignForPlan.campaign.name,
+        objective: selectedCampaignForPlan.campaign.objective,
+        status: selectedCampaignForPlan.campaign.status
+      },
+      selectedCampaignStrategy: campaignStrategy,
+      opportunityContext: campaignStrategy
+        ? campaignStrategy.opportunity
+        : {
+            title: `${toastOpportunities.weakestDay.day} needs a stronger content push`,
+            evidence: `Based on ${toastOpportunities.weakestDay.day} being the softest recurring revenue window at ${currency(toastOpportunities.weakestDay.averageRevenue)}.`,
+            whyNow: "This is the clearest revenue gap to support with execution-first content."
+          },
+      performanceSignals: [
+        {
+          label: "Attributed revenue",
+          value: currency(selectedCampaignForPlan.attributedRevenue),
+          detail: "Current campaign proof"
+        },
+        {
+          label: "Linked posts",
+          value: number(selectedCampaignForPlan.linkedPosts.length),
+          detail: "Content already tied to the campaign"
+        },
+        {
+          label: "Linked assets",
+          value: number(selectedCampaignForPlan.linkedAssets.length),
+          detail: "Available execution support"
+        }
+      ],
+      currentContentGaps: [
+        selectedCampaignForPlan.linkedPosts.length
+          ? "This campaign already has linked content. Add the next execution piece."
+          : "This campaign still needs its first linked content item."
+      ],
+      currentScheduleGaps: [
+        selectedCampaignForPlan.linkedPosts.some((post) => post.status === "Scheduled")
+          ? "At least one campaign post is already scheduled."
+          : "No scheduled content is attached to this campaign yet."
+      ],
+      availableAssets: assets.map((asset) => ({
+        id: asset.id,
+        label: asset.name,
+        status: asset.status,
+        assetType: asset.assetType
+      }))
+    });
+  }, [
+    activeClient.id,
+    activeClient.location,
+    activeClient.name,
+    activeClient.segment,
+    assets,
+    campaignStrategy,
+    selectedCampaignForPlan,
+    toastOpportunities.weakestDay.averageRevenue,
+    toastOpportunities.weakestDay.day
+  ]);
+  const {
+    plan: contentPlan,
+    error: contentPlanError,
+    generating: generatingContentPlan,
+    generate: generateContentPlan
+  } = useContentPlan(activeClient.id, contentPlanContext);
   const visibleMobileCampaignOverviews = useMemo(() => {
     if (mobileProjectTab === "Starred") {
       return campaignOverviews.filter((overview) => starredCampaignIds.includes(overview.campaign.id));
@@ -420,6 +511,15 @@ export default function CampaignsPage() {
               {generatingCampaignStrategy ? <LayoutList className="mr-2 h-4 w-4 animate-pulse" /> : <LayoutList className="mr-2 h-4 w-4" />}
               Recommend Next Campaign
             </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={generatingContentPlan || !contentPlanContext}
+              onClick={() => void generateContentPlan()}
+            >
+              {generatingContentPlan ? <LayoutList className="mr-2 h-4 w-4 animate-pulse" /> : <LayoutList className="mr-2 h-4 w-4" />}
+              Generate Content Plan
+            </Button>
             <Button size="sm" onClick={() => setCreateOpen(true)}>
               <Plus className="mr-2 h-4 w-4" />
               New Campaign
@@ -434,6 +534,14 @@ export default function CampaignsPage() {
         loading={generatingCampaignStrategy}
         strategy={campaignStrategy}
         title="Next campaign strategy"
+      />
+
+      <ContentPlanPanel
+        description="Execution-first content plan"
+        error={contentPlanError}
+        loading={generatingContentPlan}
+        plan={contentPlan}
+        title="Content operator plan"
       />
 
       <div className="-mx-3 -mt-3 min-h-[calc(100vh-4rem)] bg-[#202024] px-4 pb-28 pt-7 text-white sm:hidden">

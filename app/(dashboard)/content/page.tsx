@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
+import { LayoutList } from "lucide-react";
 
+import { ContentPlanPanel } from "@/components/dashboard/content-plan-panel";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { Button } from "@/components/ui/button";
@@ -12,15 +14,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { buildContentPlanContextFromInput } from "@/lib/agents/content-plan";
 import { useActiveClient } from "@/lib/client-context";
 import { getScheduledPosts } from "@/lib/domain/content";
+import { summarizeCampaigns } from "@/lib/domain/campaigns";
 import { getContentExecutionState } from "@/lib/domain/execution-state";
 import { useCampaigns } from "@/lib/repositories/use-campaigns";
+import { useAssets } from "@/lib/repositories/use-assets";
 import { usePosts } from "@/lib/repositories/use-posts";
 import { useApprovalsApi } from "@/lib/use-approvals-api";
+import { useContentPlan } from "@/lib/use-content-plan";
 import { useOperationsApi } from "@/lib/use-operations-api";
 import { usePersistentDraft } from "@/lib/use-persistent-draft";
-import { number } from "@/lib/utils";
+import { currency, number } from "@/lib/utils";
 import { useWorkspaceContext } from "@/lib/workspace-context";
 import type { ApprovalRequest, OperationalTask, Platform, Post } from "@/types";
 
@@ -419,6 +425,7 @@ export default function ContentPage() {
   const { activeClient } = useActiveClient();
   const { workspace } = useWorkspaceContext();
   const { campaigns } = useCampaigns(activeClient.id);
+  const { assets } = useAssets(activeClient.id);
   const { posts, ready, error, addPost, updatePost } = usePosts(activeClient.id);
   const { tasks } = useOperationsApi(workspace.id, activeClient.id);
   const { approvals, prependApproval, reviewApproval } = useApprovalsApi(activeClient.id);
@@ -441,6 +448,118 @@ export default function ContentPage() {
   const [actioningPostId, setActioningPostId] = useState<string | null>(null);
   const [reviewingApprovalId, setReviewingApprovalId] = useState<string | null>(null);
   const [actionFeedback, setActionFeedback] = useState<null | { label: string; detail: string }>(null);
+  const campaignOverviews = useMemo(
+    () => summarizeCampaigns(campaigns, posts, [], assets, [], []),
+    [assets, campaigns, posts]
+  );
+  const selectedCampaignForPlan = useMemo(
+    () =>
+      campaigns.find((campaign) => campaign.id === draft.campaignId) ??
+      campaigns.find((campaign) => campaign.status !== "Completed") ??
+      campaigns[0] ??
+      null,
+    [campaigns, draft.campaignId]
+  );
+  const selectedCampaignOverview = useMemo(
+    () =>
+      selectedCampaignForPlan
+        ? campaignOverviews.find((overview) => overview.campaign.id === selectedCampaignForPlan.id) ??
+          null
+        : null,
+    [campaignOverviews, selectedCampaignForPlan]
+  );
+  const contentPlanContext = useMemo(() => {
+    if (!selectedCampaignForPlan) {
+      return null;
+    }
+
+    const selectedOverview = selectedCampaignOverview ?? {
+      campaign: selectedCampaignForPlan,
+      linkedPosts: [],
+      linkedBlogs: [],
+      linkedAssets: [],
+      linkedMetrics: [],
+      linkedAnalytics: [],
+      attributedRevenue: 0,
+      attributedCovers: 0,
+      attributedTables: 0
+    };
+
+    return buildContentPlanContextFromInput({
+      client: {
+        id: activeClient.id,
+        name: activeClient.name,
+        segment: activeClient.segment,
+        location: activeClient.location
+      },
+      selectedCampaign: {
+        id: selectedCampaignForPlan.id,
+        name: selectedCampaignForPlan.name,
+        objective: selectedCampaignForPlan.objective,
+        status: selectedCampaignForPlan.status
+      },
+      selectedCampaignStrategy: null,
+      opportunityContext: {
+        title: `${selectedCampaignForPlan.name} needs an execution-first content plan`,
+        evidence: selectedOverview.linkedPosts.length
+          ? `${number(selectedOverview.linkedPosts.length)} linked post${selectedOverview.linkedPosts.length === 1 ? "" : "s"} and ${number(selectedOverview.linkedAssets.length)} linked asset${selectedOverview.linkedAssets.length === 1 ? "" : "s"} are already attached.`
+          : "This campaign does not have a clear linked content trail yet.",
+        whyNow: selectedOverview.linkedPosts.length
+          ? "The campaign has enough structure to turn into a concrete content plan."
+          : "The campaign still needs a content path before the next execution window closes."
+      },
+      performanceSignals: [
+        {
+          label: "Linked posts",
+          value: number(selectedOverview.linkedPosts.length),
+          detail: "Content already attached to the campaign"
+        },
+        {
+          label: "Linked assets",
+          value: number(selectedOverview.linkedAssets.length),
+          detail: "Ready or reusable asset support"
+        },
+        {
+          label: "Attributed revenue",
+          value: currency(selectedOverview.attributedRevenue),
+          detail: "Current campaign proof"
+        }
+      ],
+      currentContentGaps: [
+        selectedOverview.linkedPosts.length
+          ? "This campaign already has some content. Add the next execution piece."
+          : "This campaign still needs its first linked content item."
+      ],
+      currentScheduleGaps: [
+        posts.some((post) => post.campaignId === selectedCampaignForPlan.id && post.status === "Scheduled")
+          ? "At least one post is already scheduled for this campaign."
+          : "No scheduled content is attached to this campaign yet."
+      ],
+      availableAssets: assets
+        .filter((asset) => asset.linkedCampaignIds.includes(selectedCampaignForPlan.id))
+        .map((asset) => ({
+          id: asset.id,
+          label: asset.name,
+          status: asset.status,
+          assetType: asset.assetType
+        }))
+    });
+  }, [
+    activeClient.id,
+    activeClient.location,
+    activeClient.name,
+    activeClient.segment,
+    assets,
+    posts,
+    selectedCampaignForPlan,
+    selectedCampaignOverview
+  ]);
+  const {
+    plan: contentPlan,
+    error: contentPlanError,
+    generating: generatingContentPlan,
+    generate: generateContentPlan
+  } = useContentPlan(activeClient.id, contentPlanContext);
 
   const selectedDateObject = useMemo(
     () => new Date(`${selectedDate}T00:00:00`),
@@ -807,6 +926,26 @@ export default function ContentPage() {
         eyebrow="Content"
         title="Run content like campaign work"
         description="Every item should show why it exists, where it is blocked, and what the next move is before it goes live."
+        actions={
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={generatingContentPlan || !contentPlanContext}
+            onClick={() => void generateContentPlan()}
+            type="button"
+          >
+            <LayoutList className="mr-2 h-4 w-4" />
+            Build Content Plan from Campaign
+          </Button>
+        }
+      />
+
+      <ContentPlanPanel
+        description="Execution-first content plan"
+        error={contentPlanError}
+        loading={generatingContentPlan}
+        plan={contentPlan}
+        title="Content operator plan"
       />
 
       {actionFeedback ? (
