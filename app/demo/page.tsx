@@ -1,9 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
-  ArrowRight,
   CalendarDays,
   LayoutDashboard,
   Target,
@@ -13,10 +11,13 @@ import {
 import { ListCard } from "@/components/dashboard/list-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { DatePill } from "@/components/ui/date-pill";
+import { calculateRevenueModel } from "@/lib/calculations";
 import { demoWorkspace, type DemoApproval, type DemoContent, type DemoTask } from "@/data/demo";
 import { cn, currency, number } from "@/lib/utils";
+import type { RevenueModelInput } from "@/types";
 
 type DemoView = "story" | "campaigns" | "calendar" | "results";
 type PipelineStage = "goal" | "tasks" | "content" | "approvals" | "scheduled" | "results";
@@ -128,6 +129,9 @@ export default function DemoPage() {
   const [contentItems, setContentItems] = useState<DemoContent[]>(demoWorkspace.content);
   const [approvals, setApprovals] = useState<DemoApproval[]>(demoWorkspace.approvals);
   const [demoNotice, setDemoNotice] = useState<string | null>(null);
+  const [revenueMode, setRevenueMode] = useState<RevenueModelInput["mode"]>("weekly");
+  const [averageCheck, setAverageCheck] = useState(48);
+  const [growthTarget, setGrowthTarget] = useState(12);
 
   const selectedCampaign = useMemo(
     () =>
@@ -268,6 +272,21 @@ export default function DemoPage() {
           };
         }),
     [approvals, contentItems]
+  );
+  const topCampaignProof = activeCampaigns.find((entry) => entry.proofContent) ?? activeCampaigns[0];
+  const revenueModel = useMemo(
+    () =>
+      calculateRevenueModel({
+        mode: revenueMode,
+        averageCheck,
+        monthlyCovers: Math.round(demoWorkspace.revenueModel.weeklyCovers * 4.33),
+        weeklyCovers: demoWorkspace.revenueModel.weeklyCovers,
+        daysOpenPerWeek: 6,
+        weeksPerMonth: 4.33,
+        guestsPerTable: 4.9,
+        growthTarget
+      }),
+    [averageCheck, growthTarget, revenueMode]
   );
 
   const handleSendToApproval = (contentId: string) => {
@@ -455,7 +474,7 @@ export default function DemoPage() {
             </div>
           </CardHeader>
           <div className="space-y-3">
-            {selectedContent.map((item) => (
+            {selectedContent.slice(0, 2).map((item) => (
               <ListCard key={item.id}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -497,6 +516,13 @@ export default function DemoPage() {
                 </div>
               </ListCard>
             ))}
+            {selectedContent.length > 2 ? (
+              <ListCard>
+                <p className="text-sm text-muted-foreground">
+                  +{selectedContent.length - 2} more content item{selectedContent.length - 2 === 1 ? "" : "s"} in the full demo workspace.
+                </p>
+              </ListCard>
+            ) : null}
           </div>
         </Card>
 
@@ -509,7 +535,7 @@ export default function DemoPage() {
           </CardHeader>
           <div className="space-y-3">
             {readyToSchedule.length ? (
-              readyToSchedule.map((item) => (
+              readyToSchedule.slice(0, 2).map((item) => (
                 <ListCard key={item.id}>
                   <p className="font-medium text-foreground">{item.title}</p>
                   <p className="mt-1 text-sm text-muted-foreground">
@@ -520,13 +546,20 @@ export default function DemoPage() {
                   </Button>
                 </ListCard>
               ))
+            ) : null}
+            {readyToSchedule.length > 2 ? (
+              <ListCard>
+                <p className="text-sm text-muted-foreground">
+                  +{readyToSchedule.length - 2} more approved item{readyToSchedule.length - 2 === 1 ? "" : "s"} ready to schedule.
+                </p>
+              </ListCard>
             ) : (
               <ListCard>
                 <p className="text-sm text-muted-foreground">All approved content is already scheduled.</p>
               </ListCard>
             )}
 
-            {calendarItems.slice(0, 5).map((item) => (
+            {calendarItems.slice(0, 3).map((item) => (
               <ListCard key={`${item.id}-${item.date}`}>
                 <div className="flex items-start justify-between gap-4">
                   <div>
@@ -782,46 +815,177 @@ export default function DemoPage() {
       <Card>
         <CardHeader>
           <div>
-            <CardDescription>Performance summary</CardDescription>
-            <CardTitle className="mt-3">What changed and what it is worth</CardTitle>
+            <CardDescription>Client summary</CardDescription>
+            <CardTitle className="mt-3">What changed, what drove it, and what it is worth</CardTitle>
           </div>
         </CardHeader>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-3">
           <ListCard>
-            <p className="text-sm font-medium text-foreground">What changed</p>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Website sessions, reservation clicks, and Toast covers all moved together, which makes the lift believable.
-            </p>
-          </ListCard>
-          <ListCard>
-            <p className="text-sm font-medium text-foreground">Attribution confidence</p>
-            <p className="mt-2 text-2xl font-semibold text-foreground">{performanceSummary.confidence}</p>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">{performanceSummary.confidenceDetail}</p>
-          </ListCard>
-          <ListCard>
-            <p className="text-sm font-medium text-foreground">Estimated contribution</p>
-            <p className="mt-2 text-2xl font-semibold text-foreground">
-              {currency(performanceSummary.estimatedContribution)}
-            </p>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Strongest proof point: {demoWorkspace.campaigns[1].name} and the lunch combo carousel.
-            </p>
-          </ListCard>
-          <ListCard>
-            <p className="text-sm font-medium text-foreground">Next move</p>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Keep the lunch push active, clear the brunch approval, and protect the most profitable nights.
-            </p>
-            <div className="mt-4">
-              <Link className="inline-flex items-center gap-2 text-sm font-medium text-primary" href="/revenue-modeling">
-                Open revenue model <ArrowRight className="h-4 w-4" />
-              </Link>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm font-medium text-foreground">Headline result</p>
+              <Badge className="border-border/70 bg-muted/60 text-foreground">{performanceSummary.confidence} confidence</Badge>
             </div>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{performanceSummary.headline}</p>
           </ListCard>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <ListCard>
+              <p className="text-sm font-medium text-foreground">What moved</p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">{performanceSummary.whatMoved}</p>
+            </ListCard>
+            <ListCard>
+              <p className="text-sm font-medium text-foreground">What drove it</p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">{performanceSummary.whatDroveIt}</p>
+            </ListCard>
+            <ListCard>
+              <p className="text-sm font-medium text-foreground">What it is worth</p>
+              <p className="mt-2 text-2xl font-semibold text-foreground">
+                {currency(performanceSummary.confirmedRevenue)}
+              </p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">{performanceSummary.whatItIsWorth}</p>
+              <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                Confirmed in Toast: {currency(performanceSummary.confirmedRevenue)}. Estimated contribution:{" "}
+                {currency(performanceSummary.estimatedContribution)}.
+              </p>
+            </ListCard>
+            <ListCard>
+              <p className="text-sm font-medium text-foreground">What we’re doing next</p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">{performanceSummary.whatNext}</p>
+            </ListCard>
+          </div>
+          <div className="rounded-[1rem] border border-border/70 bg-card/60 p-4">
+            <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Trust layer</p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{performanceSummary.confidenceDetail}</p>
+            {topCampaignProof?.campaign && topCampaignProof.proofContent ? (
+              <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                Top proof point: {topCampaignProof.campaign.name} and {topCampaignProof.proofContent.title}.
+              </p>
+            ) : null}
+          </div>
         </div>
       </Card>
 
       <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+        <Card>
+          <CardHeader>
+            <div>
+              <CardDescription>Revenue model demo</CardDescription>
+              <CardTitle className="mt-3">Growth in covers and tables</CardTitle>
+            </div>
+          </CardHeader>
+          <div className="space-y-4">
+            <div className="flex gap-2">
+              <button
+                className={cn(
+                  "rounded-full px-4 py-2 text-sm font-medium transition",
+                  revenueMode === "weekly"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted/60 text-foreground"
+                )}
+                type="button"
+                onClick={() => setRevenueMode("weekly")}
+              >
+                Weekly covers
+              </button>
+              <button
+                className={cn(
+                  "rounded-full px-4 py-2 text-sm font-medium transition",
+                  revenueMode === "monthly"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted/60 text-foreground"
+                )}
+                type="button"
+                onClick={() => setRevenueMode("monthly")}
+              >
+                Monthly covers
+              </button>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <ListCard>
+                <p className="text-sm text-muted-foreground">
+                  Current {revenueMode === "weekly" ? "weekly" : "monthly"} covers
+                </p>
+                <p className="mt-2 text-2xl font-semibold text-foreground">
+                  {number(
+                    revenueMode === "weekly" ? revenueModel.weeklyCovers : revenueModel.monthlyCovers
+                  )}
+                </p>
+              </ListCard>
+              <ListCard>
+                <p className="text-sm text-muted-foreground">Average check</p>
+                <Input
+                  className="mt-2"
+                  min={24}
+                  max={96}
+                  step="0.5"
+                  type="number"
+                  value={averageCheck}
+                  onChange={(event) => setAverageCheck(Number(event.target.value || 0))}
+                />
+              </ListCard>
+              <ListCard>
+                <p className="text-sm text-muted-foreground">Growth target</p>
+                <p className="mt-2 text-2xl font-semibold text-foreground">{growthTarget}%</p>
+                <input
+                  className="mt-3 w-full accent-[var(--color-primary)]"
+                  max={30}
+                  min={0}
+                  onChange={(event) => setGrowthTarget(Number(event.target.value))}
+                  type="range"
+                  value={growthTarget}
+                />
+                <div className="mt-2 flex items-center justify-between text-xs uppercase tracking-[0.14em] text-muted-foreground">
+                  <span>0%</span>
+                  <span>30%</span>
+                </div>
+              </ListCard>
+              <ListCard>
+                <p className="text-sm text-muted-foreground">Added revenue</p>
+                <p className="mt-2 text-2xl font-semibold text-foreground">
+                  {currency(
+                    revenueMode === "weekly"
+                      ? revenueModel.addedWeeklyRevenue
+                      : revenueModel.addedMonthlyRevenue
+                  )}
+                </p>
+              </ListCard>
+            </div>
+
+            <ListCard>
+              <p className="text-sm font-medium text-foreground">How the days move</p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                A {growthTarget}% lift at {currency(averageCheck)} average check means {revenueMode === "weekly"
+                  ? `${number(revenueModel.addedWeeklyCovers, 1)} additional weekly covers`
+                  : `${number(revenueModel.addedMonthlyCovers, 1)} additional monthly covers`
+                }, with the softest nights lifting first and the strongest nights staying strongest.
+              </p>
+            </ListCard>
+
+            <div className="space-y-2">
+              {revenueModel.weekdayBreakdown.map((day) => (
+                <ListCard key={day.day}>
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">{day.day}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {number(day.currentTables, 1)} tables → {number(day.projectedTables, 1)} tables
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm text-muted-foreground">
+                        {number(day.currentCovers, 1)} covers → {number(day.projectedCovers, 1)} covers
+                      </p>
+                      <p className="mt-1 text-xs uppercase tracking-[0.14em] text-muted-foreground">
+                        +{number(day.addedCovers, 1)} covers
+                      </p>
+                    </div>
+                  </div>
+                </ListCard>
+              ))}
+            </div>
+          </div>
+        </Card>
+
         <Card>
           <CardHeader>
             <div>
@@ -835,16 +999,16 @@ export default function DemoPage() {
               <p className="mt-2 text-2xl font-semibold text-foreground">{number(demoWorkspace.analytics.sessions)}</p>
             </ListCard>
             <ListCard>
-              <p className="text-sm text-muted-foreground">Users</p>
-              <p className="mt-2 text-2xl font-semibold text-foreground">{number(demoWorkspace.analytics.users)}</p>
-            </ListCard>
-            <ListCard>
               <p className="text-sm text-muted-foreground">Reservation clicks</p>
               <p className="mt-2 text-2xl font-semibold text-foreground">{number(demoWorkspace.analytics.reservationClicks)}</p>
             </ListCard>
             <ListCard>
-              <p className="text-sm text-muted-foreground">Menu views</p>
-              <p className="mt-2 text-2xl font-semibold text-foreground">{number(demoWorkspace.analytics.menuViews)}</p>
+              <p className="text-sm text-muted-foreground">Order clicks</p>
+              <p className="mt-2 text-2xl font-semibold text-foreground">{number(demoWorkspace.analytics.orderClicks)}</p>
+            </ListCard>
+            <ListCard>
+              <p className="text-sm text-muted-foreground">Call clicks</p>
+              <p className="mt-2 text-2xl font-semibold text-foreground">{number(demoWorkspace.analytics.callClicks)}</p>
             </ListCard>
           </div>
           <div className="mt-4 rounded-[1rem] border border-border/70 bg-card/60 p-4">
@@ -853,37 +1017,10 @@ export default function DemoPage() {
             <p className="mt-3 text-sm font-medium text-foreground">Top landing page</p>
             <p className="mt-2 text-sm text-muted-foreground">{demoWorkspace.analytics.topLandingPage}</p>
           </div>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <div>
-              <CardDescription>Revenue model</CardDescription>
-              <CardTitle className="mt-3">Business result snapshot</CardTitle>
-            </div>
-          </CardHeader>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <ListCard>
-              <p className="text-sm text-muted-foreground">Weekly revenue</p>
-              <p className="mt-2 text-2xl font-semibold text-foreground">{currency(demoWorkspace.revenueModel.weeklyRevenue)}</p>
-            </ListCard>
-            <ListCard>
-              <p className="text-sm text-muted-foreground">Monthly revenue</p>
-              <p className="mt-2 text-2xl font-semibold text-foreground">{currency(demoWorkspace.revenueModel.monthlyRevenue)}</p>
-            </ListCard>
-            <ListCard>
-              <p className="text-sm text-muted-foreground">Weekly covers</p>
-              <p className="mt-2 text-2xl font-semibold text-foreground">{number(demoWorkspace.revenueModel.weeklyCovers)}</p>
-            </ListCard>
-            <ListCard>
-              <p className="text-sm text-muted-foreground">Growth target</p>
-              <p className="mt-2 text-2xl font-semibold text-foreground">{demoWorkspace.revenueModel.growthTarget}%</p>
-            </ListCard>
-          </div>
           <div className="mt-4 rounded-[1rem] border border-border/70 bg-card/60 p-4">
-            <p className="text-sm font-medium text-foreground">What the business needs next</p>
+            <p className="text-sm font-medium text-foreground">Why this is believable</p>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Tuesday dinner is still the softest window, while Saturday brunch remains the strongest performer. Use the active campaign mix to push Tuesday without cannibalizing brunch demand.
+              Confirmed Toast revenue is moving with tracked website intent and the strongest campaign proof point.
             </p>
           </div>
         </Card>
@@ -918,9 +1055,9 @@ export default function DemoPage() {
                 </span>
               </div>
             </div>
-            <Link href="/" className="inline-flex items-center gap-2 text-sm font-medium text-primary">
-              Back to app <ArrowRight className="h-4 w-4" />
-            </Link>
+            <div className="inline-flex items-center gap-2 rounded-full bg-muted/60 px-3 py-1 text-sm font-medium text-foreground">
+              Demo only
+            </div>
           </div>
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
