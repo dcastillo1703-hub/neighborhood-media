@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const payload = await beginMetaBusinessConnection(body.clientId, body.provider);
+    const payload = await beginMetaBusinessConnection(body.clientId, body.provider, request.url);
     return NextResponse.json(payload);
   } catch (error) {
     return NextResponse.json(

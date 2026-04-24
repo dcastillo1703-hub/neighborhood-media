@@ -1,7 +1,8 @@
-import { createSign } from "crypto";
+import { createPrivateKey, createSign } from "crypto";
 
 import { composeIntegrationNotes, parseIntegrationNotes } from "@/lib/domain/integration-notes";
 import { integrationEnv } from "@/lib/integrations/config";
+import { getIntegrationRuntimeContext } from "@/lib/integrations/config-status";
 import { computeNextSyncRun, isSyncDue } from "@/lib/integrations/schedule";
 import {
   mapAnalyticsSnapshotInsert,
@@ -126,7 +127,8 @@ function buildActionItems(input: {
 function getGoogleAnalyticsConfig() {
   const propertyId = integrationEnv.googleAnalyticsPropertyId;
   const clientEmail = process.env.GOOGLE_ANALYTICS_CLIENT_EMAIL ?? "";
-  const privateKey = process.env.GOOGLE_ANALYTICS_PRIVATE_KEY?.replace(/\\n/g, "\n") ?? "";
+  const rawPrivateKey = process.env.GOOGLE_ANALYTICS_PRIVATE_KEY ?? "";
+  const privateKey = rawPrivateKey.replace(/\\n/g, "\n");
 
   return {
     propertyId,
@@ -135,35 +137,131 @@ function getGoogleAnalyticsConfig() {
   };
 }
 
-function buildGoogleAnalyticsChecks(): GoogleAnalyticsSummary["checks"] {
+function buildGoogleAnalyticsConfigStatus(appUrl?: string): GoogleAnalyticsSummary["configStatus"] {
   const config = getGoogleAnalyticsConfig();
-
-  return [
+  const runtime = getIntegrationRuntimeContext(appUrl);
+  const checks: GoogleAnalyticsSummary["checks"] = [
     {
       key: "property-id",
       label: "GA4 Property ID",
       ready: Boolean(config.propertyId.trim()),
+      status: config.propertyId.trim() ? "ready" : "missing",
+      envVar: "GOOGLE_ANALYTICS_PROPERTY_ID or NEXT_PUBLIC_GA4_PROPERTY_ID",
       detail: config.propertyId.trim()
-        ? "Property ID is available to the app."
-        : "Add GOOGLE_ANALYTICS_PROPERTY_ID or NEXT_PUBLIC_GA4_PROPERTY_ID."
+        ? "GA4 Property ID is available to the server."
+        : "GOOGLE_ANALYTICS_PROPERTY_ID is missing from the deployed server environment."
     },
     {
       key: "client-email",
       label: "Service account email",
       ready: Boolean(config.clientEmail.trim()),
+      status: config.clientEmail.trim() ? "ready" : "missing",
+      envVar: "GOOGLE_ANALYTICS_CLIENT_EMAIL",
       detail: config.clientEmail.trim()
-        ? "Service account email is available to the app."
-        : "Add GOOGLE_ANALYTICS_CLIENT_EMAIL."
+        ? "Service account email is available to the server."
+        : "GOOGLE_ANALYTICS_CLIENT_EMAIL is missing from the deployed server environment."
     },
     {
       key: "private-key",
       label: "Service account private key",
-      ready: Boolean(config.privateKey.trim()),
-      detail: config.privateKey.trim()
-        ? "Private key is available to the app."
-        : "Add GOOGLE_ANALYTICS_PRIVATE_KEY."
+      ready: false,
+      status: "missing",
+      envVar: "GOOGLE_ANALYTICS_PRIVATE_KEY",
+      detail: "GOOGLE_ANALYTICS_PRIVATE_KEY is missing."
     }
   ];
+  const issues: GoogleAnalyticsSummary["configStatus"]["issues"] = [];
+  const trimmedPropertyId = config.propertyId.trim();
+
+  if (!trimmedPropertyId) {
+    issues.push({
+      code: "missing-env-var",
+      label: "GA4 Property ID is missing",
+      detail:
+        "GOOGLE_ANALYTICS_PROPERTY_ID is not present in this server environment, so the deployed app cannot query GA4.",
+      severity: "error"
+    });
+  }
+
+  if (!config.clientEmail.trim()) {
+    issues.push({
+      code: "missing-env-var",
+      label: "Service account email is missing",
+      detail:
+        "GOOGLE_ANALYTICS_CLIENT_EMAIL is not present in this server environment, so the deployed app cannot authenticate with GA4.",
+      severity: "error"
+    });
+  }
+
+  if (trimmedPropertyId && !/^\d+$/.test(trimmedPropertyId)) {
+    checks[0] = {
+      ...checks[0],
+      ready: false,
+      status: "invalid",
+      detail: "Property ID is present but not in the expected numeric GA4 format."
+    };
+    issues.push({
+      code: "invalid-property-id",
+      label: "GA4 Property ID looks invalid",
+      detail:
+        "GOOGLE_ANALYTICS_PROPERTY_ID should be the numeric GA4 property ID used in the Google Analytics Data API.",
+      severity: "error"
+    });
+  }
+
+  if (!config.privateKey.trim()) {
+    issues.push({
+      code: "missing-env-var",
+      label: "Service account private key is missing",
+      detail:
+        "GOOGLE_ANALYTICS_PRIVATE_KEY is not present in this server environment, so deployed sync cannot authenticate.",
+      severity: "error"
+    });
+  } else {
+    try {
+      createPrivateKey({ key: config.privateKey, format: "pem" });
+      checks[2] = {
+        ...checks[2],
+        ready: true,
+        status: "ready",
+        detail: "Service account private key is available and parses correctly."
+      };
+    } catch {
+      checks[2] = {
+        ...checks[2],
+        ready: false,
+        status: "invalid",
+        detail: "Private key is present but cannot be parsed as a PEM private key."
+      };
+      issues.push({
+        code: "malformed-private-key",
+        label: "Service account private key is malformed",
+        detail:
+          "GOOGLE_ANALYTICS_PRIVATE_KEY is present, but it is not a valid PEM block. Re-save the full private key, including BEGIN/END lines and real line breaks.",
+        severity: "error"
+      });
+    }
+  }
+
+  const missingRequiredFields = checks
+    .filter((check) => check.status === "missing")
+    .map((check) => check.label);
+  const ready = checks.every((check) => check.ready);
+
+  return {
+    ready,
+    environment: runtime.environment,
+    checks,
+    issues,
+    summary: ready
+      ? "GA4 server credentials are complete for this environment."
+      : "GA4 server credentials need attention before website sync can run reliably.",
+    nextAction:
+      issues[0]?.detail ??
+      (missingRequiredFields.length
+        ? `Add ${missingRequiredFields.join(", ")} to the deployed server environment before syncing.`
+        : "GA4 credentials are complete. Run a sync to refresh the website read.")
+  };
 }
 
 function createJwtAssertion() {
@@ -440,15 +538,18 @@ async function getOrCreateGoogleAnalyticsSyncJob(clientId: string) {
 function buildSummaryFromConnection(
   clientId: string,
   connection: IntegrationConnection,
-  syncJob?: SyncJob
+  syncJob?: SyncJob,
+  appUrl?: string
 ): GoogleAnalyticsSummary {
-  const checks = buildGoogleAnalyticsChecks();
-  const readyToSync = checks.every((check) => check.ready);
+  const configStatus = buildGoogleAnalyticsConfigStatus(appUrl);
+  const checks = configStatus.checks;
+  const readyToSync = configStatus.ready;
   const totals = connection.setup?.syncedTotals;
 
   return {
     clientId,
     readyToSync,
+    configStatus,
     checks,
     propertyId:
       connection.setup?.externalAccountId ??
@@ -485,16 +586,16 @@ function buildSummaryFromConnection(
       ? connection.lastSyncAt
         ? "Google Analytics is connected. Sync again any time to refresh the website read."
         : "Everything is configured. Run the first sync to pull website traffic into the app."
-      : "Finish the Google Analytics credentials in .env.local before syncing."
+      : configStatus.nextAction
   };
 }
 
-export async function getGoogleAnalyticsSummary(clientId: string) {
+export async function getGoogleAnalyticsSummary(clientId: string, appUrl?: string) {
   const [connection, syncJob] = await Promise.all([
     getOrCreateGoogleAnalyticsConnection(clientId),
     getOrCreateGoogleAnalyticsSyncJob(clientId)
   ]);
-  return buildSummaryFromConnection(clientId, connection, syncJob);
+  return buildSummaryFromConnection(clientId, connection, syncJob, appUrl);
 }
 
 export async function getGoogleAnalyticsCampaignImpact(input: {
@@ -647,10 +748,10 @@ export async function getGoogleAnalyticsCampaignImpact(input: {
 }
 
 export async function syncGoogleAnalytics(clientId: string): Promise<GoogleAnalyticsSyncResult> {
-  const checks = buildGoogleAnalyticsChecks();
+  const configStatus = buildGoogleAnalyticsConfigStatus();
 
-  if (!checks.every((check) => check.ready)) {
-    throw new Error("Google Analytics still needs configuration.");
+  if (!configStatus.ready) {
+    throw new Error(configStatus.nextAction);
   }
 
   const [connection, syncJob] = await Promise.all([

@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const sync = await syncMetaInsights(body.clientId, body.provider);
-    const summary = await getMetaBusinessSuiteSummary(body.clientId);
+    const summary = await getMetaBusinessSuiteSummary(body.clientId, request.url);
 
     return NextResponse.json({ sync, summary });
   } catch (error) {

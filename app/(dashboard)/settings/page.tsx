@@ -70,6 +70,26 @@ export default function SettingsPage() {
   const [googleAnalyticsNotice, setGoogleAnalyticsNotice] = useState<MetaConnectionNotice | null>(
     null
   );
+  const formatConfigCheckState = (status: "ready" | "missing" | "invalid") => {
+    if (status === "ready") {
+      return {
+        label: "Ready",
+        className: "text-emerald-600 dark:text-emerald-300"
+      };
+    }
+
+    if (status === "invalid") {
+      return {
+        label: "Needs fix",
+        className: "text-amber-600 dark:text-amber-300"
+      };
+    }
+
+    return {
+      label: "Missing",
+      className: "text-primary"
+    };
+  };
 
   const formatSyncTimestamp = (value?: string | null) => {
     if (!value) {
@@ -547,8 +567,18 @@ export default function SettingsPage() {
                         : "Google Analytics still needs configuration"}
                     </p>
                     <p className="mt-2 text-sm text-muted-foreground">
-                      {googleAnalyticsSummary.nextAction}
+                      {googleAnalyticsSummary.configStatus.nextAction}
                     </p>
+                    {googleAnalyticsSummary.configStatus.issues.length ? (
+                      <div className="mt-3 space-y-2">
+                        {googleAnalyticsSummary.configStatus.issues.map((issue) => (
+                          <p className="text-xs leading-5 text-muted-foreground" key={issue.code}>
+                            <span className="font-medium text-foreground">{issue.label}:</span>{" "}
+                            {issue.detail}
+                          </p>
+                        ))}
+                      </div>
+                    ) : null}
                     {googleAnalyticsSummary.propertyId ? (
                       <p className="mt-3 break-all text-xs text-muted-foreground">
                         Property ID:{" "}
@@ -559,15 +589,16 @@ export default function SettingsPage() {
                   <div className="grid min-w-48 gap-2">
                     {googleAnalyticsSummary.checks.map((check) => (
                       <div
-                        className="flex items-center justify-between gap-3 rounded-full border border-border bg-card/70 px-3 py-2 text-xs"
+                        className="rounded-[1rem] border border-border bg-card/70 px-3 py-3 text-xs"
                         key={check.key}
                       >
-                        <span className="font-medium text-foreground">{check.label}</span>
-                        <span
-                          className={check.ready ? "text-emerald-600 dark:text-emerald-300" : "text-primary"}
-                        >
-                          {check.ready ? "Ready" : "Missing"}
-                        </span>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="font-medium text-foreground">{check.label}</span>
+                          <span className={formatConfigCheckState(check.status).className}>
+                            {formatConfigCheckState(check.status).label}
+                          </span>
+                        </div>
+                        <p className="mt-2 leading-5 text-muted-foreground">{check.detail}</p>
                       </div>
                     ))}
                   </div>
@@ -771,6 +802,16 @@ export default function SettingsPage() {
                     <p className="mt-2 text-sm text-muted-foreground">
                       {metaSummary.configStatus.nextAction}
                     </p>
+                    {metaSummary.configStatus.issues.length ? (
+                      <div className="mt-3 space-y-2">
+                        {metaSummary.configStatus.issues.map((issue) => (
+                          <p className="text-xs leading-5 text-muted-foreground" key={issue.code}>
+                            <span className="font-medium text-foreground">{issue.label}:</span>{" "}
+                            {issue.detail}
+                          </p>
+                        ))}
+                      </div>
+                    ) : null}
                     {metaSummary.configStatus.redirectUri ? (
                       <p className="mt-3 break-all text-xs text-muted-foreground">
                         Redirect URI: <span className="text-foreground">{metaSummary.configStatus.redirectUri}</span>
@@ -780,15 +821,16 @@ export default function SettingsPage() {
                   <div className="grid min-w-48 gap-2">
                     {metaSummary.configStatus.checks.map((check) => (
                       <div
-                        className="flex items-center justify-between gap-3 rounded-full border border-border bg-card/70 px-3 py-2 text-xs"
+                        className="rounded-[1rem] border border-border bg-card/70 px-3 py-3 text-xs"
                         key={check.key}
                       >
-                        <span className="font-medium text-foreground">{check.label}</span>
-                        <span
-                          className={check.ready ? "text-emerald-600 dark:text-emerald-300" : "text-primary"}
-                        >
-                          {check.ready ? "Ready" : "Missing"}
-                        </span>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="font-medium text-foreground">{check.label}</span>
+                          <span className={formatConfigCheckState(check.status).className}>
+                            {formatConfigCheckState(check.status).label}
+                          </span>
+                        </div>
+                        <p className="mt-2 leading-5 text-muted-foreground">{check.detail}</p>
                       </div>
                     ))}
                   </div>

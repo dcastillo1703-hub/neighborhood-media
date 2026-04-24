@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const payload = await completeMetaOAuthCallback(code, state);
+    const payload = await completeMetaOAuthCallback(code, state, request.url);
     const redirectUrl = new URL("/settings", request.url);
     redirectUrl.searchParams.set("meta", "connected");
     redirectUrl.searchParams.set("provider", payload.provider);

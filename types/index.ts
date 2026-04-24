@@ -423,14 +423,32 @@ export type MetaBusinessSuiteConfigCheck = {
   key: "app-id" | "app-secret" | "redirect-uri";
   label: string;
   ready: boolean;
+  status: "ready" | "missing" | "invalid";
+  envVar: string;
   detail: string;
+};
+
+export type MetaBusinessSuiteConfigIssue = {
+  code:
+    | "missing-env-var"
+    | "malformed-redirect-uri"
+    | "wrong-redirect-uri"
+    | "local-only-config";
+  label: string;
+  detail: string;
+  severity: "error" | "warning";
 };
 
 export type MetaBusinessSuiteConfigStatus = {
   ready: boolean;
+  environment: "local" | "deployed";
   checks: MetaBusinessSuiteConfigCheck[];
   missingLabels: string[];
+  issues: MetaBusinessSuiteConfigIssue[];
   redirectUri?: string;
+  configuredOrigin?: string;
+  appOrigin?: string;
+  summary: string;
   nextAction: string;
 };
 
@@ -482,12 +500,31 @@ export type GoogleAnalyticsConfigCheck = {
   key: "property-id" | "client-email" | "private-key";
   label: string;
   ready: boolean;
+  status: "ready" | "missing" | "invalid";
+  envVar: string;
   detail: string;
+};
+
+export type GoogleAnalyticsConfigIssue = {
+  code: "missing-env-var" | "invalid-property-id" | "malformed-private-key";
+  label: string;
+  detail: string;
+  severity: "error" | "warning";
+};
+
+export type GoogleAnalyticsConfigStatus = {
+  ready: boolean;
+  environment: "local" | "deployed";
+  checks: GoogleAnalyticsConfigCheck[];
+  issues: GoogleAnalyticsConfigIssue[];
+  summary: string;
+  nextAction: string;
 };
 
 export type GoogleAnalyticsSummary = {
   clientId: string;
   readyToSync: boolean;
+  configStatus: GoogleAnalyticsConfigStatus;
   checks: GoogleAnalyticsConfigCheck[];
   propertyId?: string;
   accountLabel: string;

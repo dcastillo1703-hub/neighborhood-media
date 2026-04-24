@@ -322,14 +322,17 @@ export default function PerformancePage() {
       ? `${activeClient.name} currently shows ${currency(roiSummary.revenue)} in attributed revenue across ${number(roiSummary.covers)} covers. ${topCampaign ? `${topCampaign.name} is the clearest campaign proof point right now.` : "The contribution story is directional, but usable."}`
       : `Toast is giving the operating picture, but campaign contribution still needs more attributed snapshots. This page now shows the business read, the assumptions behind it, and the evidence we have so far.`;
   const websiteEvidenceNote = googleAnalyticsSummary
-    ? topSource
-      ? `${topSource.label} is currently the strongest traffic source with ${number(topSource.sessions)} sessions.`
-      : "GA4 is connected, but the current sync is still too thin to call a strongest source."
+    ? !googleAnalyticsSummary.configStatus.ready
+      ? googleAnalyticsSummary.configStatus.issues[0]?.detail ??
+        googleAnalyticsSummary.configStatus.nextAction
+      : topSource
+        ? `${topSource.label} is currently the strongest traffic source with ${number(topSource.sessions)} sessions.`
+        : "GA4 is connected, but the current sync is still too thin to call a strongest source."
     : "GA4 is not connected yet, so website evidence is still incomplete.";
   const metaConfigurationNote = connectedFacebook
     ? metaSummary?.configStatus.ready
       ? "Facebook is connected and the broader Meta setup is ready."
-      : `Facebook is connected and reporting live. ${metaSummary?.configStatus.missingLabels.length ? `Still missing: ${metaSummary.configStatus.missingLabels.join(", ")}.` : "Broader Meta app configuration is still incomplete."}`
+      : `Facebook is connected and reporting live. ${metaSummary?.configStatus.issues[0]?.detail ?? metaSummary?.configStatus.nextAction ?? "Broader Meta app configuration still needs attention."}`
     : manualFacebook
       ? "Facebook is still using manual fallback reporting."
       : "Connect Facebook to pull live page-level Meta reporting.";

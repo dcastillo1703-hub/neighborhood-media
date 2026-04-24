@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const sync = await syncGoogleAnalytics(body.clientId);
-    const summary = await getGoogleAnalyticsSummary(body.clientId);
+    const summary = await getGoogleAnalyticsSummary(body.clientId, request.url);
 
     return NextResponse.json({ sync, summary });
   } catch (error) {

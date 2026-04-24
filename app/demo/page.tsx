@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useMemo, useState } from "react";
 import {
   ArrowRight,
   CalendarDays,
@@ -18,14 +18,15 @@ import { DatePill } from "@/components/ui/date-pill";
 import { demoWorkspace, type DemoApproval, type DemoContent, type DemoTask } from "@/data/demo";
 import { cn, currency, number } from "@/lib/utils";
 
-type DemoView = "home" | "campaigns" | "calendar" | "analytics";
+type DemoView = "story" | "campaigns" | "calendar" | "results";
 type PipelineStage = "goal" | "tasks" | "content" | "approvals" | "scheduled" | "results";
+type DemoHealth = "At Risk" | "On Track" | "Needs Attention";
 
 const demoViews: Array<{ id: DemoView; label: string; icon: typeof LayoutDashboard }> = [
-  { id: "home", label: "Home", icon: LayoutDashboard },
+  { id: "story", label: "Story", icon: LayoutDashboard },
   { id: "campaigns", label: "Campaigns", icon: Target },
   { id: "calendar", label: "Calendar", icon: CalendarDays },
-  { id: "analytics", label: "Analytics", icon: TrendingUp }
+  { id: "results", label: "Results", icon: TrendingUp }
 ];
 
 function campaignTasks(tasks: DemoTask[], campaignId: string) {
@@ -44,15 +45,18 @@ function getCampaignHealth(
   tasks: DemoTask[],
   content: DemoContent[],
   approvals: DemoApproval[]
-): { label: "At Risk" | "On Track" | "Needs Attention"; detail: string; tone: string } {
+): { label: DemoHealth; detail: string; tone: string } {
+  const demoToday = new Date("2026-04-16");
   const overdueTasks = tasks.filter(
-    (task) => task.status !== "Done" && task.dueDate && new Date(task.dueDate) < new Date("2026-04-13")
+    (task) => task.status !== "Done" && task.dueDate && new Date(task.dueDate) < demoToday
   ).length;
   const pendingApprovals = approvals.filter((approval) => approval.status === "Pending").length;
   const unscheduledReady = content.filter(
     (item) => item.approvalState === "Approved" && item.publishState === "Ready"
   ).length;
-  const missingContent = content.filter((item) => !item.caption.trim() || item.assetState !== "Ready").length;
+  const missingContent = content.filter(
+    (item) => !item.caption.trim() || item.assetState !== "Ready"
+  ).length;
 
   if (overdueTasks || pendingApprovals) {
     return {
@@ -78,9 +82,11 @@ function getCampaignHealth(
 }
 
 function getNextAction(tasks: DemoTask[], content: DemoContent[], approvals: DemoApproval[]) {
+  const demoToday = new Date("2026-04-16");
   const overdueTask = tasks.find(
-    (task) => task.status !== "Done" && task.dueDate && new Date(task.dueDate) < new Date("2026-04-13")
+    (task) => task.status !== "Done" && task.dueDate && new Date(task.dueDate) < demoToday
   );
+
   if (overdueTask) {
     return {
       title: "Resolve overdue work",
@@ -98,7 +104,9 @@ function getNextAction(tasks: DemoTask[], content: DemoContent[], approvals: Dem
     };
   }
 
-  const readyItem = content.find((item) => item.approvalState === "Approved" && item.publishState === "Ready");
+  const readyItem = content.find(
+    (item) => item.approvalState === "Approved" && item.publishState === "Ready"
+  );
   if (readyItem) {
     return {
       title: "Schedule ready content",
@@ -110,23 +118,35 @@ function getNextAction(tasks: DemoTask[], content: DemoContent[], approvals: Dem
   return {
     title: "Capture results",
     detail: "Execution is moving. Review website and revenue response next.",
-    action: "Open analytics"
+    action: "Open results"
   };
 }
 
 export default function DemoPage() {
-  const [activeView, setActiveView] = useState<DemoView>("home");
+  const [activeView, setActiveView] = useState<DemoView>("story");
   const [selectedCampaignId, setSelectedCampaignId] = useState(demoWorkspace.campaigns[0]?.id ?? "");
   const [contentItems, setContentItems] = useState<DemoContent[]>(demoWorkspace.content);
   const [approvals, setApprovals] = useState<DemoApproval[]>(demoWorkspace.approvals);
+  const [demoNotice, setDemoNotice] = useState<string | null>(null);
 
   const selectedCampaign = useMemo(
-    () => demoWorkspace.campaigns.find((campaign) => campaign.id === selectedCampaignId) ?? demoWorkspace.campaigns[0],
+    () =>
+      demoWorkspace.campaigns.find((campaign) => campaign.id === selectedCampaignId) ??
+      demoWorkspace.campaigns[0],
     [selectedCampaignId]
   );
-  const selectedTasks = useMemo(() => campaignTasks(demoWorkspace.tasks, selectedCampaign.id), [selectedCampaign.id]);
-  const selectedContent = useMemo(() => campaignContent(contentItems, selectedCampaign.id), [contentItems, selectedCampaign.id]);
-  const selectedApprovals = useMemo(() => campaignApprovals(approvals, selectedCampaign.id), [approvals, selectedCampaign.id]);
+  const selectedTasks = useMemo(
+    () => campaignTasks(demoWorkspace.tasks, selectedCampaign.id),
+    [selectedCampaign.id]
+  );
+  const selectedContent = useMemo(
+    () => campaignContent(contentItems, selectedCampaign.id),
+    [contentItems, selectedCampaign.id]
+  );
+  const selectedApprovals = useMemo(
+    () => campaignApprovals(approvals, selectedCampaign.id),
+    [approvals, selectedCampaign.id]
+  );
   const selectedHealth = useMemo(
     () => getCampaignHealth(selectedTasks, selectedContent, selectedApprovals),
     [selectedApprovals, selectedContent, selectedTasks]
@@ -135,17 +155,71 @@ export default function DemoPage() {
     () => getNextAction(selectedTasks, selectedContent, selectedApprovals),
     [selectedApprovals, selectedContent, selectedTasks]
   );
-  const readyToSchedule = selectedContent.filter(
-    (item) => item.approvalState === "Approved" && item.publishState === "Ready"
+  const readyToSchedule = useMemo(
+    () =>
+      selectedContent.filter(
+        (item) => item.approvalState === "Approved" && item.publishState === "Ready"
+      ),
+    [selectedContent]
   );
-  const pipeline = [
-    { id: "goal" as PipelineStage, label: "Goal", count: 1, state: selectedCampaign.goal ? "complete" : "blocked" },
-    { id: "tasks" as PipelineStage, label: "Tasks", count: selectedTasks.length, state: selectedTasks.some((task) => task.status !== "Done") ? "active" : "complete" },
-    { id: "content" as PipelineStage, label: "Content", count: selectedContent.length, state: selectedContent.length ? "active" : "blocked" },
-    { id: "approvals" as PipelineStage, label: "Approvals", count: selectedApprovals.length, state: selectedApprovals.some((item) => item.status === "Pending") ? "blocked" : selectedApprovals.length ? "complete" : "active" },
-    { id: "scheduled" as PipelineStage, label: "Scheduled", count: selectedContent.filter((item) => item.publishState === "Scheduled").length, state: readyToSchedule.length ? "active" : selectedContent.some((item) => item.publishState === "Scheduled") ? "complete" : "blocked" },
-    { id: "results" as PipelineStage, label: "Results", count: selectedCampaign.attributedCovers, state: selectedCampaign.attributedRevenue > 0 ? "complete" : "blocked" }
-  ];
+  const pipeline = useMemo(
+    () =>
+      [
+        {
+          id: "goal" as PipelineStage,
+          label: "Goal",
+          count: 1,
+          state: selectedCampaign.goal ? "complete" : "blocked"
+        },
+        {
+          id: "tasks" as PipelineStage,
+          label: "Tasks",
+          count: selectedTasks.length,
+          state: selectedTasks.some((task) => task.status !== "Done") ? "active" : "complete"
+        },
+        {
+          id: "content" as PipelineStage,
+          label: "Content",
+          count: selectedContent.length,
+          state: selectedContent.length ? "active" : "blocked"
+        },
+        {
+          id: "approvals" as PipelineStage,
+          label: "Approvals",
+          count: selectedApprovals.length,
+          state: selectedApprovals.some((item) => item.status === "Pending")
+            ? "blocked"
+            : selectedApprovals.length
+              ? "complete"
+              : "active"
+        },
+        {
+          id: "scheduled" as PipelineStage,
+          label: "Scheduled",
+          count: selectedContent.filter((item) => item.publishState === "Scheduled").length,
+          state: readyToSchedule.length
+            ? "active"
+            : selectedContent.some((item) => item.publishState === "Scheduled")
+              ? "complete"
+              : "blocked"
+        },
+        {
+          id: "results" as PipelineStage,
+          label: "Results",
+          count: selectedCampaign.attributedCovers,
+          state: selectedCampaign.attributedRevenue > 0 ? "complete" : "blocked"
+        }
+      ] as const,
+    [
+      readyToSchedule.length,
+      selectedApprovals,
+      selectedCampaign.attributedCovers,
+      selectedCampaign.attributedRevenue,
+      selectedCampaign.goal,
+      selectedContent,
+      selectedTasks
+    ]
+  );
   const calendarItems = useMemo(
     () =>
       [
@@ -156,7 +230,7 @@ export default function DemoPage() {
             kind: task.milestone ? "Milestone" : "Task",
             title: task.title,
             date: task.dueDate ?? task.startDate ?? "",
-            detail: task.status
+            detail: `${task.status} · ${task.assignee}`
           })),
         ...contentItems
           .filter((item) => item.publishDate)
@@ -170,12 +244,42 @@ export default function DemoPage() {
       ].sort((left, right) => left.date.localeCompare(right.date)),
     [contentItems]
   );
+  const performanceSummary = demoWorkspace.story;
+  const activeCampaigns = useMemo(
+    () =>
+      [...demoWorkspace.campaigns]
+        .sort((left, right) => right.attributedRevenue - left.attributedRevenue)
+        .map((campaign) => {
+          const tasksForCampaign = campaignTasks(demoWorkspace.tasks, campaign.id);
+          const contentForCampaign = campaignContent(contentItems, campaign.id);
+          const approvalsForCampaign = campaignApprovals(approvals, campaign.id);
+          const health = getCampaignHealth(tasksForCampaign, contentForCampaign, approvalsForCampaign);
+          const proofContent = contentForCampaign.find(
+            (item) => item.approvalState === "Approved" || item.publishState === "Scheduled"
+          );
+
+          return {
+            campaign,
+            health,
+            proofContent,
+            tasksForCampaign,
+            approvalsForCampaign,
+            contentForCampaign
+          };
+        }),
+    [approvals, contentItems]
+  );
 
   const handleSendToApproval = (contentId: string) => {
     setContentItems((current) =>
       current.map((item) =>
         item.id === contentId
-          ? { ...item, approvalState: "Pending", publishState: "Ready", publishDate: item.publishDate ?? "2026-04-16" }
+          ? {
+              ...item,
+              approvalState: "Pending",
+              publishState: "Ready",
+              publishDate: item.publishDate ?? "2026-04-16"
+            }
           : item
       )
     );
@@ -195,6 +299,7 @@ export default function DemoPage() {
             ...current
           ]
     );
+    setDemoNotice("Content sent to approval. It is now waiting on sign-off before it can be scheduled.");
   };
 
   const handleApproval = (contentId: string, status: "Approved" | "Changes Requested") => {
@@ -214,6 +319,11 @@ export default function DemoPage() {
           : item
       )
     );
+    setDemoNotice(
+      status === "Approved"
+        ? "Approval cleared. The item is ready to schedule."
+        : "Changes requested. The content moved back into draft."
+    );
   };
 
   const handleSchedule = (contentId: string) => {
@@ -228,7 +338,558 @@ export default function DemoPage() {
           : item
       )
     );
+    setDemoNotice("Scheduled for Thursday. The calendar now has a live next step.");
   };
+
+  const storySection = (
+    <div className="mt-4 grid gap-4">
+      <Card>
+        <CardHeader>
+          <div>
+            <CardDescription>Headline result</CardDescription>
+            <CardTitle className="mt-3">{performanceSummary.headline}</CardTitle>
+          </div>
+        </CardHeader>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <ListCard>
+            <p className="text-sm font-medium text-foreground">What moved</p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{performanceSummary.whatMoved}</p>
+          </ListCard>
+          <ListCard>
+            <p className="text-sm font-medium text-foreground">What drove it</p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{performanceSummary.whatDroveIt}</p>
+          </ListCard>
+          <ListCard>
+            <p className="text-sm font-medium text-foreground">What it is worth</p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{performanceSummary.whatItIsWorth}</p>
+          </ListCard>
+          <ListCard>
+            <p className="text-sm font-medium text-foreground">What happens next</p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{performanceSummary.whatNext}</p>
+          </ListCard>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <ListCard>
+            <p className="text-sm text-muted-foreground">Confirmed revenue</p>
+            <p className="mt-2 text-2xl font-semibold text-foreground">{currency(performanceSummary.confirmedRevenue)}</p>
+          </ListCard>
+          <ListCard>
+            <p className="text-sm text-muted-foreground">Estimated contribution</p>
+            <p className="mt-2 text-2xl font-semibold text-foreground">{currency(performanceSummary.estimatedContribution)}</p>
+          </ListCard>
+          <ListCard>
+            <p className="text-sm text-muted-foreground">Attribution confidence</p>
+            <p className="mt-2 text-2xl font-semibold text-foreground">{performanceSummary.confidence}</p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{performanceSummary.confidenceDetail}</p>
+          </ListCard>
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div>
+            <CardDescription>What the OS is doing today</CardDescription>
+            <CardTitle className="mt-3">{nextAction.title}</CardTitle>
+          </div>
+        </CardHeader>
+        <p className="text-sm leading-6 text-muted-foreground">{nextAction.detail}</p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button size="sm" onClick={() => setActiveView("campaigns")}>
+            Review campaigns
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => setActiveView("results")}>
+            Show results
+          </Button>
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div>
+            <CardDescription>Active campaigns</CardDescription>
+            <CardTitle className="mt-3">What is moving the business now</CardTitle>
+          </div>
+        </CardHeader>
+        <div className="grid gap-3">
+          {activeCampaigns.map(({ campaign, health, proofContent }) => (
+            <button
+              className="text-left"
+              key={campaign.id}
+              type="button"
+              onClick={() => {
+                setSelectedCampaignId(campaign.id);
+                setActiveView("campaigns");
+              }}
+            >
+              <ListCard>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="font-medium text-foreground">{campaign.name}</p>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">{campaign.objective}</p>
+                    <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                      <span className="rounded-full bg-muted/60 px-2.5 py-1">{campaign.status}</span>
+                      <span className={cn("rounded-full border px-2.5 py-1", health.tone)}>{health.label}</span>
+                      <span className="rounded-full bg-muted/60 px-2.5 py-1">{currency(campaign.attributedRevenue)}</span>
+                      <span className="rounded-full bg-muted/60 px-2.5 py-1">{number(campaign.attributedCovers)} covers</span>
+                    </div>
+                    {proofContent ? (
+                      <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                        Proof point: {proofContent.title} is the clearest piece of content tied to this campaign.
+                      </p>
+                    ) : null}
+                  </div>
+                  <span className="text-sm font-medium text-primary">Open</span>
+                </div>
+              </ListCard>
+            </button>
+          ))}
+        </div>
+      </Card>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <div>
+              <CardDescription>Content workflow</CardDescription>
+              <CardTitle className="mt-3">What is being produced</CardTitle>
+            </div>
+          </CardHeader>
+          <div className="space-y-3">
+            {selectedContent.map((item) => (
+              <ListCard key={item.id}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-medium text-foreground">{item.title}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {item.platform} · {item.format}
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                      {item.caption || "No copy yet."}
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                      <span className="rounded-full bg-muted/60 px-2.5 py-1">Assets {item.assetState}</span>
+                      <span className="rounded-full bg-muted/60 px-2.5 py-1">Approval {item.approvalState}</span>
+                      <span className="rounded-full bg-muted/60 px-2.5 py-1">Publish {item.publishState}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {item.approvalState === "None" ? (
+                    <Button size="sm" variant="outline" onClick={() => handleSendToApproval(item.id)}>
+                      Send to approval
+                    </Button>
+                  ) : null}
+                  {item.approvalState === "Pending" ? (
+                    <>
+                      <Button size="sm" onClick={() => handleApproval(item.id, "Approved")}>
+                        Approve
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => handleApproval(item.id, "Changes Requested")}>
+                        Request changes
+                      </Button>
+                    </>
+                  ) : null}
+                  {item.approvalState === "Approved" && item.publishState !== "Scheduled" ? (
+                    <Button size="sm" onClick={() => handleSchedule(item.id)}>
+                      Schedule
+                    </Button>
+                  ) : null}
+                </div>
+              </ListCard>
+            ))}
+          </div>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div>
+              <CardDescription>What is scheduled</CardDescription>
+              <CardTitle className="mt-3">Calendar and open slots</CardTitle>
+            </div>
+          </CardHeader>
+          <div className="space-y-3">
+            {readyToSchedule.length ? (
+              readyToSchedule.map((item) => (
+                <ListCard key={item.id}>
+                  <p className="font-medium text-foreground">{item.title}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {item.platform} · {item.format}
+                  </p>
+                  <Button className="mt-4" size="sm" onClick={() => handleSchedule(item.id)}>
+                    Schedule next
+                  </Button>
+                </ListCard>
+              ))
+            ) : (
+              <ListCard>
+                <p className="text-sm text-muted-foreground">All approved content is already scheduled.</p>
+              </ListCard>
+            )}
+
+            {calendarItems.slice(0, 5).map((item) => (
+              <ListCard key={`${item.id}-${item.date}`}>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="font-medium text-foreground">{item.title}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">{item.kind}</p>
+                    <p className="mt-2 text-sm text-muted-foreground">{item.detail}</p>
+                  </div>
+                  <DatePill value={item.date} />
+                </div>
+              </ListCard>
+            ))}
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+
+  const campaignSection = (
+    <div className="mt-4 grid gap-4 xl:grid-cols-[0.78fr_1.22fr]">
+      <Card>
+        <CardHeader>
+          <div>
+            <CardDescription>Campaigns</CardDescription>
+            <CardTitle className="mt-3">Demo workspace</CardTitle>
+          </div>
+        </CardHeader>
+        <div className="space-y-3">
+          {demoWorkspace.campaigns.map((campaign) => (
+            <button
+              className={cn(
+                "block w-full rounded-[1rem] border p-4 text-left transition",
+                selectedCampaignId === campaign.id
+                  ? "border-primary/35 bg-primary/5"
+                  : "border-border/70 bg-card/50"
+              )}
+              key={campaign.id}
+              type="button"
+              onClick={() => setSelectedCampaignId(campaign.id)}
+            >
+              <p className="font-medium text-foreground">{campaign.name}</p>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">{campaign.objective}</p>
+              <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                <span className="rounded-full bg-muted/60 px-2.5 py-1">{campaign.status}</span>
+                <span className="rounded-full bg-muted/60 px-2.5 py-1">{currency(campaign.attributedRevenue)}</span>
+              </div>
+            </button>
+          ))}
+        </div>
+      </Card>
+
+      <div className="grid gap-4">
+        <Card>
+          <CardHeader>
+            <div>
+              <CardDescription>Execution pipeline</CardDescription>
+              <CardTitle className="mt-3">{selectedCampaign.name}</CardTitle>
+            </div>
+            <span className={cn("inline-flex rounded-full border px-3 py-1.5 text-[0.68rem] uppercase tracking-[0.24em]", selectedHealth.tone)}>
+              {selectedHealth.label}
+            </span>
+          </CardHeader>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {pipeline.map((stage) => (
+              <button
+                key={stage.id}
+                className={cn(
+                  "rounded-[1rem] border px-3 py-3 text-left",
+                  stage.state === "complete"
+                    ? "border-emerald-500/30 bg-emerald-500/10"
+                    : stage.state === "active"
+                      ? "border-primary/25 bg-primary/5"
+                      : "border-amber-500/25 bg-amber-500/10"
+                )}
+                type="button"
+              >
+                <p className="text-[0.65rem] uppercase tracking-[0.16em] text-muted-foreground">
+                  {stage.label}
+                </p>
+                <p className="mt-2 text-2xl font-semibold text-foreground">{number(stage.count)}</p>
+                <p className="mt-2 text-[0.65rem] uppercase tracking-[0.14em] text-muted-foreground">
+                  {stage.state}
+                </p>
+              </button>
+            ))}
+          </div>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div>
+              <CardDescription>Next Action</CardDescription>
+              <CardTitle className="mt-3">{nextAction.title}</CardTitle>
+            </div>
+          </CardHeader>
+          <p className="text-sm leading-6 text-muted-foreground">{nextAction.detail}</p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button size="sm" onClick={() => setActiveView("story")}>Show full story</Button>
+            <Button size="sm" variant="outline" onClick={() => setActiveView("results")}>Open results</Button>
+          </div>
+        </Card>
+
+        <div className="grid gap-4 xl:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <div>
+                <CardDescription>Tasks</CardDescription>
+                <CardTitle className="mt-3">Execution queue</CardTitle>
+              </div>
+            </CardHeader>
+            <div className="space-y-3">
+              {selectedTasks.map((task) => (
+                <ListCard key={task.id}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium text-foreground">{task.title}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">{task.description}</p>
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                        <span className="rounded-full bg-muted/60 px-2.5 py-1">{task.type}</span>
+                        <span className="rounded-full bg-muted/60 px-2.5 py-1">{task.priority}</span>
+                        {task.dueDate ? <DatePill value={task.dueDate} /> : null}
+                      </div>
+                    </div>
+                    <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary">
+                      {task.status}
+                    </span>
+                  </div>
+                </ListCard>
+              ))}
+            </div>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div>
+                <CardDescription>Content</CardDescription>
+                <CardTitle className="mt-3">Draft to schedule</CardTitle>
+              </div>
+            </CardHeader>
+            <div className="space-y-3">
+              {selectedContent.map((item) => (
+                <ListCard key={item.id}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium text-foreground">{item.title}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {item.platform} · {item.format}
+                      </p>
+                      <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                        {item.caption || "No copy yet."}
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                        <span className="rounded-full bg-muted/60 px-2.5 py-1">Assets {item.assetState}</span>
+                        <span className="rounded-full bg-muted/60 px-2.5 py-1">
+                          Approval {item.approvalState}
+                        </span>
+                        <span className="rounded-full bg-muted/60 px-2.5 py-1">
+                          Publish {item.publishState}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {item.approvalState === "None" ? (
+                      <Button size="sm" variant="outline" onClick={() => handleSendToApproval(item.id)}>
+                        Send to approval
+                      </Button>
+                    ) : null}
+                    {item.approvalState === "Pending" ? (
+                      <>
+                        <Button size="sm" onClick={() => handleApproval(item.id, "Approved")}>
+                          Approve
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleApproval(item.id, "Changes Requested")}
+                        >
+                          Request changes
+                        </Button>
+                      </>
+                    ) : null}
+                    {item.approvalState === "Approved" && item.publishState !== "Scheduled" ? (
+                      <Button size="sm" onClick={() => handleSchedule(item.id)}>
+                        Schedule
+                      </Button>
+                    ) : null}
+                  </div>
+                </ListCard>
+              ))}
+            </div>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+
+  const calendarSection = (
+    <div className="mt-4 grid gap-4 xl:grid-cols-[0.72fr_1.28fr]">
+      <Card>
+        <CardHeader>
+          <div>
+            <CardDescription>Ready to schedule</CardDescription>
+            <CardTitle className="mt-3">Items waiting for a slot</CardTitle>
+          </div>
+        </CardHeader>
+        <div className="space-y-3">
+          {readyToSchedule.length ? (
+            readyToSchedule.map((item) => (
+              <ListCard key={item.id}>
+                <p className="font-medium text-foreground">{item.title}</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {item.platform} · {item.format}
+                </p>
+                <Button className="mt-4" size="sm" onClick={() => handleSchedule(item.id)}>
+                  Schedule next
+                </Button>
+              </ListCard>
+            ))
+          ) : (
+            <ListCard>
+              <p className="text-sm text-muted-foreground">All approved content is already scheduled.</p>
+            </ListCard>
+          )}
+        </div>
+      </Card>
+      <Card>
+        <CardHeader>
+          <div>
+            <CardDescription>Calendar</CardDescription>
+            <CardTitle className="mt-3">Tasks, content, and milestones</CardTitle>
+          </div>
+        </CardHeader>
+        <div className="space-y-3">
+          {calendarItems.map((item) => (
+            <ListCard key={item.id}>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="font-medium text-foreground">{item.title}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{item.kind}</p>
+                  <p className="mt-2 text-sm text-muted-foreground">{item.detail}</p>
+                </div>
+                <DatePill value={item.date} />
+              </div>
+            </ListCard>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+
+  const resultsSection = (
+    <div className="mt-4 grid gap-4">
+      <Card>
+        <CardHeader>
+          <div>
+            <CardDescription>Performance summary</CardDescription>
+            <CardTitle className="mt-3">What changed and what it is worth</CardTitle>
+          </div>
+        </CardHeader>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <ListCard>
+            <p className="text-sm font-medium text-foreground">What changed</p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              Website sessions, reservation clicks, and Toast covers all moved together, which makes the lift believable.
+            </p>
+          </ListCard>
+          <ListCard>
+            <p className="text-sm font-medium text-foreground">Attribution confidence</p>
+            <p className="mt-2 text-2xl font-semibold text-foreground">{performanceSummary.confidence}</p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{performanceSummary.confidenceDetail}</p>
+          </ListCard>
+          <ListCard>
+            <p className="text-sm font-medium text-foreground">Estimated contribution</p>
+            <p className="mt-2 text-2xl font-semibold text-foreground">
+              {currency(performanceSummary.estimatedContribution)}
+            </p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              Strongest proof point: {demoWorkspace.campaigns[1].name} and the lunch combo carousel.
+            </p>
+          </ListCard>
+          <ListCard>
+            <p className="text-sm font-medium text-foreground">Next move</p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              Keep the lunch push active, clear the brunch approval, and protect the most profitable nights.
+            </p>
+            <div className="mt-4">
+              <Link className="inline-flex items-center gap-2 text-sm font-medium text-primary" href="/revenue-modeling">
+                Open revenue model <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
+          </ListCard>
+        </div>
+      </Card>
+
+      <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+        <Card>
+          <CardHeader>
+            <div>
+              <CardDescription>Web analytics</CardDescription>
+              <CardTitle className="mt-3">Traffic and intent</CardTitle>
+            </div>
+          </CardHeader>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <ListCard>
+              <p className="text-sm text-muted-foreground">Sessions</p>
+              <p className="mt-2 text-2xl font-semibold text-foreground">{number(demoWorkspace.analytics.sessions)}</p>
+            </ListCard>
+            <ListCard>
+              <p className="text-sm text-muted-foreground">Users</p>
+              <p className="mt-2 text-2xl font-semibold text-foreground">{number(demoWorkspace.analytics.users)}</p>
+            </ListCard>
+            <ListCard>
+              <p className="text-sm text-muted-foreground">Reservation clicks</p>
+              <p className="mt-2 text-2xl font-semibold text-foreground">{number(demoWorkspace.analytics.reservationClicks)}</p>
+            </ListCard>
+            <ListCard>
+              <p className="text-sm text-muted-foreground">Menu views</p>
+              <p className="mt-2 text-2xl font-semibold text-foreground">{number(demoWorkspace.analytics.menuViews)}</p>
+            </ListCard>
+          </div>
+          <div className="mt-4 rounded-[1rem] border border-border/70 bg-card/60 p-4">
+            <p className="text-sm font-medium text-foreground">Top source</p>
+            <p className="mt-2 text-sm text-muted-foreground">{demoWorkspace.analytics.topSource}</p>
+            <p className="mt-3 text-sm font-medium text-foreground">Top landing page</p>
+            <p className="mt-2 text-sm text-muted-foreground">{demoWorkspace.analytics.topLandingPage}</p>
+          </div>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div>
+              <CardDescription>Revenue model</CardDescription>
+              <CardTitle className="mt-3">Business result snapshot</CardTitle>
+            </div>
+          </CardHeader>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <ListCard>
+              <p className="text-sm text-muted-foreground">Weekly revenue</p>
+              <p className="mt-2 text-2xl font-semibold text-foreground">{currency(demoWorkspace.revenueModel.weeklyRevenue)}</p>
+            </ListCard>
+            <ListCard>
+              <p className="text-sm text-muted-foreground">Monthly revenue</p>
+              <p className="mt-2 text-2xl font-semibold text-foreground">{currency(demoWorkspace.revenueModel.monthlyRevenue)}</p>
+            </ListCard>
+            <ListCard>
+              <p className="text-sm text-muted-foreground">Weekly covers</p>
+              <p className="mt-2 text-2xl font-semibold text-foreground">{number(demoWorkspace.revenueModel.weeklyCovers)}</p>
+            </ListCard>
+            <ListCard>
+              <p className="text-sm text-muted-foreground">Growth target</p>
+              <p className="mt-2 text-2xl font-semibold text-foreground">{demoWorkspace.revenueModel.growthTarget}%</p>
+            </ListCard>
+          </div>
+          <div className="mt-4 rounded-[1rem] border border-border/70 bg-card/60 p-4">
+            <p className="text-sm font-medium text-foreground">What the business needs next</p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              Tuesday dinner is still the softest window, while Saturday brunch remains the strongest performer. Use the active campaign mix to push Tuesday without cannibalizing brunch demand.
+            </p>
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -242,7 +903,20 @@ export default function DemoPage() {
               <h1 className="mt-4 text-3xl font-semibold tracking-[-0.05em] text-foreground sm:text-4xl">
                 {demoWorkspace.restaurantName}
               </h1>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{demoWorkspace.summary}</p>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
+                {demoWorkspace.summary}
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                  Client-ready
+                </span>
+                <span className="rounded-full bg-muted/70 px-3 py-1 text-xs font-medium text-foreground">
+                  Mobile demo
+                </span>
+                <span className="rounded-full bg-muted/70 px-3 py-1 text-xs font-medium text-foreground">
+                  {demoWorkspace.story.confidence} attribution confidence
+                </span>
+              </div>
             </div>
             <Link href="/" className="inline-flex items-center gap-2 text-sm font-medium text-primary">
               Back to app <ArrowRight className="h-4 w-4" />
@@ -253,22 +927,32 @@ export default function DemoPage() {
             {demoWorkspace.topMetrics.map((metric) => (
               <Card className="p-4" key={metric.id}>
                 <p className="text-sm text-muted-foreground">{metric.label}</p>
-                <p className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-foreground">{metric.value}</p>
+                <p className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-foreground">
+                  {metric.value}
+                </p>
                 <p className="mt-2 text-sm text-muted-foreground">{metric.detail}</p>
               </Card>
             ))}
           </div>
+
+          {demoNotice ? (
+            <div className="mt-4 rounded-[1.1rem] border border-primary/20 bg-primary/8 px-4 py-3 text-sm text-foreground">
+              {demoNotice}
+            </div>
+          ) : null}
         </div>
 
-        <div className="sticky top-3 z-20 mt-4 flex gap-2 overflow-x-auto rounded-[1.25rem] border border-[rgba(146,124,73,0.14)] bg-[rgba(253,251,247,0.88)] p-2 shadow-[0_10px_24px_rgba(91,72,42,0.05)] backdrop-blur">
+        <div className="sticky top-3 z-20 mt-4 grid grid-cols-2 gap-2 rounded-[1.25rem] border border-[rgba(146,124,73,0.14)] bg-[rgba(253,251,247,0.88)] p-2 shadow-[0_10px_24px_rgba(91,72,42,0.05)] backdrop-blur sm:flex">
           {demoViews.map((view) => {
             const Icon = view.icon;
             return (
               <button
                 key={view.id}
                 className={cn(
-                  "inline-flex items-center gap-2 rounded-[1rem] px-4 py-2 text-sm font-medium transition",
-                  activeView === view.id ? "bg-primary text-primary-foreground" : "text-foreground/70 hover:bg-primary/5 hover:text-foreground"
+                  "inline-flex items-center justify-center gap-2 rounded-[1rem] px-4 py-2 text-sm font-medium transition",
+                  activeView === view.id
+                    ? "bg-primary text-primary-foreground"
+                    : "text-foreground/70 hover:bg-primary/5 hover:text-foreground"
                 )}
                 type="button"
                 onClick={() => setActiveView(view.id)}
@@ -280,334 +964,10 @@ export default function DemoPage() {
           })}
         </div>
 
-        {activeView === "home" ? (
-          <div className="mt-4 grid gap-4">
-            <Card>
-              <CardHeader>
-                <div>
-                  <CardDescription>Next Action</CardDescription>
-                  <CardTitle className="mt-3">{demoWorkspace.nextAction}</CardTitle>
-                </div>
-              </CardHeader>
-            </Card>
-            <Card>
-              <CardHeader>
-                <div>
-                  <CardDescription>Active Campaigns</CardDescription>
-                  <CardTitle className="mt-3">What is moving the business now</CardTitle>
-                </div>
-              </CardHeader>
-              <div className="grid gap-3">
-                {demoWorkspace.campaigns.map((campaign) => {
-                  const campaignTasksForRow = campaignTasks(demoWorkspace.tasks, campaign.id);
-                  const campaignContentForRow = campaignContent(contentItems, campaign.id);
-                  const campaignApprovalsForRow = campaignApprovals(approvals, campaign.id);
-                  const health = getCampaignHealth(campaignTasksForRow, campaignContentForRow, campaignApprovalsForRow);
-
-                  return (
-                    <button
-                      className="text-left"
-                      key={campaign.id}
-                      type="button"
-                      onClick={() => {
-                        setSelectedCampaignId(campaign.id);
-                        setActiveView("campaigns");
-                      }}
-                    >
-                      <ListCard>
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="min-w-0">
-                            <p className="font-medium text-foreground">{campaign.name}</p>
-                            <p className="mt-1 text-sm leading-6 text-muted-foreground">{campaign.objective}</p>
-                            <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                              <span className="rounded-full bg-muted/60 px-2.5 py-1">{campaign.status}</span>
-                              <span className={cn("rounded-full border px-2.5 py-1", health.tone)}>{health.label}</span>
-                              <span className="rounded-full bg-muted/60 px-2.5 py-1">{currency(campaign.attributedRevenue)}</span>
-                            </div>
-                          </div>
-                          <span className="text-sm font-medium text-primary">Open</span>
-                        </div>
-                      </ListCard>
-                    </button>
-                  );
-                })}
-              </div>
-            </Card>
-          </div>
-        ) : null}
-
-        {activeView === "campaigns" ? (
-          <div className="mt-4 grid gap-4 xl:grid-cols-[0.78fr_1.22fr]">
-            <Card>
-              <CardHeader>
-                <div>
-                  <CardDescription>Campaigns</CardDescription>
-                  <CardTitle className="mt-3">Demo workspace</CardTitle>
-                </div>
-              </CardHeader>
-              <div className="space-y-3">
-                {demoWorkspace.campaigns.map((campaign) => (
-                  <button
-                    className={cn(
-                      "block w-full rounded-[1rem] border p-4 text-left transition",
-                      selectedCampaignId === campaign.id ? "border-primary/35 bg-primary/5" : "border-border/70 bg-card/50"
-                    )}
-                    key={campaign.id}
-                    type="button"
-                    onClick={() => setSelectedCampaignId(campaign.id)}
-                  >
-                    <p className="font-medium text-foreground">{campaign.name}</p>
-                    <p className="mt-1 text-sm text-muted-foreground">{campaign.objective}</p>
-                  </button>
-                ))}
-              </div>
-            </Card>
-
-            <div className="grid gap-4">
-              <Card>
-                <CardHeader>
-                  <div>
-                    <CardDescription>Execution pipeline</CardDescription>
-                    <CardTitle className="mt-3">{selectedCampaign.name}</CardTitle>
-                  </div>
-                  <span className={cn("inline-flex rounded-full border px-3 py-1.5 text-[0.68rem] uppercase tracking-[0.24em]", selectedHealth.tone)}>
-                    {selectedHealth.label}
-                  </span>
-                </CardHeader>
-                <div className="flex gap-3 overflow-x-auto">
-                  {pipeline.map((stage) => (
-                    <button
-                      key={stage.id}
-                      className={cn(
-                        "min-w-[8rem] rounded-[1rem] border px-3 py-3 text-left",
-                        stage.state === "complete"
-                          ? "border-emerald-500/30 bg-emerald-500/10"
-                          : stage.state === "active"
-                            ? "border-primary/25 bg-primary/5"
-                            : "border-amber-500/25 bg-amber-500/10"
-                      )}
-                      type="button"
-                    >
-                      <p className="text-[0.65rem] uppercase tracking-[0.16em] text-muted-foreground">{stage.label}</p>
-                      <p className="mt-2 text-2xl font-semibold text-foreground">{number(stage.count)}</p>
-                      <p className="mt-2 text-[0.65rem] uppercase tracking-[0.14em] text-muted-foreground">{stage.state}</p>
-                    </button>
-                  ))}
-                </div>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <div>
-                    <CardDescription>Next Action</CardDescription>
-                    <CardTitle className="mt-3">{nextAction.title}</CardTitle>
-                  </div>
-                </CardHeader>
-                <p className="text-sm leading-6 text-muted-foreground">{nextAction.detail}</p>
-              </Card>
-
-              <div className="grid gap-4 xl:grid-cols-2">
-                <Card>
-                  <CardHeader>
-                    <div>
-                      <CardDescription>Tasks</CardDescription>
-                      <CardTitle className="mt-3">Execution queue</CardTitle>
-                    </div>
-                  </CardHeader>
-                  <div className="space-y-3">
-                    {selectedTasks.map((task) => (
-                      <ListCard key={task.id}>
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="font-medium text-foreground">{task.title}</p>
-                            <p className="mt-1 text-sm text-muted-foreground">{task.description}</p>
-                            <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                              <span className="rounded-full bg-muted/60 px-2.5 py-1">{task.type}</span>
-                              <span className="rounded-full bg-muted/60 px-2.5 py-1">{task.priority}</span>
-                              {task.dueDate ? <DatePill value={task.dueDate} /> : null}
-                            </div>
-                          </div>
-                          <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary">{task.status}</span>
-                        </div>
-                      </ListCard>
-                    ))}
-                  </div>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <div>
-                      <CardDescription>Content</CardDescription>
-                      <CardTitle className="mt-3">Draft to schedule</CardTitle>
-                    </div>
-                  </CardHeader>
-                  <div className="space-y-3">
-                    {selectedContent.map((item) => (
-                      <ListCard key={item.id}>
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="font-medium text-foreground">{item.title}</p>
-                            <p className="mt-1 text-sm text-muted-foreground">{item.platform} · {item.format}</p>
-                            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                              {item.caption || "No copy yet."}
-                            </p>
-                            <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                              <span className="rounded-full bg-muted/60 px-2.5 py-1">Assets {item.assetState}</span>
-                              <span className="rounded-full bg-muted/60 px-2.5 py-1">Approval {item.approvalState}</span>
-                              <span className="rounded-full bg-muted/60 px-2.5 py-1">Publish {item.publishState}</span>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="mt-4 flex flex-wrap gap-2">
-                          {item.approvalState === "None" ? (
-                            <Button size="sm" variant="outline" onClick={() => handleSendToApproval(item.id)}>
-                              Send to approval
-                            </Button>
-                          ) : null}
-                          {item.approvalState === "Pending" ? (
-                            <>
-                              <Button size="sm" onClick={() => handleApproval(item.id, "Approved")}>Approve</Button>
-                              <Button size="sm" variant="outline" onClick={() => handleApproval(item.id, "Changes Requested")}>
-                                Request changes
-                              </Button>
-                            </>
-                          ) : null}
-                          {item.approvalState === "Approved" && item.publishState !== "Scheduled" ? (
-                            <Button size="sm" onClick={() => handleSchedule(item.id)}>Schedule</Button>
-                          ) : null}
-                        </div>
-                      </ListCard>
-                    ))}
-                  </div>
-                </Card>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        {activeView === "calendar" ? (
-          <div className="mt-4 grid gap-4 xl:grid-cols-[0.72fr_1.28fr]">
-            <Card>
-              <CardHeader>
-                <div>
-                  <CardDescription>Ready to schedule</CardDescription>
-                  <CardTitle className="mt-3">Items waiting for a slot</CardTitle>
-                </div>
-              </CardHeader>
-              <div className="space-y-3">
-                {contentItems.filter((item) => item.approvalState === "Approved" && item.publishState === "Ready").length ? (
-                  contentItems
-                    .filter((item) => item.approvalState === "Approved" && item.publishState === "Ready")
-                    .map((item) => (
-                      <ListCard key={item.id}>
-                        <p className="font-medium text-foreground">{item.title}</p>
-                        <p className="mt-1 text-sm text-muted-foreground">{item.platform} · {item.format}</p>
-                        <Button className="mt-4" size="sm" onClick={() => handleSchedule(item.id)}>
-                          Schedule next
-                        </Button>
-                      </ListCard>
-                    ))
-                ) : (
-                  <ListCard>
-                    <p className="text-sm text-muted-foreground">All approved content is already scheduled.</p>
-                  </ListCard>
-                )}
-              </div>
-            </Card>
-            <Card>
-              <CardHeader>
-                <div>
-                  <CardDescription>Calendar</CardDescription>
-                  <CardTitle className="mt-3">Tasks, content, and milestones</CardTitle>
-                </div>
-              </CardHeader>
-              <div className="space-y-3">
-                {calendarItems.map((item) => (
-                  <ListCard key={item.id}>
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <p className="font-medium text-foreground">{item.title}</p>
-                        <p className="mt-1 text-sm text-muted-foreground">{item.kind}</p>
-                        <p className="mt-2 text-sm text-muted-foreground">{item.detail}</p>
-                      </div>
-                      <DatePill value={item.date} />
-                    </div>
-                  </ListCard>
-                ))}
-              </div>
-            </Card>
-          </div>
-        ) : null}
-
-        {activeView === "analytics" ? (
-          <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_1fr]">
-            <Card>
-              <CardHeader>
-                <div>
-                  <CardDescription>Web analytics</CardDescription>
-                  <CardTitle className="mt-3">Traffic and intent</CardTitle>
-                </div>
-              </CardHeader>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <ListCard>
-                  <p className="text-sm text-muted-foreground">Sessions</p>
-                  <p className="mt-2 text-2xl font-semibold text-foreground">{number(demoWorkspace.analytics.sessions)}</p>
-                </ListCard>
-                <ListCard>
-                  <p className="text-sm text-muted-foreground">Users</p>
-                  <p className="mt-2 text-2xl font-semibold text-foreground">{number(demoWorkspace.analytics.users)}</p>
-                </ListCard>
-                <ListCard>
-                  <p className="text-sm text-muted-foreground">Reservation clicks</p>
-                  <p className="mt-2 text-2xl font-semibold text-foreground">{number(demoWorkspace.analytics.reservationClicks)}</p>
-                </ListCard>
-                <ListCard>
-                  <p className="text-sm text-muted-foreground">Menu views</p>
-                  <p className="mt-2 text-2xl font-semibold text-foreground">{number(demoWorkspace.analytics.menuViews)}</p>
-                </ListCard>
-              </div>
-              <div className="mt-4 rounded-[1rem] border border-border/70 bg-card/60 p-4">
-                <p className="text-sm font-medium text-foreground">Top source</p>
-                <p className="mt-2 text-sm text-muted-foreground">{demoWorkspace.analytics.topSource}</p>
-                <p className="mt-3 text-sm font-medium text-foreground">Top landing page</p>
-                <p className="mt-2 text-sm text-muted-foreground">{demoWorkspace.analytics.topLandingPage}</p>
-              </div>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <div>
-                  <CardDescription>Revenue model</CardDescription>
-                  <CardTitle className="mt-3">Business result snapshot</CardTitle>
-                </div>
-              </CardHeader>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <ListCard>
-                  <p className="text-sm text-muted-foreground">Weekly revenue</p>
-                  <p className="mt-2 text-2xl font-semibold text-foreground">{currency(demoWorkspace.revenueModel.weeklyRevenue)}</p>
-                </ListCard>
-                <ListCard>
-                  <p className="text-sm text-muted-foreground">Monthly revenue</p>
-                  <p className="mt-2 text-2xl font-semibold text-foreground">{currency(demoWorkspace.revenueModel.monthlyRevenue)}</p>
-                </ListCard>
-                <ListCard>
-                  <p className="text-sm text-muted-foreground">Weekly covers</p>
-                  <p className="mt-2 text-2xl font-semibold text-foreground">{number(demoWorkspace.revenueModel.weeklyCovers)}</p>
-                </ListCard>
-                <ListCard>
-                  <p className="text-sm text-muted-foreground">Growth target</p>
-                  <p className="mt-2 text-2xl font-semibold text-foreground">{demoWorkspace.revenueModel.growthTarget}%</p>
-                </ListCard>
-              </div>
-              <div className="mt-4 rounded-[1rem] border border-border/70 bg-card/60 p-4">
-                <p className="text-sm font-medium text-foreground">What the business needs next</p>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  Tuesday dinner is still the softest window, while Saturday brunch remains the strongest performer. Use the active campaign mix to push Tuesday without cannibalizing brunch demand.
-                </p>
-              </div>
-            </Card>
-          </div>
-        ) : null}
+        {activeView === "story" ? storySection : null}
+        {activeView === "campaigns" ? campaignSection : null}
+        {activeView === "calendar" ? calendarSection : null}
+        {activeView === "results" ? resultsSection : null}
       </main>
     </div>
   );

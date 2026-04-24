@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const summary = await getGoogleAnalyticsSummary(clientId);
+    const summary = await getGoogleAnalyticsSummary(clientId, request.url);
     const landingPath = request.nextUrl.searchParams.get("landingPath") ?? undefined;
     const utmCampaign = request.nextUrl.searchParams.get("utmCampaign") ?? undefined;
 

@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const summary = await getMetaBusinessSuiteSummary(clientId);
+    const summary = await getMetaBusinessSuiteSummary(clientId, request.url);
     return NextResponse.json({ summary });
   } catch (error) {
     return NextResponse.json(

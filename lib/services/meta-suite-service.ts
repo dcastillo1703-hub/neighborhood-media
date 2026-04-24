@@ -150,14 +150,15 @@ function summarizeMetaChannel(
   connection: IntegrationConnection | undefined,
   analyticsSnapshots: AnalyticsSnapshot[],
   posts: Post[],
-  publishJobs: PublishJob[]
+  publishJobs: PublishJob[],
+  appUrl?: string
 ): MetaBusinessChannelSummary {
   const source = provider === "facebook" ? "Facebook" : "Instagram";
   const channelSnapshots = analyticsSnapshots.filter((snapshot) => snapshot.source === source);
   const channelPosts = posts.filter((post) => post.platform === source);
   const channelJobs = publishJobs.filter((job: PublishJob) => job.provider === provider);
   const latestSnapshot = channelSnapshots[0];
-  const fallbackSetup = buildMetaSetupState(provider, clientId, connection);
+  const fallbackSetup = buildMetaSetupState(provider, clientId, connection, appUrl);
 
   return {
     provider,
@@ -544,7 +545,8 @@ export async function syncMetaInsights(
 }
 
 export async function getMetaBusinessSuiteSummary(
-  clientId: string
+  clientId: string,
+  appUrl?: string
 ): Promise<MetaBusinessSuiteSummary> {
   const [{ connections }, analyticsSnapshots, posts, publishJobs] = await Promise.all([
     listIntegrations(clientId),
@@ -563,7 +565,8 @@ export async function getMetaBusinessSuiteSummary(
       ),
       analyticsSnapshots,
       posts,
-      publishJobs
+      publishJobs,
+      appUrl
     ),
     summarizeMetaChannel(
       clientId,
@@ -573,10 +576,11 @@ export async function getMetaBusinessSuiteSummary(
       ),
       analyticsSnapshots,
       posts,
-      publishJobs
+      publishJobs,
+      appUrl
     )
   ];
-  const configStatus = getMetaBusinessSuiteConfigStatus();
+  const configStatus = getMetaBusinessSuiteConfigStatus(appUrl);
   const facebookConnected = channels.some(
     (channel) => channel.provider === "facebook" && channel.authStatus === "connected"
   );
@@ -625,7 +629,8 @@ export async function getMetaBusinessSuiteSummary(
 
 export async function beginMetaBusinessConnection(
   clientId: string,
-  provider: "facebook" | "instagram"
+  provider: "facebook" | "instagram",
+  appUrl?: string
 ) {
   const { connections } = await listIntegrations(clientId);
   const typedConnections = connections as IntegrationConnection[];
@@ -634,7 +639,7 @@ export async function beginMetaBusinessConnection(
   );
   const connection = existingConnection ?? (await ensureMetaConnection(clientId, provider));
 
-  const setup = buildMetaSetupState(provider, clientId, connection);
+  const setup = buildMetaSetupState(provider, clientId, connection, appUrl);
   const updatedConnection = await updateIntegrationConnection(clientId, connection.id, {
     status: setup.authorizationUrl ? "Scaffolded" : "Needs Credentials",
     setup: {

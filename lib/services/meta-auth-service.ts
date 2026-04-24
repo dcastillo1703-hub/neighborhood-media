@@ -6,6 +6,7 @@ import {
 } from "@/lib/integrations/credential-vault";
 import { buildMetaSetupState } from "@/lib/integrations/meta";
 import { integrationEnv } from "@/lib/integrations/config";
+import { getMetaBusinessSuiteConfigStatus } from "@/lib/integrations/meta";
 import {
   mapIntegrationConnectionInsert,
   mapIntegrationConnectionRow
@@ -94,11 +95,11 @@ function buildMetaScaffoldConnection(
   };
 }
 
-function assertMetaCredentials() {
-  if (!integrationEnv.metaAppId || !integrationEnv.metaAppSecret || !integrationEnv.metaRedirectUri) {
-    throw new Error(
-      "Meta app configuration is incomplete. Set NEXT_PUBLIC_META_APP_ID, META_APP_SECRET, and NEXT_PUBLIC_META_REDIRECT_URI."
-    );
+function assertMetaCredentials(appUrl?: string) {
+  const configStatus = getMetaBusinessSuiteConfigStatus(appUrl);
+
+  if (!configStatus.ready) {
+    throw new Error(configStatus.nextAction);
   }
 }
 
@@ -111,8 +112,8 @@ export function decodeMetaState(state: string): MetaOAuthState {
   return JSON.parse(decoded) as MetaOAuthState;
 }
 
-async function exchangeCodeForUserToken(code: string) {
-  assertMetaCredentials();
+async function exchangeCodeForUserToken(code: string, appUrl?: string) {
+  assertMetaCredentials(appUrl);
 
   const params = new URLSearchParams({
     client_id: integrationEnv.metaAppId,
@@ -135,8 +136,8 @@ async function exchangeCodeForUserToken(code: string) {
   return (await response.json()) as MetaTokenExchangeResponse;
 }
 
-async function exchangeForLongLivedToken(accessToken: string) {
-  assertMetaCredentials();
+async function exchangeForLongLivedToken(accessToken: string, appUrl?: string) {
+  assertMetaCredentials(appUrl);
 
   const params = new URLSearchParams({
     grant_type: "fb_exchange_token",
@@ -284,7 +285,7 @@ async function getRawIntegrationConnection(
   return data as Parameters<typeof mapIntegrationConnectionRow>[0];
 }
 
-export async function completeMetaOAuthCallback(code: string, state: string) {
+export async function completeMetaOAuthCallback(code: string, state: string, appUrl?: string) {
   const decodedState = decodeMetaState(state);
   const rawConnection = await getRawIntegrationConnection(
     decodedState.clientId,
@@ -293,8 +294,8 @@ export async function completeMetaOAuthCallback(code: string, state: string) {
   );
   const connection = mapIntegrationConnectionRow(rawConnection);
 
-  const shortLivedToken = await exchangeCodeForUserToken(code);
-  const longLivedToken = await exchangeForLongLivedToken(shortLivedToken.access_token);
+  const shortLivedToken = await exchangeCodeForUserToken(code, appUrl);
+  const longLivedToken = await exchangeForLongLivedToken(shortLivedToken.access_token, appUrl);
   const managedPages = await fetchManagedPages(longLivedToken.access_token);
 
   const selectedPage =
@@ -336,7 +337,7 @@ export async function completeMetaOAuthCallback(code: string, state: string) {
 
   const setup = {
     ...connection.setup,
-    ...buildMetaSetupState(decodedState.provider, decodedState.clientId, connection),
+    ...buildMetaSetupState(decodedState.provider, decodedState.clientId, connection, appUrl),
     authStatus: "connected" as const,
     tokenStatus: "ready" as const,
     authorizationUrl: undefined,

@@ -71,11 +71,36 @@ export type DemoRevenueModel = {
   strongestNight: string;
 };
 
+export type DemoAttributionConfidence = "High" | "Medium" | "Low";
+
+export type DemoStory = {
+  headline: string;
+  whatMoved: string;
+  whatDroveIt: string;
+  whatItIsWorth: string;
+  whatNext: string;
+  confidence: DemoAttributionConfidence;
+  confidenceDetail: string;
+  confirmedRevenue: number;
+  estimatedContribution: number;
+};
+
 export const demoWorkspace = {
   label: "Demo Mode",
   restaurantName: "Meama NYC",
   summary: "Public demo workspace. Explore campaigns, approvals, scheduling, analytics, and revenue signals without signing in.",
   nextAction: "Review the Midtown lunch campaign approval, then schedule the ready Instagram post into Thursday.",
+  story: {
+    headline: "Meama NYC is up this month, and the lunch campaign is the clearest driver.",
+    whatMoved: "Confirmed POS revenue is up compared with the prior period, while website sessions and reservation clicks both moved in the same direction.",
+    whatDroveIt: "The Midtown Lunch Push is the strongest proof point, led by the lunch combo carousel and the approved Instagram reel.",
+    whatItIsWorth: "Revenue impact is estimated from linked traffic, intent, and Toast-backed covers. It is credible, directional, and transparent.",
+    whatNext: "Approve the brunch reel, schedule the lunch content, and keep pushing the slowest service window next.",
+    confidence: "High",
+    confidenceDetail: "Toast confirms revenue. Linked campaigns, content, and website signals support the estimate.",
+    confirmedRevenue: 74200,
+    estimatedContribution: 13600
+  } satisfies DemoStory,
   topMetrics: [
     { id: "visitors", label: "Website visitors", value: "2,480", detail: "Last 30 days" },
     { id: "covers", label: "Weekly covers", value: "412", detail: "Toast-backed" },
@@ -287,4 +312,3 @@ export const demoWorkspace = {
     strongestNight: "Saturday brunch"
   } satisfies DemoRevenueModel
 };
-
