@@ -51,9 +51,34 @@ export function ContentPlanPanel({
               <p className="mt-2 text-sm leading-6 text-foreground">{plan.planSummary}</p>
               <div className="mt-4 rounded-[1rem] border border-border/70 bg-card/75 p-4">
                 <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">
+                  Campaign objective
+                </p>
+                <p className="mt-2 text-sm leading-6 text-foreground">{plan.campaignObjective}</p>
+              </div>
+              <div className="mt-4 rounded-[1rem] border border-border/70 bg-card/75 p-4">
+                <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">
                   Execution focus
                 </p>
                 <p className="mt-2 text-sm leading-6 text-foreground">{plan.executionFocus}</p>
+              </div>
+              <div className="mt-4 rounded-[1rem] border border-border/70 bg-card/75 p-4">
+                <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">
+                  Measurement focus
+                </p>
+                <p className="mt-2 text-sm leading-6 text-foreground">{plan.measurementFocus}</p>
+              </div>
+              <div className="mt-4 rounded-[1rem] border border-border/70 bg-card/75 p-4">
+                <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">
+                  Recommended sequence
+                </p>
+                <div className="mt-3 space-y-2 text-sm leading-6 text-foreground">
+                  {plan.recommendedSequence.map((step, index) => (
+                    <p key={step}>
+                      <span className="mr-2 text-muted-foreground">{index + 1}.</span>
+                      {step}
+                    </p>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -78,24 +103,24 @@ export function ContentPlanPanel({
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     <div>
                       <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">
-                        Goal
+                        Role in campaign
                       </p>
-                      <p className="mt-1 text-sm leading-6 text-foreground">{item.goal}</p>
+                      <p className="mt-1 text-sm leading-6 text-foreground">{item.roleInCampaign}</p>
                     </div>
                     <div>
                       <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">
-                        CTA
+                        Guest behavior goal
                       </p>
-                      <p className="mt-1 text-sm leading-6 text-foreground">{item.cta}</p>
+                      <p className="mt-1 text-sm leading-6 text-foreground">{item.guestBehaviorGoal}</p>
                     </div>
                   </div>
 
                   <div className="mt-4 space-y-3 rounded-[1rem] border border-border/70 bg-background/70 p-4">
                     <div>
                       <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">
-                        Message
+                        Creative direction
                       </p>
-                      <p className="mt-1 text-sm leading-6 text-foreground">{item.message}</p>
+                      <p className="mt-1 text-sm leading-6 text-foreground">{item.creativeDirection}</p>
                     </div>
                     <div className="grid gap-3 sm:grid-cols-3">
                       <div>
@@ -112,9 +137,9 @@ export function ContentPlanPanel({
                       </div>
                       <div>
                         <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">
-                          Asset status
+                          Asset needed
                         </p>
-                        <p className="mt-1 text-sm leading-6 text-foreground">{item.assetStatus}</p>
+                        <p className="mt-1 text-sm leading-6 text-foreground">{item.assetNeeded}</p>
                       </div>
                     </div>
                     <div className="grid gap-3 sm:grid-cols-2">
@@ -130,6 +155,18 @@ export function ContentPlanPanel({
                         </p>
                         <p className="mt-1 text-sm leading-6 text-foreground">{item.nextAction}</p>
                       </div>
+                    </div>
+                    <div>
+                      <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">
+                        CTA
+                      </p>
+                      <p className="mt-1 text-sm leading-6 text-foreground">{item.cta}</p>
+                    </div>
+                    <div>
+                      <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">
+                        Success signal
+                      </p>
+                      <p className="mt-1 text-sm leading-6 text-foreground">{item.successSignal}</p>
                     </div>
                   </div>
                 </ListCard>
