@@ -21,7 +21,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { CampaignStrategyPanel } from "@/components/dashboard/campaign-strategy-panel";
 import { calculateRevenueModel } from "@/lib/calculations";
+import { buildCampaignStrategyContext } from "@/lib/agents/campaign-strategy";
 import {
   buildPerformanceReadContext,
   formatPerformanceReadForClipboard,
@@ -47,7 +49,8 @@ import { useWeeklyMetrics } from "@/lib/repositories/use-weekly-metrics";
 import { useGoogleAnalytics } from "@/lib/use-google-analytics";
 import { useManualMetaPerformance } from "@/lib/use-manual-meta-performance";
 import { useMetaBusinessSuite } from "@/lib/use-meta-business-suite";
-import { currency, number, percent } from "@/lib/utils";
+import { useCampaignStrategy } from "@/lib/use-campaign-strategy";
+import { currency, formatShortDate, number, percent } from "@/lib/utils";
 
 type AssumptionDraft = {
   averageCheck: number;
@@ -156,6 +159,10 @@ export default function PerformancePage() {
     .sort((left, right) => right.revenue - left.revenue)
     .slice(0, 4);
   const topCampaign = topCampaigns[0] ?? null;
+  const campaignsById = useMemo(
+    () => new Map(campaigns.map((campaign) => [campaign.id, campaign])),
+    [campaigns]
+  );
   const postsById = useMemo(
     () => new Map(posts.map((post) => [post.id, post])),
     [posts]
@@ -547,6 +554,117 @@ export default function PerformancePage() {
         },
         currentNextActions: clientNextActions
       });
+  const campaignStrategyContext = buildCampaignStrategyContext({
+    client: {
+      id: activeClient.id,
+      name: activeClient.name,
+      segment: activeClient.segment,
+      location: activeClient.location
+    },
+    revenueTrend: {
+      currentMonthLabel: currentMonth?.monthLabel ?? null,
+      previousMonthLabel: previousMonth?.monthLabel ?? null,
+      currentMonthRevenue: currentMonth?.revenue ?? 0,
+      previousMonthRevenue: previousMonth?.revenue ?? 0,
+      revenueDelta: monthRevenueDelta,
+      revenueDeltaPercent: monthRevenueDeltaPercent,
+      latestWeekRevenue: latestWeek.latestRevenue,
+      latestWeekCovers: latestWeekPerformance?.covers ?? 0,
+      latestWeekDelta: latestWeek.latestWowChange,
+      latestWeekDeltaPercent: latestWeekPerformance?.wowChangePercent ?? 0
+    },
+    opportunityWindow: {
+      label: toastOpportunities.weakestDay.day,
+      value: currency(toastOpportunities.weakestDay.averageRevenue),
+      detail: toastOpportunities.recommendation
+    },
+    attributionConfidence: {
+      label: attributionConfidence.label as "High" | "Medium" | "Low",
+      detail: attributionConfidence.detail
+    },
+    campaignProof: topCampaigns.map((campaign) => {
+      const campaignMeta = campaignsById.get(campaign.id);
+      const nextScheduledPost = posts
+        .filter((post) => post.campaignId === campaign.id && post.status === "Scheduled" && post.publishDate)
+        .sort((left, right) => left.publishDate.localeCompare(right.publishDate))[0];
+
+      return {
+        id: campaign.id,
+        name: campaign.name,
+        status: campaignMeta?.status ?? "Active",
+        objective: campaignMeta?.objective ?? "Grow restaurant traffic",
+        revenue: campaign.revenue,
+        covers: campaign.covers,
+        tables: campaign.tables,
+        nextMove: nextScheduledPost
+          ? `Publish ${nextScheduledPost.platform} on ${formatShortDate(nextScheduledPost.publishDate)}`
+          : "Add the next scheduled post"
+      };
+    }),
+    contentGaps: [
+      topContentItem?.post
+        ? `Build a second linked content piece around ${topContentItem.post.platform}.`
+        : "Create one linked post for the weakest window."
+    ],
+    schedulingGaps: [
+      (() => {
+        const nextScheduledPost = posts
+          .filter((post) => post.status === "Scheduled" && post.publishDate)
+          .sort((left, right) => left.publishDate.localeCompare(right.publishDate))[0];
+
+        return nextScheduledPost
+          ? `Next scheduled post is ${nextScheduledPost.platform} on ${formatShortDate(nextScheduledPost.publishDate)}.`
+          : "No scheduled post is tied to the next best opportunity yet.";
+      })()
+    ],
+    activeCampaigns: campaigns
+      .filter((campaign) => campaign.status !== "Completed")
+      .map((campaign) => {
+        const recap = campaignRecaps.find((entry) => entry.id === campaign.id);
+        return {
+          id: campaign.id,
+          name: campaign.name,
+          status: campaign.status,
+          objective: campaign.objective,
+          revenue: recap?.revenue ?? 0,
+          covers: recap?.covers ?? 0,
+          tables: recap?.tables ?? 0,
+          nextMove: campaign.linkedPostIds.length
+            ? "Keep the campaign moving with the linked content"
+            : "Add the first linked post"
+        };
+      }),
+    currentNextActions: clientNextActions.map((item) => `${item.title}: ${item.detail}`),
+    supportingSignals: [
+      topSource
+        ? {
+            label: topSource.label,
+            value: `${number(topSource.sessions)} sessions`,
+            detail: "Strongest current traffic source"
+          }
+        : null,
+      topIntentSignal
+        ? {
+            label: topIntentSignal.label,
+            value: `${number(topIntentSignal.count)} actions`,
+            detail: "Strongest current intent signal"
+          }
+        : null,
+      connectedFacebook
+        ? {
+            label: "Meta",
+            value: `${number(connectedFacebook.impressions)} impressions`,
+            detail: "Connected channel evidence"
+          }
+        : null
+    ].filter((item): item is NonNullable<typeof item> => Boolean(item))
+  });
+  const {
+    strategy: campaignStrategy,
+    error: campaignStrategyError,
+    generating: generatingCampaignStrategy,
+    generate: generateCampaignStrategy
+  } = useCampaignStrategy(activeClient.id, campaignStrategyContext);
   const performanceReadReady =
     metricsReady && campaignsReady && postsReady && analyticsSnapshotsReady && googleAnalyticsReady && metaReady;
   const performanceReadCopy = performanceRead
@@ -668,15 +786,27 @@ export default function PerformancePage() {
         description="This page turns Toast, campaign activity, Google Analytics, and Meta into one performance story you can use internally or in a client conversation."
         actions={
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
-            <Button
-              className="gap-2"
-              disabled={!performanceReadReady || generatingPerformanceRead}
-              onClick={() => void generatePerformanceRead()}
-              size="sm"
-            >
-              {generatingPerformanceRead ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-              Generate AI Performance Read
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                className="gap-2"
+                disabled={!performanceReadReady || generatingPerformanceRead}
+                onClick={() => void generatePerformanceRead()}
+                size="sm"
+              >
+                {generatingPerformanceRead ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                Generate AI Performance Read
+              </Button>
+              <Button
+                className="gap-2"
+                disabled={!performanceReadReady || generatingCampaignStrategy}
+                onClick={() => void generateCampaignStrategy()}
+                size="sm"
+                variant="outline"
+              >
+                {generatingCampaignStrategy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                Generate Campaign Strategy
+              </Button>
+            </div>
             <p className="max-w-xs text-xs leading-5 text-muted-foreground sm:text-right">
               {performanceReadReady
                 ? "Server-side, reviewable, and never auto-saves over confirmed data."
@@ -831,6 +961,14 @@ export default function PerformancePage() {
           )}
         </div>
       </Card>
+
+      <CampaignStrategyPanel
+        description="Opportunity-driven campaign recommendation"
+        error={campaignStrategyError}
+        loading={generatingCampaignStrategy}
+        strategy={campaignStrategy}
+        title="Campaign strategy"
+      />
 
       <Card className="overflow-hidden border-border/70 bg-card/95">
         <div className="border-b border-border/70 px-5 py-5 sm:px-6">

@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { LayoutList, Plus, Star, Trash2, X } from "lucide-react";
 
+import { CampaignStrategyPanel } from "@/components/dashboard/campaign-strategy-panel";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { ListCard } from "@/components/dashboard/list-card";
@@ -15,15 +16,19 @@ import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/ca
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { buildCampaignStrategyContext } from "@/lib/agents/campaign-strategy";
 import { useActiveClient } from "@/lib/client-context";
+import { buildMonthlyPerformance, buildToastOpportunitySummary, getLatestWeekSummary } from "@/lib/domain/performance";
 import { composeCampaignMetadata } from "@/lib/domain/campaign-metadata";
 import { summarizeCampaigns } from "@/lib/domain/campaigns";
 import { useAnalyticsSnapshots } from "@/lib/repositories/use-analytics-snapshots";
 import { useAssets } from "@/lib/repositories/use-assets";
 import { useBlogPosts } from "@/lib/repositories/use-blog-posts";
 import { useCampaigns } from "@/lib/repositories/use-campaigns";
+import { useClientSettings } from "@/lib/repositories/use-client-settings";
 import { usePosts } from "@/lib/repositories/use-posts";
 import { useWeeklyMetrics } from "@/lib/repositories/use-weekly-metrics";
+import { useCampaignStrategy } from "@/lib/use-campaign-strategy";
 import { usePersistentDraft } from "@/lib/use-persistent-draft";
 import { currency, formatShortDate, number } from "@/lib/utils";
 import { validateCampaign } from "@/lib/validation";
@@ -77,6 +82,7 @@ const createEmptyCampaign = (clientId: string): Campaign => ({
 export default function CampaignsPage() {
   const router = useRouter();
   const { activeClient } = useActiveClient();
+  const { settings } = useClientSettings(activeClient.id);
   const { campaigns, addCampaign, deleteCampaign, ready, error } = useCampaigns(activeClient.id);
   const { posts } = usePosts(activeClient.id);
   const { blogPosts } = useBlogPosts(activeClient.id);
@@ -124,10 +130,140 @@ export default function CampaignsPage() {
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  const monthlyPerformance = useMemo(
+    () =>
+      buildMonthlyPerformance(
+        metrics,
+        settings.averageCheck,
+        settings.guestsPerTable,
+        6,
+        false
+      ),
+    [metrics, settings.averageCheck, settings.guestsPerTable]
+  );
+  const latestWeek = useMemo(
+    () => getLatestWeekSummary(metrics, settings.averageCheck),
+    [metrics, settings.averageCheck]
+  );
+  const latestWeekPerformance = latestWeek.performance[latestWeek.performance.length - 1] ?? null;
+  const toastOpportunities = useMemo(
+    () => buildToastOpportunitySummary(metrics, settings.averageCheck),
+    [metrics, settings.averageCheck]
+  );
   const campaignOverviews = useMemo(
     () => summarizeCampaigns(campaigns, posts, blogPosts, assets, metrics, analyticsSnapshots),
     [campaigns, posts, blogPosts, assets, metrics, analyticsSnapshots]
   );
+  const campaignStrategyContext = useMemo(
+    () =>
+      buildCampaignStrategyContext({
+        client: {
+          id: activeClient.id,
+          name: activeClient.name,
+          segment: activeClient.segment,
+          location: activeClient.location
+        },
+        revenueTrend: {
+          currentMonthLabel: monthlyPerformance[monthlyPerformance.length - 1]?.monthLabel ?? null,
+          previousMonthLabel: monthlyPerformance[monthlyPerformance.length - 2]?.monthLabel ?? null,
+          currentMonthRevenue: monthlyPerformance[monthlyPerformance.length - 1]?.revenue ?? 0,
+          previousMonthRevenue: monthlyPerformance[monthlyPerformance.length - 2]?.revenue ?? 0,
+          revenueDelta:
+            (monthlyPerformance[monthlyPerformance.length - 1]?.revenue ?? 0) -
+            (monthlyPerformance[monthlyPerformance.length - 2]?.revenue ?? 0),
+          revenueDeltaPercent:
+            monthlyPerformance[monthlyPerformance.length - 2]?.revenue
+              ? (((monthlyPerformance[monthlyPerformance.length - 1]?.revenue ?? 0) -
+                  (monthlyPerformance[monthlyPerformance.length - 2]?.revenue ?? 0)) /
+                  monthlyPerformance[monthlyPerformance.length - 2].revenue) *
+                100
+              : 0,
+          latestWeekRevenue: latestWeek.latestRevenue,
+          latestWeekCovers: latestWeekPerformance?.covers ?? 0,
+          latestWeekDelta: latestWeek.latestWowChange,
+          latestWeekDeltaPercent: latestWeekPerformance?.wowChangePercent ?? 0
+        },
+        opportunityWindow: {
+          label: toastOpportunities.weakestDay.day,
+          value: currency(toastOpportunities.weakestDay.averageRevenue),
+          detail: toastOpportunities.recommendation
+        },
+        attributionConfidence: {
+          label: "Medium",
+          detail: "Campaign planning here should stay directional until more linked evidence is available."
+        },
+        campaignProof: campaignOverviews
+          .filter((overview) => overview.attributedRevenue > 0 || overview.linkedPosts.length > 0)
+          .slice(0, 3)
+          .map((overview) => ({
+            id: overview.campaign.id,
+            name: overview.campaign.name,
+            status: overview.campaign.status,
+            objective: overview.campaign.objective,
+            revenue: overview.attributedRevenue,
+            covers: overview.attributedCovers,
+            tables: overview.attributedTables,
+            nextMove: overview.linkedPosts.length
+              ? "Keep the campaign moving with the linked posts"
+              : "Add the next post"
+          })),
+        contentGaps: [
+          campaignOverviews.some((overview) => overview.linkedPosts.length === 0)
+            ? "Add one linked post to each active campaign with no content yet."
+            : "Build a second content piece for the strongest campaign."
+        ],
+        schedulingGaps: [
+          posts.some((post) => post.status === "Scheduled")
+            ? "There is already scheduled work in the queue."
+            : "No scheduled post is tied to the next best opportunity yet."
+        ],
+        activeCampaigns: campaigns
+          .filter((campaign) => campaign.status !== "Completed")
+          .map((campaign) => {
+            const overview = campaignOverviews.find((entry) => entry.campaign.id === campaign.id);
+            return {
+              id: campaign.id,
+              name: campaign.name,
+              status: campaign.status,
+              objective: campaign.objective,
+              revenue: overview?.attributedRevenue ?? 0,
+              covers: overview?.attributedCovers ?? 0,
+              tables: overview?.attributedTables ?? 0,
+              nextMove: overview?.linkedPosts.length
+                ? "Push the next linked post"
+                : "Create the first linked post"
+            };
+          }),
+        currentNextActions: [
+          toastOpportunities.recommendation,
+          "Tighten the next scheduled post around the weak window.",
+          "Tie the campaign to one clear tracking point before launch."
+        ],
+        supportingSignals: []
+      }),
+    [
+      activeClient.id,
+      activeClient.location,
+      activeClient.name,
+      activeClient.segment,
+      campaignOverviews,
+      campaigns,
+      latestWeek.latestRevenue,
+      latestWeek.latestWowChange,
+      latestWeekPerformance,
+      monthlyPerformance,
+      posts,
+      toastOpportunities.recommendation,
+      toastOpportunities.weakestDay.averageRevenue,
+      toastOpportunities.weakestDay.day
+    ]
+  );
+  const {
+    strategy: campaignStrategy,
+    error: campaignStrategyError,
+    generating: generatingCampaignStrategy,
+    generate: generateCampaignStrategy
+  } = useCampaignStrategy(activeClient.id, campaignStrategyContext);
   const visibleMobileCampaignOverviews = useMemo(() => {
     if (mobileProjectTab === "Starred") {
       return campaignOverviews.filter((overview) => starredCampaignIds.includes(overview.campaign.id));
@@ -275,12 +411,29 @@ export default function CampaignsPage() {
             <Link className={buttonVariants({ variant: "outline", size: "sm" })} href="/calendar">
               Calendar
             </Link>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={generatingCampaignStrategy || !campaignOverviews.length}
+              onClick={() => void generateCampaignStrategy()}
+            >
+              {generatingCampaignStrategy ? <LayoutList className="mr-2 h-4 w-4 animate-pulse" /> : <LayoutList className="mr-2 h-4 w-4" />}
+              Recommend Next Campaign
+            </Button>
             <Button size="sm" onClick={() => setCreateOpen(true)}>
               <Plus className="mr-2 h-4 w-4" />
               New Campaign
             </Button>
           </div>
         }
+      />
+
+      <CampaignStrategyPanel
+        description="Opportunity-driven campaign recommendation"
+        error={campaignStrategyError}
+        loading={generatingCampaignStrategy}
+        strategy={campaignStrategy}
+        title="Next campaign strategy"
       />
 
       <div className="-mx-3 -mt-3 min-h-[calc(100vh-4rem)] bg-[#202024] px-4 pb-28 pt-7 text-white sm:hidden">
