@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { Check, Copy, Loader2, Sparkles } from "lucide-react";
 import {
   CartesianGrid,
   Line,
@@ -21,6 +22,11 @@ import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/ca
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { calculateRevenueModel } from "@/lib/calculations";
+import {
+  buildPerformanceReadContext,
+  formatPerformanceReadForClipboard,
+  type PerformanceReadResult
+} from "@/lib/agents/performance-read";
 import { useActiveClient } from "@/lib/client-context";
 import {
   buildMonthlyPerformance,
@@ -52,20 +58,29 @@ type AssumptionDraft = {
 export default function PerformancePage() {
   const { activeClient } = useActiveClient();
   const { settings, revenueModelDefaults } = useClientSettings(activeClient.id);
-  const { metrics } = useWeeklyMetrics(activeClient.id);
-  const { campaigns } = useCampaigns(activeClient.id);
-  const { posts } = usePosts(activeClient.id);
-  const { analyticsSnapshots, refreshAnalyticsSnapshots } = useAnalyticsSnapshots(activeClient.id);
+  const { metrics, ready: metricsReady } = useWeeklyMetrics(activeClient.id);
+  const { campaigns, ready: campaignsReady } = useCampaigns(activeClient.id);
+  const { posts, ready: postsReady } = usePosts(activeClient.id);
+  const {
+    analyticsSnapshots,
+    refreshAnalyticsSnapshots,
+    ready: analyticsSnapshotsReady
+  } = useAnalyticsSnapshots(activeClient.id);
   const {
     summary: googleAnalyticsSummary,
-    sync: syncGoogleAnalytics
+    sync: syncGoogleAnalytics,
+    ready: googleAnalyticsReady
   } = useGoogleAnalytics(activeClient.id);
-  const { summary: metaSummary, syncInsights } = useMetaBusinessSuite(activeClient.id);
+  const { summary: metaSummary, syncInsights, ready: metaReady } = useMetaBusinessSuite(activeClient.id);
   const { enabledChannels: manualMetaChannels } = useManualMetaPerformance(activeClient.id);
   const [syncingFacebook, setSyncingFacebook] = useState(false);
   const [facebookSyncMessage, setFacebookSyncMessage] = useState<string | null>(null);
   const [syncingGoogleAnalytics, setSyncingGoogleAnalytics] = useState(false);
   const [googleAnalyticsMessage, setGoogleAnalyticsMessage] = useState<string | null>(null);
+  const [performanceRead, setPerformanceRead] = useState<PerformanceReadResult | null>(null);
+  const [generatingPerformanceRead, setGeneratingPerformanceRead] = useState(false);
+  const [performanceReadError, setPerformanceReadError] = useState<string | null>(null);
+  const [copiedPerformanceRead, setCopiedPerformanceRead] = useState(false);
   const defaultAssumptions = useMemo<AssumptionDraft>(
     () => ({
       averageCheck: settings.averageCheck,
@@ -94,6 +109,7 @@ export default function PerformancePage() {
     () => getLatestWeekSummary(metrics, assumptions.averageCheck),
     [assumptions.averageCheck, metrics]
   );
+  const latestWeekPerformance = latestWeek.performance[latestWeek.performance.length - 1] ?? null;
   const toastOpportunities = useMemo(
     () => buildToastOpportunitySummary(metrics, assumptions.averageCheck),
     [assumptions.averageCheck, metrics]
@@ -385,6 +401,203 @@ export default function PerformancePage() {
         : "Connecting GA4 fully will make the contribution story easier to trust."
     }
   ];
+  const performanceReadContext = buildPerformanceReadContext({
+        client: {
+          id: activeClient.id,
+          name: activeClient.name,
+          segment: activeClient.segment,
+          location: activeClient.location
+        },
+        currentPerformanceSummary: {
+          headline: summaryHeadline,
+          narrative: summaryNarrative,
+          currentMonthLabel: currentMonth?.monthLabel ?? null,
+          currentMonthRevenue: currentMonth?.revenue ?? 0,
+          previousMonthLabel: previousMonth?.monthLabel ?? null,
+          previousMonthRevenue: previousMonth?.revenue ?? 0,
+          monthRevenueDelta,
+          monthRevenueDeltaPercent,
+          latestWeekRevenue: latestWeek.latestRevenue,
+          latestWeekCovers: latestWeekPerformance?.covers ?? 0,
+          latestWeekWowChange: latestWeek.latestWowChange,
+          latestWeekWowChangePercent: latestWeekPerformance?.wowChangePercent ?? 0,
+          attributedRevenue: roiSummary.revenue,
+          attributedCovers: roiSummary.covers
+        },
+        priorPeriodComparison: {
+          previousRevenue: periodComparison.previousRevenue,
+          currentRevenue: periodComparison.currentRevenue,
+          revenueDelta: periodComparison.revenueDelta,
+          revenueDeltaPercent:
+            periodComparison.previousRevenue > 0
+              ? (periodComparison.revenueDelta / periodComparison.previousRevenue) * 100
+              : 0,
+          previousCovers: periodComparison.previousCovers,
+          currentCovers: periodComparison.currentCovers,
+          coversDelta: periodComparison.coversDelta
+        },
+        revenueModelAssumptions: {
+          averageCheck: assumptions.averageCheck,
+          guestsPerTable: assumptions.guestsPerTable,
+          growthTarget: assumptions.growthTarget,
+          weeklyRevenue: revenueModel.weeklyRevenue,
+          monthlyRevenue: revenueModel.monthlyRevenue,
+          addedMonthlyRevenue: revenueModel.addedMonthlyRevenue,
+          annualUpside: revenueModel.annualUpside
+        },
+        attributionConfidence: {
+          label: attributionConfidence.label as "High" | "Medium" | "Low",
+          detail: attributionConfidence.detail,
+          support: confidenceSupport
+        },
+        toastPosTruth: {
+          latestWeekRevenue: latestWeek.latestRevenue,
+          latestWeekCovers: latestWeekPerformance?.covers ?? 0,
+          monthRevenueDelta,
+          monthRevenueDeltaPercent,
+          recommendation: toastOpportunities.recommendation
+        },
+        ga4Summary: {
+          ready: Boolean(googleAnalyticsSummary),
+          periodLabel: googleAnalyticsSummary?.periodLabel ?? null,
+          sessions: googleAnalyticsSummary?.sessions ?? 0,
+          users: googleAnalyticsSummary?.users ?? 0,
+          views: googleAnalyticsSummary?.views ?? 0,
+          events: googleAnalyticsSummary?.events ?? 0,
+          topSource: topSource
+            ? {
+                label: topSource.label,
+                value: `${number(topSource.sessions)} sessions`,
+                detail: "Strongest current GA4 source"
+              }
+            : null,
+          topLandingPage: topLandingPage
+            ? {
+                label: topLandingPage.path,
+                value: `${number(topLandingPage.views)} views`,
+                detail: "Strongest current landing page"
+              }
+            : null,
+          topIntentSignal: topIntentSignal
+            ? {
+                label: topIntentSignal.label,
+                value: `${number(topIntentSignal.count)} actions`,
+                detail: "Most useful intent event right now"
+              }
+            : null,
+          sourceQuality: {
+            topSourceLabel: googleAnalyticsSummary?.sourceQuality.topSourceLabel ?? null,
+            topSourceSessions: googleAnalyticsSummary?.sourceQuality.topSourceSessions ?? null,
+            hasNotSetTraffic: Boolean(googleAnalyticsSummary?.sourceQuality.hasNotSetTraffic),
+            notSetSessions: googleAnalyticsSummary?.sourceQuality.notSetSessions ?? 0,
+            notSetShare: googleAnalyticsSummary?.sourceQuality.notSetShare ?? 0
+          },
+          nextAction: googleAnalyticsSummary?.nextAction ?? "Connect GA4 fully to strengthen attribution.",
+          actionItems: googleAnalyticsSummary?.actionItems ?? []
+        },
+        metaSummary: {
+          ready: Boolean(metaSummary),
+          connectedChannels: metaSummary?.connectedChannels ?? 0,
+          totalImpressions: metaSummary?.totalImpressions ?? 0,
+          totalClicks: metaSummary?.totalClicks ?? 0,
+          totalConversions: metaSummary?.totalConversions ?? 0,
+          totalAttributedRevenue: metaSummary?.totalAttributedRevenue ?? 0,
+          totalAttributedCovers: metaSummary?.totalAttributedCovers ?? 0,
+          totalAttributedTables: metaSummary?.totalAttributedTables ?? 0,
+          highlights: metaSummary?.highlights ?? [],
+          facebookRead: facebookRead
+            ? {
+                source: facebookRead.source,
+                label: facebookRead.label,
+                impressions: facebookRead.impressions,
+                clicks: facebookRead.clicks,
+                engagement: facebookRead.engagement,
+                periodLabel: facebookRead.periodLabel ?? null,
+                syncedAt: facebookRead.syncedAt ?? null
+              }
+            : null
+        },
+        topCampaignProof: {
+          id: topCampaign?.id ?? null,
+          name: topCampaign?.name ?? "No campaign proof yet",
+          revenue: topCampaign?.revenue ?? 0,
+          covers: topCampaign?.covers ?? 0,
+          tables: topCampaign?.tables ?? 0,
+          detail: topCampaign
+            ? `${topCampaign.name} currently carries ${currency(topCampaign.revenue)} in estimated contribution across ${number(topCampaign.covers)} covers.`
+            : "No campaign has enough attributed proof yet."
+        },
+        topContentProof: {
+          postId: topContentItem?.post?.id ?? null,
+          title: topContentItem?.post
+            ? `${topContentItem.post.platform} ${topContentItem.post.format?.toLowerCase() ?? "post"}`
+            : "No content proof yet",
+          platform: topContentItem?.post?.platform ?? "n/a",
+          format: topContentItem?.post?.format ?? null,
+          campaignName: topContentItem?.campaign?.name ?? null,
+          revenue: topContentItem?.revenue ?? 0,
+          covers: topContentItem?.covers ?? 0,
+          tables: topContentItem?.tables ?? 0,
+          conversions: topContentItem?.conversions ?? 0,
+          goal: topContentItem?.post?.goal ?? null,
+          cta: topContentItem?.post?.cta ?? null,
+          detail: topContentItem?.post
+            ? `${currency(topContentItem.revenue)} in estimated contribution with ${number(topContentItem.covers)} covers tied to one content item.`
+            : "No content item has enough linked proof yet."
+        },
+        currentNextActions: clientNextActions
+      });
+  const performanceReadReady =
+    metricsReady && campaignsReady && postsReady && analyticsSnapshotsReady && googleAnalyticsReady && metaReady;
+  const performanceReadCopy = performanceRead
+    ? formatPerformanceReadForClipboard(performanceRead, activeClient.name)
+    : "";
+  const generatePerformanceRead = async () => {
+    if (!performanceReadReady) {
+      return;
+    }
+
+    setGeneratingPerformanceRead(true);
+    setPerformanceReadError(null);
+    setCopiedPerformanceRead(false);
+
+    try {
+      const response = await fetch("/api/performance-read", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        cache: "no-store",
+        body: JSON.stringify({
+          clientId: activeClient.id,
+          context: performanceReadContext
+        })
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(payload?.error ?? "Failed to generate AI performance read.");
+      }
+
+      const payload = (await response.json()) as { read: PerformanceReadResult };
+      setPerformanceRead(payload.read);
+    } catch (error) {
+      setPerformanceReadError(
+        error instanceof Error ? error.message : "Failed to generate AI performance read."
+      );
+    } finally {
+      setGeneratingPerformanceRead(false);
+    }
+  };
+  const copyPerformanceRead = async () => {
+    if (!performanceRead) {
+      return;
+    }
+
+    await navigator.clipboard.writeText(performanceReadCopy);
+    setCopiedPerformanceRead(true);
+    window.setTimeout(() => setCopiedPerformanceRead(false), 1800);
+  };
   const decisionItems = [
     {
       label: "Where to push",
@@ -453,6 +666,24 @@ export default function PerformancePage() {
         eyebrow="Performance"
         title="Understand what changed, what likely caused it, and what to do next"
         description="This page turns Toast, campaign activity, Google Analytics, and Meta into one performance story you can use internally or in a client conversation."
+        actions={
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
+            <Button
+              className="gap-2"
+              disabled={!performanceReadReady || generatingPerformanceRead}
+              onClick={() => void generatePerformanceRead()}
+              size="sm"
+            >
+              {generatingPerformanceRead ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              Generate AI Performance Read
+            </Button>
+            <p className="max-w-xs text-xs leading-5 text-muted-foreground sm:text-right">
+              {performanceReadReady
+                ? "Server-side, reviewable, and never auto-saves over confirmed data."
+                : "Loading Toast, GA4, Meta, campaign, and content context..."}
+            </p>
+          </div>
+        }
       />
 
       <Card className="overflow-hidden border-border/70 bg-card/95">
@@ -527,6 +758,170 @@ export default function PerformancePage() {
           <p className="mt-4 text-sm leading-6 text-muted-foreground">
             Why this estimate is believable: Toast confirms the business result, and the contribution estimate is based on linked campaign activity, tracked content proof, and current traffic signals.
           </p>
+        </div>
+      </Card>
+
+      <Card
+        id="ai-performance-read"
+        className="overflow-hidden border-primary/15 bg-gradient-to-br from-card via-card to-background/60"
+      >
+        <div className="border-b border-border/70 px-5 py-5 sm:px-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-[0.68rem] uppercase tracking-[0.18em] text-muted-foreground">
+                AI performance analyst
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-foreground">
+                Client-ready interpretation of the latest read
+              </h2>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
+                This is a reviewable analyst note built from Toast truth, attribution confidence, GA4, Meta, campaign proof, and the next actions already on the page.
+              </p>
+            </div>
+            {performanceRead ? (
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  className="gap-2"
+                  onClick={() => void copyPerformanceRead()}
+                  size="sm"
+                  variant="outline"
+                >
+                  {copiedPerformanceRead ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                  {copiedPerformanceRead ? "Copied" : "Copy client update"}
+                </Button>
+                <Button
+                  className="gap-2"
+                  disabled={generatingPerformanceRead}
+                  onClick={() => void generatePerformanceRead()}
+                  size="sm"
+                  variant="outline"
+                >
+                  {generatingPerformanceRead ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                  Regenerate
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="space-y-4 px-5 py-5 sm:px-6">
+          {performanceReadError ? (
+            <div className="rounded-[1rem] border border-rose-500/20 bg-rose-500/10 p-4 text-sm leading-6 text-rose-700 dark:text-rose-300">
+              {performanceReadError}
+            </div>
+          ) : null}
+
+          {generatingPerformanceRead ? (
+            <div className="rounded-[1rem] border border-border/70 bg-background/70 p-4 text-sm leading-6 text-muted-foreground">
+              Generating the analyst note now. This uses server-side context only and will return a reviewable draft.
+            </div>
+          ) : null}
+
+          {performanceRead ? (
+            <>
+              <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+                <ListCard className="h-full">
+                  <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">Headline</p>
+                  <p className="mt-2 text-xl font-semibold tracking-[-0.02em] text-foreground">
+                    {performanceRead.headline}
+                  </p>
+                  <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                    AI-generated interpretation. Review before sharing with a client.
+                  </p>
+                </ListCard>
+
+                <ListCard className="h-full">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="font-medium text-foreground">Attribution confidence</p>
+                    <span className="rounded-full border border-border/70 bg-card/80 px-2.5 py-1 text-xs font-medium text-foreground">
+                      {performanceRead.attributionConfidenceExplanation.level}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                    {performanceRead.attributionConfidenceExplanation.explanation}
+                  </p>
+                  <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                    {performanceRead.attributionConfidenceExplanation.whyItMatters}
+                  </p>
+                </ListCard>
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-2">
+                <ListCard>
+                  <p className="font-medium text-foreground">What changed</p>
+                  <div className="mt-3 space-y-3 text-sm leading-6 text-muted-foreground">
+                    {performanceRead.whatChanged.map((item) => (
+                      <p key={item}>{item}</p>
+                    ))}
+                  </div>
+                </ListCard>
+
+                <ListCard>
+                  <p className="font-medium text-foreground">Likely drivers</p>
+                  <div className="mt-3 space-y-3 text-sm leading-6 text-muted-foreground">
+                    {performanceRead.likelyDrivers.map((item) => (
+                      <p key={item}>{item}</p>
+                    ))}
+                  </div>
+                </ListCard>
+
+                <ListCard>
+                  <p className="font-medium text-foreground">ROI read</p>
+                  <div className="mt-3 space-y-3 text-sm leading-6 text-muted-foreground">
+                    <p>{performanceRead.roiRead.confirmedRevenue}</p>
+                    <p>{performanceRead.roiRead.estimatedContribution}</p>
+                    <p>{performanceRead.roiRead.confirmedVsEstimated}</p>
+                    <p>{performanceRead.roiRead.translation}</p>
+                  </div>
+                </ListCard>
+
+                <ListCard>
+                  <p className="font-medium text-foreground">Risks and caveats</p>
+                  <div className="mt-3 space-y-3 text-sm leading-6 text-muted-foreground">
+                    {performanceRead.risksOrCaveats.map((item) => (
+                      <p key={item}>{item}</p>
+                    ))}
+                  </div>
+                </ListCard>
+
+                <ListCard>
+                  <p className="font-medium text-foreground">Recommended next moves</p>
+                  <div className="mt-3 space-y-3 text-sm leading-6 text-muted-foreground">
+                    {performanceRead.recommendedNextMoves.map((item) => (
+                      <div key={item.title}>
+                        <p className="font-medium text-foreground">{item.title}</p>
+                        <p className="mt-1">{item.whyItMatters}</p>
+                        <p className="mt-1 text-xs uppercase tracking-[0.14em] text-muted-foreground">
+                          Expected result: <span className="text-foreground normal-case tracking-normal">{item.expectedResult}</span>
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </ListCard>
+
+                <ListCard>
+                  <p className="font-medium text-foreground">Client talking points</p>
+                  <div className="mt-3 space-y-3 text-sm leading-6 text-muted-foreground">
+                    {performanceRead.clientTalkingPoints.map((item) => (
+                      <p key={item}>{item}</p>
+                    ))}
+                  </div>
+                </ListCard>
+              </div>
+            </>
+          ) : (
+            <div className="rounded-[1rem] border border-dashed border-border/70 bg-background/55 p-5 text-sm leading-6 text-muted-foreground">
+              {performanceReadReady ? (
+                <>
+                  Click <span className="font-medium text-foreground">Generate AI Performance Read</span> to turn the current POS, GA4, Meta, and campaign evidence into a polished client-ready analyst note.
+                </>
+              ) : (
+                <>
+                  Waiting for the current performance sources to finish loading so the analyst note can use the full structured context.
+                </>
+              )}
+            </div>
+          )}
         </div>
       </Card>
 
