@@ -8,6 +8,7 @@ import { LayoutList, Plus, Star, Trash2, X } from "lucide-react";
 
 import { CampaignStrategyPanel } from "@/components/dashboard/campaign-strategy-panel";
 import { ContentPlanPanel } from "@/components/dashboard/content-plan-panel";
+import { SchedulingPlanPanel } from "@/components/dashboard/scheduling-plan-panel";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { ListCard } from "@/components/dashboard/list-card";
@@ -19,8 +20,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { buildCampaignStrategyContext } from "@/lib/agents/campaign-strategy";
 import { buildContentPlanContextFromInput } from "@/lib/agents/content-plan";
+import { buildSchedulingPlanContextFromInput } from "@/lib/agents/scheduling";
 import { useActiveClient } from "@/lib/client-context";
 import { buildMonthlyPerformance, buildToastOpportunitySummary, getLatestWeekSummary } from "@/lib/domain/performance";
+import { getContentExecutionState } from "@/lib/domain/execution-state";
 import { composeCampaignMetadata } from "@/lib/domain/campaign-metadata";
 import { summarizeCampaigns } from "@/lib/domain/campaigns";
 import { useAnalyticsSnapshots } from "@/lib/repositories/use-analytics-snapshots";
@@ -32,6 +35,7 @@ import { usePosts } from "@/lib/repositories/use-posts";
 import { useWeeklyMetrics } from "@/lib/repositories/use-weekly-metrics";
 import { useCampaignStrategy } from "@/lib/use-campaign-strategy";
 import { useContentPlan } from "@/lib/use-content-plan";
+import { useSchedulingPlan } from "@/lib/use-scheduling-plan";
 import { usePersistentDraft } from "@/lib/use-persistent-draft";
 import { currency, formatShortDate, number } from "@/lib/utils";
 import { validateCampaign } from "@/lib/validation";
@@ -355,6 +359,171 @@ export default function CampaignsPage() {
     generating: generatingContentPlan,
     generate: generateContentPlan
   } = useContentPlan(activeClient.id, contentPlanContext);
+  const schedulingPlanContext = useMemo(() => {
+    if (!selectedCampaignForPlan) {
+      return null;
+    }
+
+    const scheduledPostSummaries = posts
+      .filter((post) => post.status === "Scheduled" && post.publishDate)
+      .slice(0, 5)
+      .map((post) => {
+        const campaignName =
+          campaigns.find((campaign) => campaign.id === post.campaignId)?.name ??
+          selectedCampaignForPlan.campaign.name;
+
+        return {
+          id: post.id,
+          title: post.goal || post.content.slice(0, 48) || post.platform,
+          platform: post.platform,
+          dateKey: post.publishDate,
+          timingIntent: `${new Date(`${post.publishDate}T00:00:00`).toLocaleDateString("en-US", {
+            weekday: "long"
+          })} slot`,
+          campaignName
+        };
+      });
+
+    const scheduledDateSet = new Set(scheduledPostSummaries.map((item) => item.dateKey));
+    const weakDay = toastOpportunities.weakestDay.day;
+    const weakDayIndex = {
+      Sunday: 0,
+      Monday: 1,
+      Tuesday: 2,
+      Wednesday: 3,
+      Thursday: 4,
+      Friday: 5,
+      Saturday: 6
+    }[weakDay];
+    const openScheduleGaps = Array.from({ length: 14 }, (_, index) => {
+      const date = new Date();
+      date.setDate(date.getDate() + index);
+      const dateKey = formatDateKey(date);
+
+      if (scheduledDateSet.has(dateKey)) {
+        return null;
+      }
+
+      const weekday = date.toLocaleDateString("en-US", { weekday: "long" });
+      const isWeakDay = weakDayIndex === date.getDay();
+
+      return {
+        dateKey,
+        label: isWeakDay ? `${weekday} revenue window` : `${weekday} open window`,
+        detail: isWeakDay
+          ? "This is the softest recurring window, so it is the best place for the next post."
+          : "No scheduled content is attached here yet."
+      };
+    })
+      .filter((gap): gap is { dateKey: string; label: string; detail: string } => Boolean(gap))
+      .slice(0, 5);
+
+    const readyContentItems = posts
+      .filter(
+        (post) =>
+          post.campaignId === selectedCampaignForPlan.campaign.id &&
+          getContentExecutionState(post, post.approvalState, post.publishState) === "Approved" &&
+          (post.assetState ?? "Missing") === "Ready" &&
+          post.status !== "Scheduled" &&
+          post.status !== "Published"
+      )
+      .slice(0, 5)
+      .map((post) => {
+        const weekday = new Date(`${post.publishDate}T00:00:00`).toLocaleDateString("en-US", {
+          weekday: "long"
+        });
+
+        return {
+          id: post.id,
+          title: post.goal || post.content.slice(0, 48) || `${post.platform} post`,
+          platform: post.platform,
+          format: post.format ?? "Static",
+          cta: post.cta,
+          timingIntent: `${weekday} ${post.platform.toLowerCase()} decision window`,
+          assetState: post.assetState ?? "Missing",
+          approvalState: post.approvalState ?? "Draft",
+          guestBehaviorGoal: post.goal || "Drive guest action",
+          campaignName: selectedCampaignForPlan.campaign.name,
+          campaignId: selectedCampaignForPlan.campaign.id
+        };
+      });
+
+    return buildSchedulingPlanContextFromInput({
+      client: {
+        id: activeClient.id,
+        name: activeClient.name,
+        segment: activeClient.segment,
+        location: activeClient.location
+      },
+      selectedCampaign: {
+        id: selectedCampaignForPlan.campaign.id,
+        name: selectedCampaignForPlan.campaign.name,
+        objective: selectedCampaignForPlan.campaign.objective,
+        status: selectedCampaignForPlan.campaign.status
+      },
+      campaignObjective: selectedCampaignForPlan.campaign.objective,
+      readyContentItems,
+      currentCalendar: {
+        label: new Date().toLocaleDateString("en-US", {
+          month: "long",
+          year: "numeric"
+        }),
+        openDaysThisMonth: openScheduleGaps.length,
+        upcomingScheduledPosts: scheduledPostSummaries
+      },
+      openScheduleGaps,
+      weakRevenueWindow: {
+        label: weakDay,
+        value: currency(toastOpportunities.weakestDay.averageRevenue),
+        detail: toastOpportunities.recommendation
+      },
+      performanceSignals: [
+        {
+          label: "Ready items",
+          value: number(readyContentItems.length),
+          detail: "Approved content that can move to scheduling"
+        },
+        {
+          label: "Scheduled posts",
+          value: number(scheduledPostSummaries.length),
+          detail: "Existing calendar commitments"
+        },
+        {
+          label: "Open gaps",
+          value: number(openScheduleGaps.length),
+          detail: "Calendar windows available for new placements"
+        }
+      ],
+      attributionConfidence: {
+        label: "Medium",
+        detail: "Scheduling should stay directional until more tracked posts are live."
+      },
+      existingScheduledPosts: scheduledPostSummaries,
+      businessHours: {
+        daysOpenPerWeek: settings.daysOpenPerWeek,
+        weeksPerMonth: settings.weeksPerMonth
+      }
+    });
+  }, [
+    activeClient.id,
+    activeClient.location,
+    activeClient.name,
+    activeClient.segment,
+    campaigns,
+    posts,
+    selectedCampaignForPlan,
+    settings.daysOpenPerWeek,
+    settings.weeksPerMonth,
+    toastOpportunities.recommendation,
+    toastOpportunities.weakestDay.averageRevenue,
+    toastOpportunities.weakestDay.day
+  ]);
+  const {
+    plan: schedulingPlan,
+    error: schedulingPlanError,
+    generating: generatingSchedulingPlan,
+    generate: generateSchedulingPlan
+  } = useSchedulingPlan(activeClient.id, schedulingPlanContext);
   const visibleMobileCampaignOverviews = useMemo(() => {
     if (mobileProjectTab === "Starred") {
       return campaignOverviews.filter((overview) => starredCampaignIds.includes(overview.campaign.id));
@@ -520,6 +689,15 @@ export default function CampaignsPage() {
               {generatingContentPlan ? <LayoutList className="mr-2 h-4 w-4 animate-pulse" /> : <LayoutList className="mr-2 h-4 w-4" />}
               Generate Content Plan
             </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={generatingSchedulingPlan || !schedulingPlanContext}
+              onClick={() => void generateSchedulingPlan()}
+            >
+              {generatingSchedulingPlan ? <LayoutList className="mr-2 h-4 w-4 animate-pulse" /> : <LayoutList className="mr-2 h-4 w-4" />}
+              Schedule Campaign Content
+            </Button>
             <Button size="sm" onClick={() => setCreateOpen(true)}>
               <Plus className="mr-2 h-4 w-4" />
               New Campaign
@@ -542,6 +720,14 @@ export default function CampaignsPage() {
         loading={generatingContentPlan}
         plan={contentPlan}
         title="Content operator plan"
+      />
+
+      <SchedulingPlanPanel
+        description="Revenue-aware scheduling recommendation"
+        error={schedulingPlanError}
+        loading={generatingSchedulingPlan}
+        plan={schedulingPlan}
+        title="Schedule operator plan"
       />
 
       <div className="-mx-3 -mt-3 min-h-[calc(100vh-4rem)] bg-[#202024] px-4 pb-28 pt-7 text-white sm:hidden">
