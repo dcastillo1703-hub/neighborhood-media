@@ -686,6 +686,152 @@ export default function PerformancePage() {
         }
       />
 
+      <Card
+        id="ai-performance-read"
+        className="overflow-hidden border-primary/15 bg-gradient-to-br from-card via-card to-background/60"
+      >
+        <div className="border-b border-border/70 px-5 py-5 sm:px-6">
+          <div className="flex flex-col gap-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[0.68rem] uppercase tracking-[0.18em] text-muted-foreground">
+                  AI performance summary
+                </p>
+                <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-foreground sm:text-[2rem]">
+                  Productized client read
+                </h2>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+                  Built from Toast truth, linked campaigns, traffic data, and tracked activity. Review before sharing.
+                </p>
+              </div>
+              {performanceRead ? (
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    className="gap-2"
+                    onClick={() => void copyPerformanceRead()}
+                    size="sm"
+                    variant="outline"
+                  >
+                    {copiedPerformanceRead ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                    {copiedPerformanceRead ? "Copied" : "Copy"}
+                  </Button>
+                  <Button
+                    className="gap-2"
+                    disabled={generatingPerformanceRead}
+                    onClick={() => void generatePerformanceRead()}
+                    size="sm"
+                    variant="outline"
+                  >
+                    {generatingPerformanceRead ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                    Refresh
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="rounded-[1.4rem] border border-border/70 bg-background/70 p-4 sm:p-5">
+              <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">Hero result</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className={[
+                  "inline-flex rounded-full border px-2.5 py-1 text-xs font-medium uppercase tracking-[0.16em]",
+                  performanceRead ? (performanceRead.hero.direction === "up"
+                    ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                    : performanceRead.hero.direction === "down"
+                      ? "border-rose-500/20 bg-rose-500/10 text-rose-700 dark:text-rose-300"
+                      : "border-zinc-500/20 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300")
+                    : "border-border/70 bg-card/80 text-foreground"
+                ].join(" ")}>
+                  {performanceRead ? performanceRead.hero.direction : "loading"}
+                </span>
+                <p className="text-2xl font-semibold tracking-[-0.04em] text-foreground sm:text-[2rem]">
+                  {performanceRead ? performanceRead.hero.result : "Generating performance summary..."}
+                </p>
+              </div>
+              <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
+                {performanceRead ? performanceRead.hero.summary : "This read stays client-ready, reviewable, and read-only."}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4 px-5 py-5 sm:px-6">
+          {performanceReadError ? (
+            <div className="rounded-[1rem] border border-rose-500/20 bg-rose-500/10 p-4 text-sm leading-6 text-rose-700 dark:text-rose-300">
+              {performanceReadError}
+            </div>
+          ) : null}
+
+          {generatingPerformanceRead ? (
+            <div className="rounded-[1rem] border border-border/70 bg-background/70 p-4 text-sm leading-6 text-muted-foreground">
+              Generating a client-ready summary from the current read-only context.
+            </div>
+          ) : null}
+
+          {performanceRead ? (
+            <>
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                {performanceRead.keyNumbers.map((item) => (
+                  <div key={item.label} className="rounded-[1rem] border border-border/70 bg-card/70 p-3.5">
+                    <p className="text-[0.68rem] uppercase tracking-[0.14em] text-muted-foreground">{item.label}</p>
+                    <p className="mt-2 text-lg font-medium text-foreground">{item.value}</p>
+                  </div>
+                ))}
+              </div>
+
+              <ListCard className="border-primary/15 bg-primary/5">
+                <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">Top insight</p>
+                <p className="mt-2 text-base font-medium leading-7 text-foreground sm:text-lg">
+                  {performanceRead.topInsight}
+                </p>
+              </ListCard>
+
+              <ListCard className="border-primary/20 bg-card/85">
+                <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">Next move</p>
+                <p className="mt-2 text-lg font-semibold text-foreground">{performanceRead.nextMove.title}</p>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">{performanceRead.nextMove.whyItMatters}</p>
+                <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                  Expected result: <span className="font-medium text-foreground">{performanceRead.nextMove.expectedResult}</span>
+                </p>
+              </ListCard>
+
+              <details className="rounded-[1rem] border border-border/70 bg-background/55 p-4">
+                <summary className="cursor-pointer list-none text-sm font-medium text-foreground">
+                  Owner talking points
+                </summary>
+                <div className="mt-3 space-y-2 text-sm leading-6 text-muted-foreground">
+                  {performanceRead.ownerTalkingPoints.map((item) => (
+                    <p key={item}>{item}</p>
+                  ))}
+                </div>
+              </details>
+
+              <details className="rounded-[1rem] border border-border/70 bg-background/55 p-4">
+                <summary className="cursor-pointer list-none text-sm font-medium text-foreground">
+                  Caveats
+                </summary>
+                <div className="mt-3 space-y-2 text-sm leading-6 text-muted-foreground">
+                  {performanceRead.caveats.map((item) => (
+                    <p key={item}>{item}</p>
+                  ))}
+                </div>
+              </details>
+            </>
+          ) : (
+            <div className="rounded-[1rem] border border-dashed border-border/70 bg-background/55 p-5 text-sm leading-6 text-muted-foreground">
+              {performanceReadReady ? (
+                <>
+                  Click <span className="font-medium text-foreground">Generate AI Performance Read</span> to create the client-ready summary.
+                </>
+              ) : (
+                <>
+                  Waiting for Toast, GA4, Meta, campaign, and content context to finish loading.
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </Card>
+
       <Card className="overflow-hidden border-border/70 bg-card/95">
         <div className="border-b border-border/70 px-5 py-5 sm:px-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -758,170 +904,6 @@ export default function PerformancePage() {
           <p className="mt-4 text-sm leading-6 text-muted-foreground">
             Why this estimate is believable: Toast confirms the business result, and the contribution estimate is based on linked campaign activity, tracked content proof, and current traffic signals.
           </p>
-        </div>
-      </Card>
-
-      <Card
-        id="ai-performance-read"
-        className="overflow-hidden border-primary/15 bg-gradient-to-br from-card via-card to-background/60"
-      >
-        <div className="border-b border-border/70 px-5 py-5 sm:px-6">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <p className="text-[0.68rem] uppercase tracking-[0.18em] text-muted-foreground">
-                AI performance analyst
-              </p>
-              <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-foreground">
-                Client-ready interpretation of the latest read
-              </h2>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
-                This is a reviewable analyst note built from Toast truth, attribution confidence, GA4, Meta, campaign proof, and the next actions already on the page.
-              </p>
-            </div>
-            {performanceRead ? (
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  className="gap-2"
-                  onClick={() => void copyPerformanceRead()}
-                  size="sm"
-                  variant="outline"
-                >
-                  {copiedPerformanceRead ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                  {copiedPerformanceRead ? "Copied" : "Copy client update"}
-                </Button>
-                <Button
-                  className="gap-2"
-                  disabled={generatingPerformanceRead}
-                  onClick={() => void generatePerformanceRead()}
-                  size="sm"
-                  variant="outline"
-                >
-                  {generatingPerformanceRead ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                  Regenerate
-                </Button>
-              </div>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="space-y-4 px-5 py-5 sm:px-6">
-          {performanceReadError ? (
-            <div className="rounded-[1rem] border border-rose-500/20 bg-rose-500/10 p-4 text-sm leading-6 text-rose-700 dark:text-rose-300">
-              {performanceReadError}
-            </div>
-          ) : null}
-
-          {generatingPerformanceRead ? (
-            <div className="rounded-[1rem] border border-border/70 bg-background/70 p-4 text-sm leading-6 text-muted-foreground">
-              Generating the analyst note now. This uses server-side context only and will return a reviewable draft.
-            </div>
-          ) : null}
-
-          {performanceRead ? (
-            <>
-              <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
-                <ListCard className="h-full">
-                  <p className="text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">Headline</p>
-                  <p className="mt-2 text-xl font-semibold tracking-[-0.02em] text-foreground">
-                    {performanceRead.headline}
-                  </p>
-                  <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                    AI-generated interpretation. Review before sharing with a client.
-                  </p>
-                </ListCard>
-
-                <ListCard className="h-full">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="font-medium text-foreground">Attribution confidence</p>
-                    <span className="rounded-full border border-border/70 bg-card/80 px-2.5 py-1 text-xs font-medium text-foreground">
-                      {performanceRead.attributionConfidenceExplanation.level}
-                    </span>
-                  </div>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    {performanceRead.attributionConfidenceExplanation.explanation}
-                  </p>
-                  <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                    {performanceRead.attributionConfidenceExplanation.whyItMatters}
-                  </p>
-                </ListCard>
-              </div>
-
-              <div className="grid gap-4 lg:grid-cols-2">
-                <ListCard>
-                  <p className="font-medium text-foreground">What changed</p>
-                  <div className="mt-3 space-y-3 text-sm leading-6 text-muted-foreground">
-                    {performanceRead.whatChanged.map((item) => (
-                      <p key={item}>{item}</p>
-                    ))}
-                  </div>
-                </ListCard>
-
-                <ListCard>
-                  <p className="font-medium text-foreground">Likely drivers</p>
-                  <div className="mt-3 space-y-3 text-sm leading-6 text-muted-foreground">
-                    {performanceRead.likelyDrivers.map((item) => (
-                      <p key={item}>{item}</p>
-                    ))}
-                  </div>
-                </ListCard>
-
-                <ListCard>
-                  <p className="font-medium text-foreground">ROI read</p>
-                  <div className="mt-3 space-y-3 text-sm leading-6 text-muted-foreground">
-                    <p>{performanceRead.roiRead.confirmedRevenue}</p>
-                    <p>{performanceRead.roiRead.estimatedContribution}</p>
-                    <p>{performanceRead.roiRead.confirmedVsEstimated}</p>
-                    <p>{performanceRead.roiRead.translation}</p>
-                  </div>
-                </ListCard>
-
-                <ListCard>
-                  <p className="font-medium text-foreground">Risks and caveats</p>
-                  <div className="mt-3 space-y-3 text-sm leading-6 text-muted-foreground">
-                    {performanceRead.risksOrCaveats.map((item) => (
-                      <p key={item}>{item}</p>
-                    ))}
-                  </div>
-                </ListCard>
-
-                <ListCard>
-                  <p className="font-medium text-foreground">Recommended next moves</p>
-                  <div className="mt-3 space-y-3 text-sm leading-6 text-muted-foreground">
-                    {performanceRead.recommendedNextMoves.map((item) => (
-                      <div key={item.title}>
-                        <p className="font-medium text-foreground">{item.title}</p>
-                        <p className="mt-1">{item.whyItMatters}</p>
-                        <p className="mt-1 text-xs uppercase tracking-[0.14em] text-muted-foreground">
-                          Expected result: <span className="text-foreground normal-case tracking-normal">{item.expectedResult}</span>
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </ListCard>
-
-                <ListCard>
-                  <p className="font-medium text-foreground">Client talking points</p>
-                  <div className="mt-3 space-y-3 text-sm leading-6 text-muted-foreground">
-                    {performanceRead.clientTalkingPoints.map((item) => (
-                      <p key={item}>{item}</p>
-                    ))}
-                  </div>
-                </ListCard>
-              </div>
-            </>
-          ) : (
-            <div className="rounded-[1rem] border border-dashed border-border/70 bg-background/55 p-5 text-sm leading-6 text-muted-foreground">
-              {performanceReadReady ? (
-                <>
-                  Click <span className="font-medium text-foreground">Generate AI Performance Read</span> to turn the current POS, GA4, Meta, and campaign evidence into a polished client-ready analyst note.
-                </>
-              ) : (
-                <>
-                  Waiting for the current performance sources to finish loading so the analyst note can use the full structured context.
-                </>
-              )}
-            </div>
-          )}
         </div>
       </Card>
 
