@@ -169,132 +169,137 @@ export default function CampaignCalendarPage() {
     [campaigns]
   );
   const schedulingPlanContext = useMemo(() => {
-    if (!focusedCampaign) {
-      return null;
-    }
+    try {
+      if (!focusedCampaign) {
+        return null;
+      }
 
-    const scheduledPostSummaries = scheduledDays.slice(0, 5).flatMap((day) =>
-      day.scheduledPosts.map((post) => {
-        const campaignName = campaigns.find((campaign) => campaign.id === post.campaignId)?.name ?? focusedCampaign.name;
+      const scheduledPostSummaries = scheduledDays.slice(0, 5).flatMap((day) =>
+        day.scheduledPosts.map((post) => {
+          const campaignName =
+            campaigns.find((campaign) => campaign.id === post.campaignId)?.name ?? focusedCampaign.name;
 
-        return {
-          id: post.id,
-          title: post.goal || post.platform,
-          platform: post.platform,
-          dateKey: post.publishDate,
-          timingIntent: `${day.date.toLocaleDateString("en-US", {
+          return {
+            id: post.id,
+            title: post.goal || post.platform,
+            platform: post.platform,
+            dateKey: post.publishDate,
+            timingIntent: `${day.date.toLocaleDateString("en-US", {
+              weekday: "long"
+            })} slot`,
+            campaignName
+          };
+        })
+      );
+      const scheduledDateSet = new Set(scheduledPostSummaries.map((item) => item.dateKey));
+      const openScheduleGaps = calendarDays
+        .filter((day) => day.inCurrentMonth && !day.scheduledPosts.length)
+        .slice(0, 5)
+        .map((day) => {
+          const weekday = day.date.toLocaleDateString("en-US", { weekday: "long" });
+          const isWeakDay = weekday === schedulingOpportunity.weakestDay.day;
+
+          return {
+            dateKey: day.dateKey,
+            label: isWeakDay ? `${weekday} revenue window` : `${weekday} open window`,
+            detail: isWeakDay
+              ? "This is the softest recurring window, so it is the best place for the next post."
+              : "No scheduled content is attached here yet."
+          };
+        })
+        .filter((gap): gap is { dateKey: string; label: string; detail: string } =>
+          Boolean(gap) && !scheduledDateSet.has(gap.dateKey)
+        )
+        .slice(0, 5);
+
+      const readyContentItems = posts
+        .filter(
+          (post) =>
+            post.campaignId === focusedCampaign.id &&
+            post.status !== "Scheduled" &&
+            post.status !== "Published" &&
+            post.approvalState === "Approved" &&
+            (post.assetState ?? "Missing") === "Ready"
+        )
+        .slice(0, 5)
+        .map((post) => {
+          const weekday = new Date(`${post.publishDate}T00:00:00`).toLocaleDateString("en-US", {
             weekday: "long"
-          })} slot`,
-          campaignName
-        };
-      })
-    );
-    const scheduledDateSet = new Set(scheduledPostSummaries.map((item) => item.dateKey));
-    const openScheduleGaps = calendarDays
-      .filter((day) => day.inCurrentMonth && !day.scheduledPosts.length)
-      .slice(0, 5)
-      .map((day) => {
-        const weekday = day.date.toLocaleDateString("en-US", { weekday: "long" });
-        const isWeakDay = weekday === schedulingOpportunity.weakestDay.day;
+          });
 
-        return {
-          dateKey: day.dateKey,
-          label: isWeakDay ? `${weekday} revenue window` : `${weekday} open window`,
-          detail: isWeakDay
-            ? "This is the softest recurring window, so it is the best place for the next post."
-            : "No scheduled content is attached here yet."
-        };
-      })
-      .filter((gap): gap is { dateKey: string; label: string; detail: string } =>
-        Boolean(gap) && !scheduledDateSet.has(gap.dateKey)
-      )
-      .slice(0, 5);
-
-    const readyContentItems = posts
-      .filter(
-        (post) =>
-          post.campaignId === focusedCampaign.id &&
-          post.status !== "Scheduled" &&
-          post.status !== "Published" &&
-          post.approvalState === "Approved" &&
-          (post.assetState ?? "Missing") === "Ready"
-      )
-      .slice(0, 5)
-      .map((post) => {
-        const weekday = new Date(`${post.publishDate}T00:00:00`).toLocaleDateString("en-US", {
-          weekday: "long"
+          return {
+            id: post.id,
+            title: post.goal || post.content.slice(0, 48) || `${post.platform} post`,
+            platform: post.platform,
+            format: post.format ?? "Static",
+            cta: post.cta,
+            timingIntent: `${weekday} ${post.platform.toLowerCase()} decision window`,
+            assetState: post.assetState ?? "Missing",
+            approvalState: post.approvalState ?? "Draft",
+            guestBehaviorGoal: post.goal || "Drive guest action",
+            campaignName: focusedCampaign.name,
+            campaignId: focusedCampaign.id
+          };
         });
 
-        return {
-          id: post.id,
-          title: post.goal || post.content.slice(0, 48) || `${post.platform} post`,
-          platform: post.platform,
-          format: post.format ?? "Static",
-          cta: post.cta,
-          timingIntent: `${weekday} ${post.platform.toLowerCase()} decision window`,
-          assetState: post.assetState ?? "Missing",
-          approvalState: post.approvalState ?? "Draft",
-          guestBehaviorGoal: post.goal || "Drive guest action",
-          campaignName: focusedCampaign.name,
-          campaignId: focusedCampaign.id
-        };
-      });
+      const scheduledPostSummariesByDate = scheduledPostSummaries.slice(0, 5);
 
-    const scheduledPostSummariesByDate = scheduledPostSummaries.slice(0, 5);
-
-    return buildSchedulingPlanContextFromInput({
-      client: {
-        id: activeClient.id,
-        name: activeClient.name,
-        segment: activeClient.segment,
-        location: activeClient.location
-      },
-      selectedCampaign: {
-        id: focusedCampaign.id,
-        name: focusedCampaign.name,
-        objective: focusedCampaign.objective,
-        status: focusedCampaign.status
-      },
-      campaignObjective: focusedCampaign.objective,
-      readyContentItems,
-      currentCalendar: {
-        label: monthLabel,
-        openDaysThisMonth: openExecutionDays,
-        upcomingScheduledPosts: scheduledPostSummariesByDate
-      },
-      openScheduleGaps,
-      weakRevenueWindow: {
-        label: schedulingOpportunity.weakestDay.day,
-        value: currency(schedulingOpportunity.weakestDay.averageRevenue),
-        detail: schedulingOpportunity.recommendation
-      },
-      performanceSignals: [
-        {
-          label: "Ready items",
-          value: number(readyContentItems.length),
-          detail: "Approved content that can move to scheduling"
+      return buildSchedulingPlanContextFromInput({
+        client: {
+          id: activeClient.id,
+          name: activeClient.name,
+          segment: activeClient.segment,
+          location: activeClient.location
         },
-        {
-          label: "Scheduled posts",
-          value: number(scheduledPostSummaries.length),
-          detail: "Existing calendar commitments"
+        selectedCampaign: {
+          id: focusedCampaign.id,
+          name: focusedCampaign.name,
+          objective: focusedCampaign.objective,
+          status: focusedCampaign.status
         },
-        {
-          label: "Open gaps",
-          value: number(openScheduleGaps.length),
-          detail: "Calendar windows available for new placements"
+        campaignObjective: focusedCampaign.objective,
+        readyContentItems,
+        currentCalendar: {
+          label: monthLabel,
+          openDaysThisMonth: openExecutionDays,
+          upcomingScheduledPosts: scheduledPostSummariesByDate
+        },
+        openScheduleGaps,
+        weakRevenueWindow: {
+          label: schedulingOpportunity.weakestDay.day,
+          value: currency(schedulingOpportunity.weakestDay.averageRevenue),
+          detail: schedulingOpportunity.recommendation
+        },
+        performanceSignals: [
+          {
+            label: "Ready items",
+            value: number(readyContentItems.length),
+            detail: "Approved content that can move to scheduling"
+          },
+          {
+            label: "Scheduled posts",
+            value: number(scheduledPostSummaries.length),
+            detail: "Existing calendar commitments"
+          },
+          {
+            label: "Open gaps",
+            value: number(openScheduleGaps.length),
+            detail: "Calendar windows available for new placements"
+          }
+        ],
+        attributionConfidence: {
+          label: "Medium",
+          detail: "Scheduling should stay directional until more tracked posts are live."
+        },
+        existingScheduledPosts: scheduledPostSummariesByDate,
+        businessHours: {
+          daysOpenPerWeek: settings.daysOpenPerWeek,
+          weeksPerMonth: settings.weeksPerMonth
         }
-      ],
-      attributionConfidence: {
-        label: "Medium",
-        detail: "Scheduling should stay directional until more tracked posts are live."
-      },
-      existingScheduledPosts: scheduledPostSummariesByDate,
-      businessHours: {
-        daysOpenPerWeek: settings.daysOpenPerWeek,
-        weeksPerMonth: settings.weeksPerMonth
-      }
-    });
+      });
+    } catch {
+      return null;
+    }
   }, [
     activeClient.id,
     activeClient.location,
